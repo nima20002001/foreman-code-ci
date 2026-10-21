@@ -23,6 +23,8 @@ import { PostgresAccessService } from '../../src/modules/access/postgres.js'
 import { registerOperatorHttpSecurity } from '../../src/modules/access/http.js'
 import { AgentChatService } from '../../src/modules/conversations/agentChat.js'
 import { PostgresAgentChatRepository, agentChatCorrelation } from '../../src/modules/conversations/agentChatRepository.js'
+import { qualifiedAgentChatSteer } from '../../src/modules/conversations/chatSteerQualification.js'
+import { prepareAgentChatInput } from '../../src/modules/collaboration/chatInputPreparation.js'
 import { PostgresOperatorConversationRepository } from '../../src/modules/conversations/operatorChatRepository.js'
 import { DomainError } from '../../src/modules/errors.js'
 import { PostgresFileConversationAuthorization } from '../../src/modules/files/authorization.js'
@@ -129,11 +131,12 @@ export async function afPublicationFixture({ selectedRun = false }: { selectedRu
       getExecution: async (id) => selectedRun && id === runExecution.id ? runExecution : undefined,
       async *executionPages() { if (selectedRun) yield [runExecution] },
     },
-    (id) => {
+    // Production composes the same input preparation and steering qualification ports.
+    Object.assign((id: string) => {
       let native = natives.get(id)
       if (!native) { native = new PausedNative(); natives.set(id, native) }
       return native
-    }, join(root, 'runtime'))
+    }, { prepareInput: prepareAgentChatInput(database.pool), qualifiedSteer: qualifiedAgentChatSteer }), join(root, 'runtime'))
   const chat = agent
   const fileRepository = new PostgresFileRepository(database.pool), bytes = new FileByteStorage(join(root, 'bytes'), MAX_FILE_BYTES)
   const files = new TemporaryFileService(fileRepository, bytes, new PostgresFileConversationAuthorization(database.pool))

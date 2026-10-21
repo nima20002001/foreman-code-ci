@@ -548,14 +548,14 @@ describe('Claude native instruction delivery', () => {
   it('delivers native-v1 Agent instructions as the Claude system prompt after the harness instructions', async () => {
     const f = fixture(undefined, { sdkOptions: { systemPrompt: 'Harness instructions.' } })
     const configured = { ...start, configuration: { instructionDelivery: 'native-v1', prompt: { system: 'Reply exactly COORDINATOR_READY.' }, assignedSkills: [] } } as unknown as NativeSessionStart
-    void f.manager.prepareInspection(configured).catch(() => undefined)
+    void f.manager.prepareInspection(configured).catch(() => { /* ignore: only the SDK query options are asserted. */ })
     await vi.waitFor(() => expect(f.queries).toHaveBeenCalled())
     expect(f.queries.mock.calls[0]![0].options.systemPrompt).toBe('Harness instructions.\n\nReply exactly COORDINATOR_READY.')
   })
   it('keeps only the harness instructions for configurations accepted before native delivery', async () => {
     const f = fixture(undefined, { sdkOptions: { systemPrompt: 'Harness instructions.' } })
     const legacy = { ...start, configuration: { prompt: { system: 'Delivered in the task prompt instead.' }, assignedSkills: [] } } as unknown as NativeSessionStart
-    void f.manager.prepareInspection(legacy).catch(() => undefined)
+    void f.manager.prepareInspection(legacy).catch(() => { /* ignore: only the SDK query options are asserted. */ })
     await vi.waitFor(() => expect(f.queries).toHaveBeenCalled())
     expect(f.queries.mock.calls[0]![0].options.systemPrompt).toBe('Harness instructions.')
   })

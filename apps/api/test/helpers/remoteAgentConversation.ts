@@ -18,6 +18,10 @@ import { PostgresCommandCoordinator } from '../../src/modules/commands/postgres.
 import { AgentChatService } from '../../src/modules/conversations/agentChat.js'
 import { agentChatKey, PostgresAgentChatRepository } from '../../src/modules/conversations/agentChatRepository.js'
 import { PostgresOperatorConversationRepository } from '../../src/modules/conversations/operatorChatRepository.js'
+import { qualifiedAgentChatSteer } from '../../src/modules/conversations/chatSteerQualification.js'
+import type { ConversationFeatureContext } from '../../src/modules/conversations/conversationFeatureSubject.js'
+import { prepareAgentChatInput } from '../../src/modules/collaboration/chatInputPreparation.js'
+import { conversationChatTools } from '../../src/modules/access/conversationCredentials.js'
 import { createProductionWorkerConversations } from '../../src/modules/conversations/workerProduction.js'
 import { workerConversationFixture } from '../../src/modules/conversations/workerFixtures.test-support.js'
 import { workerConversationCallbacks } from '../../src/modules/conversations/workerCallbacks.js'
@@ -207,10 +211,14 @@ export async function remoteAgentConversation(harness: 'codex' | 'claude', locat
         return productionCodexChatFiles(() => app, conversationId, admissions).prepare(turn)
       },
   } as unknown as Parameters<typeof createProductionWorkerConversations>[0])
-  const managers = Object.assign((conversationId: string, selected: AgentConfigurationVersion, workingDirectory: string) =>
+  // Production composes Worker owners, input preparation and steering qualification the same way.
+  const managers = Object.assign((conversationId: string, selected: AgentConfigurationVersion, workingDirectory: string,
+    _accountSource?: unknown, featureContext?: ConversationFeatureContext) =>
     location === 'main' ? nativeManager(conversationId)
-      : workerChats.create({ conversationId, configuration: selected, workingDirectory, appMcpAccess: 'none' }),
-  { closeRetainedSession: workerChats.closeRetainedSession })
+      : workerChats.create({ conversationId, configuration: selected, workingDirectory, fileInputs: true,
+        appMcpAccess: featureContext && conversationChatTools(featureContext).length ? 'scoped' : 'none' }),
+  { closeRetainedSession: workerChats.closeRetainedSession, prepareInput: prepareAgentChatInput(db.pool),
+    qualifiedSteer: qualifiedAgentChatSteer })
   const createChat = () => new AgentChatService(db.pool, repository, messages, workflows, {
     getForWorkspace: async (workspaceId, runId) => {
       if (!options.runAttempts) throw new Error('Fresh Agent chat must not select a Run')
