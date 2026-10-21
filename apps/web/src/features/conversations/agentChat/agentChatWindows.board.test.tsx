@@ -12,6 +12,7 @@ import { inspectionBoardFixture } from '../../workflow-board/inspect/inspectionF
 import { useConversationDraftStore } from '../conversationDraftStore'
 import { providerFixture } from './f7.testSupport'
 import { installChatSource } from './testSupport'
+import { outsideRunTargetHandler } from './outsideRunTarget.testSupport'
 import { useChatWindowsStore } from './agentChatWindows'
 
 installBoardTestLifecycle()
@@ -30,6 +31,7 @@ async function mountDraftBoard(suffix: string) {
   const chat = createAgentChatMock(agentChatFixtureFor(providerFixture('codex'), contexts[0]!))
   chat.setState(agentChatFixtureFor(providerFixture('codex'), contexts[1]!))
   server.use(...chat.handlers.slice(1), ...fixture.mock.handlers)
+  server.use(outsideRunTargetHandler(saved, contexts, fixture.after.id))
   server.use(http.get('/api/local-human', () => HttpResponse.json(LocalHumanAccessSchema.parse({ principal: {
     id: 'chat-windows-tester', name: 'Chat window tester', expiresAt: '2099-01-01T00:00:00.000Z', grants: [{
       scope: { workspaceIds: [saved.workspaceId] },
@@ -94,7 +96,7 @@ describe('Agent chats in the shared Board rail', () => {
     expect(screen.getAllByTestId('agent-conversation')).toHaveLength(1)
   }, 30_000)
 
-  it('stays open on Board clicks and closes through the selected Agent close button without losing other drafts', async () => {
+  it('stays open on Board clicks and closes through Back to Board without losing other drafts', async () => {
     const { names, chatAction, panelNamed } = await mountDraftBoard('chat-close')
     await userEvent.click(await chatAction(names.first))
     const panel = await panelNamed(names.first)
@@ -105,7 +107,7 @@ describe('Agent chats in the shared Board rail', () => {
     fireEvent.mouseDown(document.body)
     expect(panel).toBeVisible()
     expect(screen.getAllByTestId('agent-conversation')).toHaveLength(1)
-    await userEvent.click(within(panel).getByRole('button', { name: `Close ${names.second}` }))
+    await userEvent.click(within(panel).getByRole('button', { name: 'Back to Board' }))
     await waitFor(() => expect(panel).not.toBeVisible())
     expect(screen.queryByTestId('agent-conversation')).not.toBeInTheDocument()
     await userEvent.click(await chatAction(names.first))

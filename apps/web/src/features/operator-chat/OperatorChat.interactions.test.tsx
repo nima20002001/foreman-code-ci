@@ -10,7 +10,7 @@ import { listOperatorConversationSummaries } from '../../shared/api/operatorChat
 import { useConversationDraftStore } from '../conversations'
 import { ConversationComposer } from '../conversations/ConversationComposer'
 import { OperatorChat } from './OperatorChat'
-import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
+import { findOperatorComposer, installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorTranscript } from './OperatorTranscript'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
@@ -50,7 +50,8 @@ describe('Operator chat interactions', () => {
     vi.mocked(listOperatorConversationSummaries).mockResolvedValue({ conversations: [pending] })
     fireEvent.click(screen.getByRole('button', { name: 'Open Operator chat' }))
     await waitFor(() => expect(listOperatorConversationSummaries).toHaveBeenCalled())
-    expect(await screen.findByRole('button', { name: /1 conversation need your decision/ })).toBeVisible()
+    // The launcher is hidden while the chat is open, so the decision shows on the conversation's history entry.
+    expect(await screen.findByLabelText('Needs your decision')).toBeInTheDocument()
   })
   it('focuses the nonmodal chat and restores its retained launcher on Escape', async () => {
     renderChat()
@@ -66,7 +67,7 @@ describe('Operator chat interactions', () => {
   it('keeps active drafting editable and exposes separate live delivery and active-only Stop', async () => {
     useOperatorChatStore.setState({ open: true })
     renderChat()
-    const textarea = await screen.findByRole('textbox', { name: 'Message' })
+    const textarea = await findOperatorComposer()
     expect(textarea).not.toBeDisabled()
     fireEvent.change(textarea, { target: { value: 'My next message' } })
     expect(await screen.findByRole('button', { name: 'Stop active turn' })).toBeEnabled()
@@ -115,8 +116,9 @@ describe('Operator chat interactions', () => {
       vi.mocked(sendOperatorMessage).mockRejectedValue(new Error(reason))
       useOperatorChatStore.setState({ open: true })
       renderChat()
-      const textarea = await screen.findByRole('textbox', { name: 'Message' })
+      const textarea = await findOperatorComposer()
       fireEvent.change(textarea, { target: { value: 'Audit ping. Do not call tools.' } })
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
       fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
       await screen.findByText(reason)
       expect(sendOperatorMessage).toHaveBeenCalledTimes(1)
