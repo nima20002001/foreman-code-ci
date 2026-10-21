@@ -69,8 +69,11 @@ describe.skipIf(!postgresEnabled)('committed hierarchy HTTP stream and report hi
         { select: [], findings: ['A person must decide the delivery scope'] }) })
     const reads = publicReads(f)
     let stream: Awaited<ReturnType<typeof openHierarchyEvents>> | undefined
+    // The engine holds the Run for the person's direction, so Start settles only after Stop.
+    const drive = f.engine.start(f.f.run.id).catch(error => error)
     try {
-      await f.engine.start(f.f.run.id)
+      await expect.poll(async () => (await reads.hierarchy()).run?.coordination?.state,
+        { timeout: 30_000 }).toBe('waiting_for_direction')
       const held = await reads.hierarchy()
       expect(held.run?.coordination).toMatchObject({ state: 'waiting_for_direction', direction: { execution: { runId: f.f.run.id } } })
       const reports = await reads.reports({ parentNodeId: 'master' })
@@ -85,7 +88,7 @@ describe.skipIf(!postgresEnabled)('committed hierarchy HTTP stream and report hi
       expect(changed).toMatchObject({ runId: f.f.run.id, workflowVersionId: f.f.version.id, revision: first.revision })
       expect(changed.cursor).not.toBe(first.cursor)
       expect(await reads.reports({ parentNodeId: 'master' })).toEqual(reports)
-    } finally { await stream?.close(); await f.close() }
+    } finally { await stream?.close(); await drive; await f.close() }
   }, 60_000)
 
   it('reads three earlier business rounds lazily through resource-bound cursors and HTTP/MCP parity', async () => {

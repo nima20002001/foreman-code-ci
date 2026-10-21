@@ -210,13 +210,9 @@ function fixture(harness: AgentHarness = 'codex', options: { remote?: boolean; i
       assert.ok(executions.has(id))
       failures.set(id, structuredClone(failure))
     },
-    async readOutputSettlement() { return undefined },
-    async readWorkflowTerminalSettlement() { return undefined },
     async repeat() {
       return {
         readExecution: (id: string) => store.readExecution(id),
-        async workflowControlDisposition() { return { kind: 'ordinary' as const } },
-        async claimWorkflowInput() { return undefined },
         async settleNegativeExecution(id: string, canceled: boolean) {
           const failure = failures.get(id)
           if (failure) {

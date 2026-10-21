@@ -28,6 +28,7 @@ import { WorkflowManagementService } from '../../src/modules/workflows/managemen
 import { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
 import { WorkspaceLocationService } from '../../src/modules/workspaces/location.js'
 import { AgentChatF5Native, eventually } from './agentChatF5.js'
+import { answerForRun } from './coordinationEnvelope.js'
 import { currentOperatorIntegration } from './currentOperatorIntegration.js'
 import { waitForSuccessfulRunCleanup } from './runSettlement.testSupport.js'
 
@@ -43,10 +44,9 @@ export async function historicalFixture(form: 'sequential' | 'repeat' = 'sequent
   x.name = 'Agent X'; x.position = { x: -48.5, y: 120 }; x.width = 256; x.height = 144
   y.name = 'Agent Y'; y.position = { x: 415, y: 276.25 }; y.width = 312; y.height = 160
 
-  const f = await currentOperatorIntegration({ fixture, approvalNodeIds: [], outputFor: (nodeId) =>
-    form === 'repeat' && nodeId === y.id
-      ? { routing: { outcome: 'issues' }, data: { latestDeliverable: 'SCH-12 retained Run output', remainingFindings: ['repeat'] } }
-      : { node: nodeId, resultMarker: 'SCH-12 original Run result' },
+  const f = await currentOperatorIntegration({ fixture, approvalNodeIds: [], outputFor: (nodeId, request) => form === 'repeat' && nodeId === y.id
+    ? answerForRun(request, { routing: { outcome: 'issues' }, data: { latestDeliverable: 'SCH-12 retained Run output', remainingFindings: ['repeat'] } })
+    : answerForRun(request, { data: { node: nodeId, resultMarker: 'SCH-12 original Run result' } }),
   })
   try {
     // Tests drive the real dispatcher explicitly with an injected clock; avoid

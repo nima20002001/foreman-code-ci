@@ -113,7 +113,7 @@ it('serves authenticated Agent context while optional shared-file installation i
   })
   const query = async (text: string) => {
     if (text.includes('workspaces w')) return { rows: [{ device_id: null, workspace_id: 'workspace-a' }] }
-    if (text.includes('execution_native_placements') || text.includes('agent_conversation_credentials')) return { rows: [] }
+    if (text.includes('execution_native_placements')) return { rows: [] }
     return { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }
   }
   const interactions = Object.assign(new PostgresAppInteractionService({ query } as unknown as pg.Pool,

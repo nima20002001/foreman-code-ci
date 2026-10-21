@@ -6,29 +6,7 @@ import type { AgentConversationRow, PostgresAgentChatRepository } from '../src/m
 import { workerConversationFixture } from '../src/modules/conversations/workerFixtures.test-support.js'
 import { CodexAppServerSessionManager } from '../src/modules/harnesses/codexAppServer.js'
 import { createAdmittedNativeManager } from '../src/modules/harnesses/admittedManager.js'
-import { WorkflowVersionV3Schema } from '@foreman-code/contracts/wave25'
-import { graphSourceDigest } from '../src/modules/run-graph/publication.js'
-import { currentUnitSnapshot } from './helpers/currentUnitSnapshot.js'
 import { memorySessionControlPool } from './support/sessionControls.js'
-
-/** The saved current Workflow version that the recovered conversation's node belongs to. */
-function savedVersionPool(configuration: { id: string; workspaceId: string; agentId: string },
-  pool: ReturnType<typeof memorySessionControlPool>) {
-  const snapshot = currentUnitSnapshot('creation-state-loss', 'single')
-  const version = WorkflowVersionV3Schema.parse({ ...snapshot.version, workspaceId: configuration.workspaceId,
-    workflowId: 'workflow', entryNodeId: 'node', agentConfigurationVersionIds: { [configuration.agentId]: configuration.id },
-    definition: { ...snapshot.version.definition, id: 'workflow', workspaceId: configuration.workspaceId, entryNodeId: 'node',
-      nodes: [{ id: 'node', agentId: configuration.agentId, name: 'Agent' }] } })
-  version.contentHash = graphSourceDigest({ definition: version.definition,
-    configurations: version.agentConfigurationVersionIds, entryNodeId: version.entryNodeId })
-  return { async query(text: string, values: unknown[] = []) {
-    if (text.includes('join workflow_versions version on version.id = workflow.current_version_id')) {
-      return { rows: [{ id: version.id, workspace_id: version.workspaceId, workflow_id: version.workflowId, version: version.version,
-        entry_node_id: version.entryNodeId, execution_semantics_version: 3, record: version }], rowCount: 1 }
-    }
-    return pool.query(text, values)
-  } } as unknown as typeof pool
-}
 
 it.each(['uninitialized', 'initialized'] as const)(
   'stops polling a restarted local Codex creation with %s lost memory without replay', async state => {
@@ -47,7 +25,7 @@ it.each(['uninitialized', 'initialized'] as const)(
         sessionCreation: { requestId: 'original-request' } } }
     const restore = vi.fn(async () => structuredClone(row))
     const repository = { open: async () => [structuredClone(row)], get: async () => structuredClone(row),
-      restoreUnsettled: restore, turnPreparedInput: async () => undefined, unconfirmedSteers: async () => [], nextQueued: async () => undefined,
+      restoreUnsettled: restore, unconfirmedSteers: async () => [], nextQueued: async () => undefined,
       markSessionUnavailable: async (_id: string, message: string) => { row.record.sessionUnavailable = message },
       abandon: async () => {},
     } as unknown as PostgresAgentChatRepository
@@ -56,7 +34,7 @@ it.each(['uninitialized', 'initialized'] as const)(
     const admitted = createAdmittedNativeManager('codex', initialize).manager
     const dispose = vi.spyOn(admitted, 'dispose')
     const managers = Object.assign(() => admitted, { release: vi.fn() })
-    const pool = savedVersionPool(configuration, memorySessionControlPool())
+    const pool = memorySessionControlPool()
     const workflows = { getAgentConfiguration: async () => configuration }
     const chat = new AgentChatService(pool as unknown as pg.Pool, repository, {} as never,
       workflows as never, {} as never, managers, row.record.workingDirectory)

@@ -12,7 +12,6 @@ import { DomainError } from '../src/modules/errors.js'
 import type { NativeHistory } from '../src/modules/harnesses/port.js'
 import type { ExecutionCredentialProvider } from '../src/modules/harnesses/mcpDetection.js'
 import { nativeCompleted, nativeFixture, nativeStored, nativeAt } from './eng04-native-fixtures.js'
-import { idleWorkflowControls } from './helpers/idleWorkflowControls.js'
 
 /** Doubles only. These tests never start a provider, DB, native process or browser. */
 export function native2Fixture(completed = true,
@@ -100,7 +99,6 @@ export function native2Fixture(completed = true,
     consumeLaunch: (): boolean => false,
   } satisfies RepeatNativeObservationStore
   const runs = {
-    ...idleWorkflowControls,
     ensureExecution: forbidden('ensureExecution'),
     get: async () => run,
     getRepeatSnapshot: async () => ({ run, stopRequested: false, cleanupPending: false }),
