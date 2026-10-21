@@ -147,7 +147,9 @@ if (process.argv[2] === 'rev-parse') console.log('false')
 
 const contractsBuild = ['--filter', '@foreman-code/contracts', 'build']
 test('suite command assertions are independent of runner typecheck cache and shell startup', t => {
-  const directory = mkdtempSync(join(homedir(), '.cache', 'foreman-tmp', 'ci-suite-environment-'))
+  const cache = join(homedir(), '.cache', 'foreman-tmp')
+  mkdirSync(cache, { recursive: true })
+  const directory = mkdtempSync(join(cache, 'ci-suite-environment-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const shellEnvironment = join(directory, 'shell-environment')
   writeFileSync(shellEnvironment, 'export FOREMAN_CODE_CI_TYPECHECK_CACHE="$RUNNER_CACHE"\n')
@@ -439,7 +441,7 @@ for (const provider of ['github', 'circleci', 'circleci-ssh']) {
       git(checkout, 'checkout', '--detach', 'FETCH_HEAD')
     } else {
       const configuration = parse(readFileSync(new URL('../.circleci/config.yml', import.meta.url), 'utf8'))
-      const step = configuration.jobs.ci.steps[0]
+      const step = configuration.jobs.ci.steps.find(entry => entry === 'checkout' || entry.run?.name === 'Checkout tested commit')
       if (step === 'checkout') {
         git(directory, 'clone', '-q', `file://${origin}`, checkout)
         git(checkout, 'checkout', '--detach', commit)

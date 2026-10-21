@@ -2,7 +2,7 @@ import type { PostgresCommandCoordinator } from '../src/modules/commands/postgre
 import Fastify from 'fastify'
 import type pg from 'pg'
 import { describe, expect, it, vi } from 'vitest'
-import type { GraphqlAgentTool } from '@foreman-code/contracts'
+import { DEFAULT_HARNESS_DEFAULTS, type GraphqlAgentTool } from '@foreman-code/contracts'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 
 import { registerGraphqlMcp } from '../src/mcp/unified/transport.js'
@@ -22,7 +22,7 @@ const principal: ManagementPrincipal = {
 }
 const expectedTools = ['context_get', 'ci_run', 'ci_get', 'ci_computers_list', 'ci_logs_read'].sort()
 const savedAccess = () => ({
-  role: 'coder', defaults: ['context_get', 'interaction_list', 'ci_get'],
+  role: 'coder', harness: DEFAULT_HARNESS_DEFAULTS.codex, defaults: ['context_get', 'interaction_list', 'ci_get'],
   override: { add: ['ci_run', 'ci_computers_list', 'ci_logs_read'], remove: ['interaction_list'] },
 })
 
@@ -33,7 +33,9 @@ function fixture(options: { ci?: boolean; defaults?: GraphqlAgentTool[] } = {}) 
     saved.override = { add: [], remove: [] }
   }
   const query = vi.fn().mockImplementation(async () => ({ rows: [structuredClone(saved)] }))
-  const pool = { query } as unknown as pg.Pool
+  // A Worker credential is never a scoped conversation credential; only the node configuration reads are observed.
+  const pool = { query: (text: string, values?: unknown[]) => text.includes('agent_conversation_credentials')
+    ? Promise.resolve({ rows: [] }) : query(text, values) } as unknown as pg.Pool
   const interactions = new PostgresAppInteractionService(pool, {} as never, {} as never)
   const access = new PostgresAccessService(pool)
   vi.spyOn(access, 'authenticate').mockImplementation(async token => {

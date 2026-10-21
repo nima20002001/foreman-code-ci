@@ -121,7 +121,17 @@ export function catalogToolRequirements(context: OperatorRequestContext, registr
   const inspection = Object.values(RUN_INSPECTION_TOOLS).map(name => ({ name, actions: runInspectionRequirements(name),
     detail: 'Requires runs:read on the persisted Run; run_version_get additionally requires workflows:read on its workflow.',
   }))
-  const requirements = new Map([...ordinary, ...current, ...graph, ...inspection,
+  const hierarchy = Object.values(WORKFLOW_HIERARCHY_TOOLS).map(name => ({ name,
+    actions: name === WORKFLOW_HIERARCHY_TOOLS.update ? currentWorkflowRequirements.save.map(item => item.action)
+      : name === WORKFLOW_HIERARCHY_TOOLS.reports ? [...currentWorkflowRequirements.saved.map(item => item.action), 'runs:read' as const]
+        : currentWorkflowRequirements.saved.map(item => item.action),
+    detail: name === WORKFLOW_HIERARCHY_TOOLS.update
+      ? 'Requires the same workflow and graph save rights as workflow_edit_v3 on the workflow.'
+      : name === WORKFLOW_HIERARCHY_TOOLS.reports
+        ? 'Requires workflow, graph and Run reads on the exact Run.'
+        : 'Requires workflow and graph reads; an exact Run pin additionally requires runs:read.',
+  }))
+  const requirements = new Map([...ordinary, ...current, ...graph, ...inspection, ...hierarchy,
     ...workflowScheduleCapabilities(context, resource), ...jobCapabilities(context, resource),
     ...ciCapabilities(context, resource), ...jobRuntimeCapabilities(context, resource), ...extensionRequirements(),
   ].map(entry => [entry.name, entry]))

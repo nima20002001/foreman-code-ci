@@ -47,7 +47,7 @@ function fixture() {
       bootId: randomUUID(), connectionEpoch: randomUUID() } } as AcceptedArtifactPublication
   const remote = artifactWorkflowReceipt(accepted, execution.result!)
   const version = { id: 'version', definition: { nodes: [{ id: 'node', artifactOutputs: { version: 1, outputKeys: ['report'] } }] } }
-  const snapshot = { version, stopRequested: false, cleanupPending: false }
+  const snapshot = { run: {}, version, stopRequested: false, cleanupPending: false }
   const stored = { execution, ref: proof.ref, inputDigest: proof.inputDigest }
   let durable = { record: structuredClone(proof), source_digest: repeatDigest(proof, 4 * 1024 * 1024) }
   const connection = new ExclusiveGraphConnection({ query: vi.fn(async (text: string) => ({

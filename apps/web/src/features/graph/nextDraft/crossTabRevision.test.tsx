@@ -174,7 +174,7 @@ describe('NIM-2644 typed-board cross-tab stale revision fence', () => {
 
     await user.click(screen.getByRole('button', { name: 'Workflow settings' }))
     await user.click(screen.getByRole('button', { name: 'Reload saved draft' }))
-    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Reload saved draft' }))
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Inspect latest' }))
     await waitFor(() => expect(edit().context.draft.revision).toBe(11))
     expect(edit().context.draft.baseWorkflowVersionId).toBe('version-6')
     expect(nativeNode(edit().graph.nodes[0])?.initialPrompt).toBe('marker A')

@@ -170,12 +170,13 @@ export const nim2644StateCases: { name: string; run: () => void }[] = [
     context.agents = []; context.draft.sourceAgentPins = []
     assert.equal(roleEvidence(context, current.id, edits).source, 'unavailable')
   } },
-  { name: 'FE-004 saved configuration role evidence outranks local edits', run() {
+  { name: 'FE-004 a staged role edit is reported as staged against the saved configuration pin', run() {
     const context = repairFixture(1), current = context.agents[0]!.agent
+    assert.equal(roleEvidence(context, current.id).role, 'coder')
+    assert.equal(roleEvidence(context, current.id).source, 'configuration')
     const edits = { [current.id]: { ...current, productRole: 'orchestrator' as const } }
-    assert.equal(roleEvidence(context, current.id, edits).role, 'coder')
-    assert.equal(roleEvidence(context, current.id, edits).source, 'configuration')
+    assert.equal(roleEvidence(context, current.id, edits).role, 'orchestrator')
+    assert.equal(roleEvidence(context, current.id, edits).source, 'staged')
     assert.equal(roleEvidence(context, current.id, edits).configurationVersionId, current.configurationVersionId)
-    assert.equal(roleEvidence(context, current.id, edits).role, 'coder')
   } },
 ]
