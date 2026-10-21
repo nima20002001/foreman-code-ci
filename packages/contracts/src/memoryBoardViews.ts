@@ -21,9 +21,9 @@ export const MemoryBoardChangeSchema = z.object({
 }).strict();
 export const MemoryBoardViewSchema = z.object({
   board: MemoryBoardSchema,
-  openColumns: z.array(page(MemoryCardSchema).extend({ status: z.enum(['todo', 'doing', 'blocked']) })),
+  openColumns: z.array(page(MemoryCardSchema).extend({ status: z.enum(['todo', 'doing', 'waiting_for_user', 'blocked']) })),
   notes: page(MemoryNoteSchema), sequence: revision,
-  counts: z.object({ todo: revision, doing: revision, blocked: revision, done: revision,
+  counts: z.object({ todo: revision, doing: revision, waiting_for_user: revision, blocked: revision, done: revision,
     completed: revision, dropped: revision, notes: revision }).strict(),
 }).strict();
 export const MemoryWorkPageInfoSchema = z.object({ nextCursor: z.string().nullable(), hasMore: z.boolean(), revision }).strict();
@@ -52,7 +52,7 @@ export const MemoryBoardWireSchemas = {
 
 export const MemoryBoardSearchSchema = z.object({
   memoryCard: IdSchema.optional(), memoryQuery: z.string().max(240).optional(),
-  memoryStatus: z.enum(['todo', 'doing', 'blocked', 'done']).optional(),
+  memoryStatus: z.enum(['todo', 'doing', 'waiting_for_user', 'blocked', 'done']).optional(),
   memoryDone: z.boolean().optional(), memoryCompletion: z.enum(['completed', 'dropped']).optional(),
 }).strict();
 

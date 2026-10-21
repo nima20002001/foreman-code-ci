@@ -11,7 +11,7 @@ import { cardById, commandReceipt } from './repository.js'
 export const MemoryReadInputSchema = z.object({
   scope: MemoryBoardScopeSchema.optional(), boardId: z.string().min(1).optional(),
   view: z.enum(['board','cards','card','notes','command','bindings','claims']).default('board'),
-  status: z.enum(['todo','doing','blocked','done']).optional(), completionKind: z.enum(['completed','dropped']).optional(),
+  status: z.enum(['todo','doing','waiting_for_user','blocked','done']).optional(), completionKind: z.enum(['completed','dropped']).optional(),
   query: z.string().max(240).optional(),
   cardId: z.string().min(1).optional(), commandId: z.string().min(1).optional(),
   archived: z.boolean().optional(), cursor: z.string().max(2048).optional(), limit: z.number().int().min(1).max(100).optional(),
@@ -91,7 +91,7 @@ export async function readProjection(tx: GraphTransactionSql, row: BoardRow, req
     return { commandId: request.commandId!, state: 'known', receipt: stored.receipt! }
   }
   const openColumns = []
-  for (const status of ['todo','doing','blocked'] as const) openColumns.push({ status, ...await readCards(tx,row,{ status,limit:20 }) })
+  for (const status of ['todo','doing','waiting_for_user','blocked'] as const) openColumns.push({ status, ...await readCards(tx,row,{ status,limit:20 }) })
   return { board: row.board, openColumns, notes: await readNotes(tx,row,{ limit:20 }), counts: row.counts, sequence: row.sequence }
 }
 export async function readChanges(tx: GraphTransactionSql, row: BoardRow, request: z.infer<typeof MemoryChangesInputSchema>): Promise<ChangesPage> {

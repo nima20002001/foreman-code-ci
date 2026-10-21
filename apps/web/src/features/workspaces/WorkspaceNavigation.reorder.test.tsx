@@ -146,11 +146,9 @@ describe('sidebar menu reordering', () => {
     pointerDrag(item(sectionsGroup, 'workflows'), { x: 50, y: 415 }, 'mouse', { x: 50, y: 175 })
 
     expect(reorderIds(sectionsGroup)).toEqual([
-      'memory',
       'workflows',
     ])
     expect(reorderIds(sectionsGroupTwo)).toEqual([
-      'memory',
       'workflows',
     ])
   })
@@ -181,7 +179,6 @@ describe('sidebar menu reordering', () => {
 
     expect(reorderIds(workspacesGroup)).toEqual(['workspace-1', 'workspace-2'])
     expect(reorderIds(sectionsGroup)).toEqual([
-      'memory',
       'workflows',
     ])
   })

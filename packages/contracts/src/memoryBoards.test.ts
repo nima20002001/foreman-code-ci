@@ -10,6 +10,8 @@ describe('memory board public contracts', () => {
     expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'done' }).success).toBe(false);
     expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'done', completionKind: 'dropped' }).success).toBe(false);
     expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'blocked', reason: ' ' }).success).toBe(false);
+    expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'waiting_for_user', reason: null }).success).toBe(false);
+    expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'waiting_for_user', reason: 'Pay on the checkout page' }).success).toBe(true);
     expect(MemoryCardSchema.safeParse({ ...fixture.card, status: 'done', completionKind: 'completed' }).success).toBe(true);
   });
 

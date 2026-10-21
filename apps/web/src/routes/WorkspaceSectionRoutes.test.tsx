@@ -98,22 +98,21 @@ describe('workspace section routes', () => {
     )
   })
 
-  it.each(['/workspaces/workspace-1', '/workspaces/workspace-1/memory'])('opens %s as the separate workspace Memory board and keeps section navigation', async path => {
+  it('opens the workspace Memory board only from the Environment button in the sidebar footer', async () => {
     const workspaceMemoryBoard = vi.fn(({ workspaceId }: { workspaceId: string }) => <div data-testid="workspace-memory-body">Memory for {workspaceId}</div>)
     const workflow = vi.fn(() => ({ memoryBoard: () => <p>Workflow-only modal</p> })), browserProfiles = vi.fn(() => <p>Profile manager</p>)
-    const { router, queryClient, unmount } = renderRoute(path, { workspaceMemoryBoard, workflow, browserProfiles })
-    expect(await screen.findByTestId('workspace-memory-body')).toHaveTextContent('workspace-1')
-    expect(screen.getAllByTestId('workspace-memory-body')).toHaveLength(1)
-    expect(screen.queryByRole('dialog', { name: 'Memory board' })).not.toBeInTheDocument()
-    expect(workspaceMemoryBoard).toHaveBeenLastCalledWith({ workspaceId: 'workspace-1' })
-    const sections = within(screen.getByRole('navigation', { name: 'Workspace sections' }))
-    expect(sections.getByRole('link', { name: 'Memory board' })).toHaveAttribute('aria-current', 'page')
-    expect(sections.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/workspaces/workspace-1/settings')
-    await userEvent.click(sections.getByRole('link', { name: 'Workflows' }))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/workspaces/workspace-1/workflows'))
+    const { router, queryClient, unmount } = renderRoute('/workspaces/workspace-1/workflows', { workspaceMemoryBoard, workflow, browserProfiles })
+    const sections = within(await screen.findByRole('navigation', { name: 'Workspace sections' }))
+    expect(sections.queryByRole('link', { name: 'Memory board' })).not.toBeInTheDocument()
+    const sidebar = within(screen.getByRole('complementary', { name: 'Primary navigation' }))
+    expect(sidebar.getAllByRole('button', { name: 'Workspace memory board' })).toHaveLength(1)
+    expect(sidebar.queryByRole('button', { name: 'Memory board' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('workspace-memory-body')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Memory board' }))
-    expect(await screen.findByTestId('workspace-memory-body')).toBeVisible()
+    await userEvent.click(sidebar.getByRole('button', { name: 'Workspace memory board' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/workspaces/workspace-1/memory'))
+    expect(await screen.findByTestId('workspace-memory-body')).toHaveTextContent('workspace-1')
+    expect(sidebar.getByRole('button', { name: 'Workspace memory board' })).toHaveAttribute('aria-current', 'page')
+    expect(workspaceMemoryBoard).toHaveBeenLastCalledWith({ workspaceId: 'workspace-1' })
     expect(workflow).not.toHaveBeenCalled(); expect(browserProfiles).not.toHaveBeenCalled()
     unmount(); queryClient.clear()
   })
@@ -125,8 +124,8 @@ describe('workspace section routes', () => {
       if (scope) scopes.push(JSON.parse(scope))
       const page = { items: [], hasMore: false, nextCursor: null, revision: 0 }
       return HttpResponse.json({ board: { id: 'board-workspace', scope: { kind: 'workspace', workspaceId: 'workspace-1' }, revision: 0 },
-        openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
-        counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
+        openColumns: ['todo', 'doing', 'waiting_for_user', 'blocked'].map(status => ({ ...page, status })), notes: page,
+        counts: { todo: 0, doing: 0, waiting_for_user: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
     }))
     const { queryClient, unmount } = renderRoute('/workspaces/workspace-1/memory')
     expect(await screen.findByRole('button', { name: 'Add card' })).toBeVisible()

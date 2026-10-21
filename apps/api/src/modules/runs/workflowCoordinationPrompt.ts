@@ -43,6 +43,7 @@ export function workflowCoordinationPrompt(context: CoordinationResultContext): 
     ...(context.interval ? ['This interval check does not route work. Return only data, summary, and board.'] : []),
     'board is {"kind":"none","reason":"no_changes"}, {"kind":"none","reason":"no_access"}, or {"kind":"none","reason":"already_recorded","appliedCommandIds":[...]} when there are no new effects.',
     'For new board effects use {"kind":"changes","operations":[...]} with 1 to 32 canonical memory-board mutations, using the same complete mutation shapes as the memory-board tools.',
+    'When only the user can continue (for example a payment page, sign-in or CAPTCHA), create or update a card with status "waiting_for_user" and a reason that tells the user exactly what to do.',
     'Use only existing scoped board/card/note identities and saved node identities. Already recorded command IDs must be actual receipts; do not replay their mutations.',
     ...(artifacts ? [
       `Required artifact output keys: ${JSON.stringify(artifacts.outputKeys)}.`,

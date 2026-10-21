@@ -72,8 +72,8 @@ export function memoryBoardToolDefinitions(
       inputSchema:schemas.changes,annotations:readAnnotations,run:(context,input)=>resolve(context).changes(context.principal,schemas.changes.parse(input))},
   ]
   const mutations=[
-    ['memory_card_create','card_create',schemas.cardCreate,'Create a task or return the existing normalized-title task, including Done. Assignment/display links alone do not bind work. Select exact current work or an explicit one-use Next activation.'],
-    ['memory_card_update','card_update',schemas.cardUpdate,'Patch a task against current state; expectedRevision is optional. Live required work cannot be completed or dropped. Reopen or drop terminal failed work with a reason; historical failure remains intact.'],
+    ['memory_card_create','card_create',schemas.cardCreate,'Create a task or return the existing normalized-title task, including Done. Assignment/display links alone do not bind work. Select exact current work or an explicit one-use Next activation. Use status waiting_for_user with a reason telling the owner what to do when only the owner can act (payment, sign-in, CAPTCHA).'],
+    ['memory_card_update','card_update',schemas.cardUpdate,'Patch a task against current state; expectedRevision is optional. Live required work cannot be completed or dropped. Reopen or drop terminal failed work with a reason; historical failure remains intact. Move a task to waiting_for_user with a reason when the owner must act; work results never move it out, only an explicit update does.'],
     ['memory_note_create','note_create',schemas.noteCreate,'Pin a durable note; omitted rank appends once. A source post must be visible in the same board scope.'],
     ['memory_note_update','note_update',schemas.noteUpdate,'Patch note text or rank without rewriting other notes. A no-op keeps the saved revision and produces no event.'],
     ['memory_note_archive','note_archive',schemas.noteArchive,'Archive or restore a note explicitly, retaining its identity and history.'],
