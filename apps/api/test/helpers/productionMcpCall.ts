@@ -27,8 +27,7 @@ async function toolRetryPolicy(client: ProductionMcpClient, name: string) {
 export async function callProductionMcpTool(client: ProductionMcpClient,
   request: Parameters<Client['callTool']>[0], options?: Parameters<Client['callTool']>[1]) {
   const policy = await toolRetryPolicy(client, request.name)
-  // Read-only tools replay without a command identity; some accept commandId only on one input arm.
-  const acceptsCommandId = policy?.acceptsCommandId === true && policy.readOnly !== true
+  const acceptsCommandId = policy?.acceptsCommandId === true
   if (acceptsCommandId && request.arguments?.commandId === undefined) {
     request = { ...request, arguments: { ...request.arguments, commandId: randomUUID() } }
   }
