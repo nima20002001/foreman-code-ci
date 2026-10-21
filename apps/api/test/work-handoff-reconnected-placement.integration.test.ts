@@ -8,11 +8,7 @@ describe('handed-off node placement after a Worker reconnect', () => {
     const f = await handoffPlacementFixture()
     try {
       const accepted = await f.start()
-      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish').catch(async error => {
-        const events = JSON.parse((await f.base.client.callTool({ name: 'run_events_list', arguments: { workspaceId: f.startInput.workspaceId, runId: accepted.run.id, limit: 500 } }) as { content: { text: string }[] }).content[0]!.text).items as { sequence: number; kind: string; harnessExecutionId?: string; payload: { state?: string; executionState?: string; fact?: { phase?: string; work?: { kind?: string } }; workflowNodeId?: string } }[]
-        console.error('DEBUGDISPATCH', JSON.stringify(f.base.dispatchErrors.map(String)), 'DEBUGEVENTS', events.map(e => `${e.sequence}:${e.kind}:${e.payload.state ?? e.payload.executionState ?? e.payload.fact?.phase ?? ''}:${e.payload.fact?.work?.kind ?? ''}:${(e.harnessExecutionId ?? '').slice(10, 14)}`).join(' | '))
-        throw error
-      })
+      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish')
       expect(finished.run, JSON.stringify(finished.run.result)).toMatchObject({ outcome: 'succeeded' })
       expect(finished.executions).toHaveLength(4)
       expect(finished.executions.every(execution => execution.result?.outcome === 'succeeded')).toBe(true)
