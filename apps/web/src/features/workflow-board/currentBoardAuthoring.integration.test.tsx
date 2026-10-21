@@ -151,8 +151,13 @@ async function start(mock: Mock, user: ReturnType<typeof userEvent.setup>, expec
   await waitFor(() => expect(mock.runs.size).toBe(expectedRuns))
   const run = [...mock.runs.values()].at(-1)!.run
   await waitFor(() => expect(readBoardStart(nextDraftKey(mock.workspaceId, run.workflowId))).toBeUndefined())
-  await waitFor(() => expect(within(controls()).queryByRole('button', { name: 'Reconcile Start' })).not.toBeInTheDocument())
+  // A started Run is shown as its saved Board; the retained editor is hidden until the person returns to it.
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Reconcile Start', hidden: true })).not.toBeInTheDocument())
   return run
+}
+async function returnToDraft(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'Return to workflow' }))
+  await screen.findByRole('region', { name: 'Workflow authoring' })
 }
 
 describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
@@ -397,6 +402,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     await waitFor(() => expect(mock.runs.size).toBe(1))
     const version = [...mock.versions.values()].at(-1)!
     expect([...mock.runs.values()][0]!.run.workflowVersionId).toBe(version.id)
+    await returnToDraft(user)
     expect(nextDraftDirty(useGraphDraftStore.getState().nextDrafts[key]!)).toBe(false)
     expect(within(authoring()).queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument()
   })
@@ -404,6 +410,9 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
   it('keeps the agent picker open across additions and connects handles with undo and redo', async () => {
     const mock = newBoardMock(), user = userEvent.setup()
     await mount(mock)
+    // A node that was never saved has no saved chat target.
+    server.use(http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/execution-chat/target',
+      () => HttpResponse.json({ kind: 'unavailable', reason: 'NODE_UNAVAILABLE' })))
     const { key } = await create(mock, user)
     await user.click(control('Add agent or job to graph'))
     const picker = screen.getByRole('complementary', { name: 'Add node' })
@@ -433,7 +442,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     const chat = await screen.findByRole('complementary', { name: 'Workflow side panel' })
     expect(chat).toBeVisible()
     expect(screen.queryByRole('dialog', { name: / chat$/ })).not.toBeInTheDocument()
-    expect(within(chat).getByRole('heading', { name: 'Save this Agent and workflow to chat' })).toBeVisible()
+    expect(await within(chat).findByText('This Agent is not present in the selected saved workflow.')).toBeVisible()
     await user.click(within(chat).getByRole('button', { name: 'Back to Board' }))
     expect(screen.queryByRole('complementary', { name: 'Workflow side panel' })).not.toBeInTheDocument()
     expect(useGraphDraftStore.getState().nextDrafts[key]!.graph.edges).toHaveLength(0)
@@ -501,6 +510,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     const mock = newBoardMock({ allowSimulatedStart: true }), user = userEvent.setup(), mounted = await mount(mock)
     const { id, key } = await create(mock, user); stageShape(key, 'repeat-ready', mock)
     const ordinary = await save(mock, user, 1), oldRun = await start(mock, user)
+    await returnToDraft(user)
     mock.settle(oldRun.id)
     await mounted.query.invalidateQueries({ queryKey: queryKeys.workspaceDetails(mock.workspaceId) })
     await user.click(control('Repeats'))
@@ -514,7 +524,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     await user.selectOptions(within(repeat).getByRole('combobox', { name: 'Early-exit outcome' }), 'done')
     const repeated = await save(mock, user, 2)
     expect(repeated.definition.repeat?.blocks[0]).toMatchObject({ maxOccurrences: 2, repeatOutcome: 'again', earlyExitOutcome: 'done', limitExit: { kind: 'branch_end' } })
-    const repeatRun = await start(mock, user, 2); mock.settle(repeatRun.id)
+    const repeatRun = await start(mock, user, 2); await returnToDraft(user); mock.settle(repeatRun.id)
     await mounted.query.invalidateQueries({ queryKey: queryKeys.workspaceDetails(mock.workspaceId) })
     await user.click(within(repeat).getByRole('button', { name: 'Remove repeat' }))
     const removed = await save(mock, user, 3)
@@ -528,7 +538,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     await user.click(control('Activities'))
     await user.click(await screen.findByRole('button', { name: new RegExp(`Open Run ${oldRun.id} ·`) }))
     await waitFor(() => expect(mounted.router.state.location.search.workflowVersionId).toBe(ordinary.id))
-    expect(screen.getByRole('region', { name: 'Workflow authoring' })).toBe(editor)
+    expect(screen.getByRole('region', { name: 'Workflow authoring', hidden: true })).toBe(editor)
     await user.click(screen.getByRole('button', { name: 'Clear Run selection' }))
     expect(useGraphDraftStore.getState().nextDrafts[key]!.graph).not.toHaveProperty('repeat')
     // Three Saves and two Starts on one mounted Board: about twice S3-01's work,
@@ -569,7 +579,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
   }, 15_000)
   it('keeps production capability false without issuing Start, and rejects retired saved tags before definition dispatch', async () => {
     const mock = newBoardMock(), user = userEvent.setup(), mounted = await mount(mock)
-    const { key } = await create(mock, user); stageShape(key, 'single', mock); await save(mock, user, 1)
+    const { id, key } = await create(mock, user); stageShape(key, 'single', mock); await save(mock, user, 1)
     expect(control('Start saved version')).toBeDisabled()
     expect(mock.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/runs'))).toEqual([])
     mounted.unmount(); mounted.query.clear(); act(() => useGraphDraftStore.setState({ nextDrafts: {} }))
@@ -579,7 +589,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
       const before = mock.calls.filter((call) => /\/(?:definition|drafts)(?:\/|$)/.test(call.path)).length
       // Mount without replacing the denial override with the fixture handlers.
       const query = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(query)
-      const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [`/workspaces/${mock.workspaceId}`] }) })
+      const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [`/workspaces/${mock.workspaceId}?workflowId=${id}`] }) })
       const view = render(<QueryClientProvider client={query}><RouterProvider router={router} /></QueryClientProvider>)
       await waitFor(() => expect(screen.queryByRole('region', { name: 'Workflow authoring' })).not.toBeInTheDocument())
       await waitFor(() => expect(query.getQueryState(queryKeys.workspaceDetails(mock.workspaceId))?.status).toBe('error'))
@@ -639,6 +649,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     mock.settle(run.id); await mounted.query.invalidateQueries()
     await waitFor(() => expect(readBoardStop(scope)).toBeUndefined())
     await user.click(screen.getByRole('button', { name: 'Close Activities' }))
+    await returnToDraft(user)
     const node = nativeNode(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes[0]!)
     act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => ({ ...graph, nodes: [{ ...node, initialPrompt: 'Unpublished change', position: { x: 300, y: -99 } }] })))
     await user.click(screen.getByRole('button', { name: 'Discard changes' }))
@@ -653,6 +664,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     const mock = newBoardMock({ allowSimulatedStart: true }), user = userEvent.setup(), mounted = await mount(mock)
     const { key, id } = await create(mock, user); stageShape(key, 'single', mock); await save(mock, user, 1)
     const run = await start(mock, user)
+    await returnToDraft(user)
     const beforeEdit = mock.calls.length
     act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => ({ ...graph,
       nodes: graph.nodes.map((node) => ({ ...node, initialPrompt: 'Next pinned instructions' })) })))

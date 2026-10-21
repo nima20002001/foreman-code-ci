@@ -97,9 +97,9 @@ export async function createInstalledNativeOutputStorage(input: InstalledNativeO
   }
   const assertProtected = async (signal?: AbortSignal) => {
     signal?.throwIfAborted()
-    // The Main-backed checks and the local root check are independent reads; the final check closes the bracket.
-    await Promise.all([input.assertCurrent(signal), input.protection.assertProtected(owner, signal), checkRoot()])
-    signal?.throwIfAborted()
+    await input.assertCurrent(signal); signal?.throwIfAborted()
+    await input.protection.assertProtected(owner, signal); signal?.throwIfAborted()
+    await checkRoot(); signal?.throwIfAborted()
     await input.assertCurrent(signal); signal?.throwIfAborted()
   }
   await assertProtected()

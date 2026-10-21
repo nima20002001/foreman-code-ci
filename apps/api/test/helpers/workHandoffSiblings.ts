@@ -28,5 +28,8 @@ export function handoffOutput(_nodeId: string, request: HarnessExecutionRequest)
   const routing = work.kind === 'work_request'
     ? { kind: 'return' as const, requestId: work.request.requestId, outcome: 'accepted' as const }
     : { kind: 'finish' as const }
-  return { routing, data: { latestDeliverable: { ready: true }, remainingFindings: [] } }
+  const envelope = { routing, data: { latestDeliverable: { ready: true }, remainingFindings: [] } }
+  if (!request.resultProtocol) return envelope
+  return { ...envelope, summary: 'Completed the assigned work.', board: { kind: 'none' as const,
+    reason: request.configuration.graphqlTools?.some(tool => tool.startsWith('memory_')) ? 'no_changes' as const : 'no_access' as const } }
 }

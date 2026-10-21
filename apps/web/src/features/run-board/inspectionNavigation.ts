@@ -1,7 +1,6 @@
 import { defaultStringifySearch, useLocation, useRouter } from '@tanstack/react-router'
 import { readRunInspectionKey, runInspectionKey } from '@foreman-code/contracts/wave25'
 import type { SelectedRunState } from '../runs-selector/useSelectedRun'
-import { useEffect } from 'react'
 import { useWorkflowBoard } from '../workflow-board/context'
 
 export function useRunNodeInspectionNavigation(selection: SelectedRunState) {
@@ -12,12 +11,6 @@ export function useRunNodeInspectionNavigation(selection: SelectedRunState) {
   const linkedNodeId = typeof search.runNodeId === 'string' ? search.runNodeId : undefined
   const exchange = typeof search.runExchangeKey === 'string' ? search.runExchangeKey : undefined
   const linkedExecutionId = readRunInspectionKey(exchange).executionId
-  const selectSidePanel = board?.selectSidePanel
-  useEffect(() => {
-    if (selectSidePanel && !search.boardPanel && linkedNodeId && selection.isCurrent(selection.generation)) {
-      selectSidePanel({ kind: 'agent', nodeId: linkedNodeId, tab: 'details', executionId: linkedExecutionId })
-    }
-  }, [selectSidePanel, search.boardPanel, linkedNodeId, linkedExecutionId, selection])
   const selected = board?.sidePanel?.kind === 'agent' ? board.sidePanel : undefined
   const nodeId = board ? selected?.nodeId : linkedNodeId
   const executionId = board ? selected?.executionId : linkedExecutionId

@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import type { Message } from '@foreman-code/contracts'
 import { agentChatFixtures, type AgentChatState, type AgentChatTurn, type SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
@@ -10,6 +10,7 @@ import { server } from '../../../mocks/server'
 import { createAgentChatMock } from '../../../shared/mocks/agentChatHandlers'
 import { AgentPopover } from '../../../shared/ui/nocturne'
 import { AgentChatPanel } from '../../graph/AgentPanels'
+import { clearRememberedChatScroll } from '../chatScrollStore'
 import { getConversationDraft, useConversationDraftStore } from '../conversationDraftStore'
 import { agentChatContextKey } from './model'
 import { agentChatStateKey } from './useAgentChat'
@@ -41,6 +42,8 @@ const receiptState = (input: SendAgentChatMessageRequest, delivery: AgentChatTur
   return state
 }
 
+// A previous test's remembered transcript position must not decide this one's follow state.
+beforeEach(clearRememberedChatScroll)
 afterEach(() => {
   useConversationDraftStore.getState().clearAllDrafts()
   localStorage.clear()
