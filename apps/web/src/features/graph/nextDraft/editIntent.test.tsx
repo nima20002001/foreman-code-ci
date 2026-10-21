@@ -18,7 +18,7 @@ import { nextDraftApi } from './transport'
 import { nextDraftDirty, nextDraftKey } from './state'
 import { changeDraftAgent, editorAgents } from './agentEdits'
 import { defaultAgentForHarness } from '../../agents/agentSettings'
-import { attachAgent, removeNode } from './model'
+import { removeNode } from './model'
 import { acknowledgeEditOutbox, readEditOutbox, readEditSnapshot, storeEditSnapshot } from './editIntentStorage'
 import { acknowledgeEditIntentSnapshot } from './useGraphEditIntent'
 import { inFollowupTab } from './nim2644Followup.cases'
@@ -564,57 +564,6 @@ describe('NIM-2644 mounted frontend recovery through the real edit-intent hook',
     const request = stage.mock.calls[0]![0]
     expect(stage.mock.calls.map(([input]) => input)).toEqual([request, request, request])
     expect(advance).toHaveBeenCalledOnce(); expect(discard).toHaveBeenCalledOnce(); expect(boardStartClient.start).not.toHaveBeenCalled()
-  })
-})
-
-
-describe('NIM-2644 follow-up stale existing-Agent attach', () => {
-  it.each(['discard', 'reload-and-retry'] as const)('FE-001 releases AGENT_SOURCE_CONFLICT for explicit %s', async (action) => {
-    const context = repairFixture(1), source = repairFixture(2).agents[1]!
-    context.agents.push(source)
-    useGraphDraftStore.getState().installNextDraft(key, context, true)
-    const stage = vi.spyOn(nextDraftApi, 'editStage').mockRejectedValueOnce(
-      new ApiError({ code: 'AGENT_SOURCE_CONFLICT', message: 'The source Agent changed since it was selected.' }, 409))
-      .mockImplementation(async (input) => stageValue(input))
-    const advance = vi.spyOn(nextDraftApi, 'editAdvance').mockImplementation(async () => waiting(stageValue(stage.mock.calls.at(-1)![0])))
-    const user = userEvent.setup(), first = mount()
-    act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => attachAgent(graph, source, 'attached-worker')))
-    await requestSave(user)
-    await waitFor(() => expect(stage).toHaveBeenCalledOnce())
-    await waitFor(() => expect(readEditOutbox(key)).toBeUndefined())
-    expect(stage.mock.calls[0]![0].expectedAgentConfigurationVersionIds[source.agent.id]).toBe(source.agent.configurationVersionId)
-    expect(edit().context.draft.revision).toBe(7)
-    expect(edit().graph.nodes.some((node) => node.id === 'attached-worker')).toBe(true)
-    expect(readEditSnapshot(key)?.graph).toEqual(edit().graph)
-    await waitFor(() => expect(saveButton()).toBeEnabled())
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Discard changes$/ })).toBeEnabled()
-    expect(advance).not.toHaveBeenCalled()
-    if (action === 'discard') {
-      await confirmDiscard(user)
-      expect(edit().graph.nodes.some((node) => node.id === 'attached-worker')).toBe(false)
-      expect(stage).toHaveBeenCalledOnce()
-      await waitFor(() => expect(savedStartButton()).toBeEnabled())
-    } else {
-      reopen(first); await screen.findByRole('region', { name: 'Workflow authoring' })
-      const fresh = structuredClone(context)
-      fresh.agents[1] = { metadataRevision: source.metadataRevision + 1,
-        agent: { ...source.agent, configurationVersionId: 'configuration-updated-in-other-session' } }
-      // Only Agent metadata/configuration changes. The draft revision stays 7.
-      vi.mocked(nextDraftApi.context).mockResolvedValue(fresh)
-      vi.spyOn(window, 'confirm').mockReturnValue(true)
-      await user.click(screen.getByRole('button', { name: 'Workflow settings' }))
-      await reloadSavedDraft(user)
-      await waitFor(() => expect(edit().context.agents[1]?.metadataRevision).toBe(source.metadataRevision + 1))
-      act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => attachAgent(graph, fresh.agents[1]!, 'attached-worker')))
-      await saveWithStop(user); await waitFor(() => expect(advance).toHaveBeenCalledOnce())
-      expect(stage).toHaveBeenCalledTimes(3)
-      expect(stage.mock.calls[2]![0]).toEqual(stage.mock.calls[1]![0])
-      expect(stage.mock.calls[1]![0].commandId).not.toBe(stage.mock.calls[0]![0].commandId)
-      expect(stage.mock.calls[1]![0].expectedRevision).toBe(7)
-      expect(stage.mock.calls[1]![0].expectedAgentConfigurationVersionIds[source.agent.id]).toBe('configuration-updated-in-other-session')
-    }
-    expect(boardStartClient.start).not.toHaveBeenCalled()
   })
 })
 

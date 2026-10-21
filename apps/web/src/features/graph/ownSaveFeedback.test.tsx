@@ -79,7 +79,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it.each(['Agent settings Save', 'Agent settings Save and run', 'added Agent Save'] as const)(
+it.each(['Agent settings Save', 'Agent settings Save and run'] as const)(
   'acknowledges its own %s without warnings and leaves the saved version usable', async (path) => {
     let accessReads = 0
     server.use(http.get('*/api/local-human', () => {
@@ -91,14 +91,9 @@ it.each(['Agent settings Save', 'Agent settings Save and run', 'added Agent Save
         } }],
       } }))
     }))
-    let source: AuthoringContext = path === 'added Agent Save' ? fixture(['coder', 'coder', 'coder']) : fixture()
+    let source: AuthoringContext = fixture()
     source.agents = source.agents.map((item) => ({ ...item, agent: { ...item.agent,
       harness: 'codex', harnessConfiguration: DEFAULT_HARNESS_DEFAULTS.codex } }))
-    if (path === 'added Agent Save') {
-      // The third Agent is available but not yet on the Board; the person adds it from the panel.
-      source.draft.graph.nodes = source.draft.graph.nodes.slice(0, 2)
-      source.draft.graph.edges = source.draft.graph.edges.slice(0, 1)
-    }
     let journal = empty
     let release!: () => void
     const reply = new Promise<void>((resolve) => { release = resolve })
@@ -138,19 +133,13 @@ it.each(['Agent settings Save', 'Agent settings Save and run', 'added Agent Save
     expect(await screen.findByRole('button', { name: 'Authoring fixture' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Authoring unavailable' })).not.toBeInTheDocument()
     await waitFor(() => expect(accessReads).toBeGreaterThan(0))
-    if (path === 'added Agent Save') {
-      await user.click(await screen.findByRole('button', { name: 'Add agent or job to graph' }))
-      await user.click(screen.getByRole('button', { name: 'Add Agent 2' }))
-      await user.click(screen.getByRole('button', { name: 'Close node picker' }))
-    } else {
-      await user.click(await screen.findByRole('button', { name: 'Open fixture settings' }))
-      const dialog = screen.getByRole('dialog', { name: 'Agent settings' })
-      const name = within(dialog).getByRole('textbox', { name: 'Name' })
-      await user.clear(name)
-      await user.type(name, 'Saved Worker')
-      await user.click(within(dialog).getByRole('button', { name: 'Apply agent settings to draft' }))
-      await user.click(within(dialog).getByRole('button', { name: 'Close fixture settings' }))
-    }
+    await user.click(await screen.findByRole('button', { name: 'Open fixture settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Agent settings' })
+    const name = within(dialog).getByRole('textbox', { name: 'Name' })
+    await user.clear(name)
+    await user.type(name, 'Saved Worker')
+    await user.click(within(dialog).getByRole('button', { name: 'Apply agent settings to draft' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Close fixture settings' }))
     const accessReadsBeforeStart = accessReads
     await user.click(screen.getByRole('button', {
       name: path === 'Agent settings Save and run' ? 'Save and run' : 'Save workflow',

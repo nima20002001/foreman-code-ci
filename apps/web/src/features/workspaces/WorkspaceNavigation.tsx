@@ -78,14 +78,13 @@ export interface WorkspaceNavigationProps {
 }
 
 const workspaceSections: readonly WorkspaceSection[] = [
-  'memory',
   'workflows',
   'files',
   'tasks',
   'runs',
 ]
 
-const workspaceSectionItems = [{ id: 'memory', label: 'Memory board' }, { id: 'workflows', label: 'Workflows' }]
+const workspaceSectionItems = [{ id: 'workflows', label: 'Workflows' }]
 
 /** The always-visible, server-backed create entry point for the workspace list. */
 function NewWorkspaceControl() {
@@ -284,11 +283,6 @@ function WorkspaceTreeItem({
 
   const renderSection = (section: WorkspaceSection) => {
     const reorderProps = sections.getItemProps(section)
-    if (section === 'memory') return <div className="nav-item-row" {...reorderProps}>
-      <SidebarNavigationButton to="/workspaces/$workspaceId/memory" params={{ workspaceId: entry.id }}
-        activeProps={{ className: 'nav-item-active', 'aria-current': 'page' }} className="nav-item"
-        {...sections.getKeyboardProps(section)} title="Memory board"><span className="nav-item-label">Memory board</span></SidebarNavigationButton>
-    </div>
     if (section === 'workflows') {
       return (
         <>
@@ -347,7 +341,7 @@ function WorkspaceTreeItem({
     <li>
       <div className="nav-item-row" {...reorderItemProps}>
         <SidebarNavigationButton
-          to="/workspaces/$workspaceId"
+          to="/workspaces/$workspaceId/settings"
           params={{ workspaceId: entry.id }}
           search={{}}
           activeOptions={{ exact: true, includeSearch: false }}
@@ -402,7 +396,7 @@ function WorkspaceTreeItem({
 
 /**
  * The workspace-first sidebar hierarchy. Workspaces is the collapsible parent,
- * every workspace entry opens its Memory board and expands into its sections.
+ * every workspace entry opens its settings and expands into Workflows.
  * App Settings lives in the shell footer.
  * The Agents destination remains routed but is temporarily hidden here.
  * Workspace and workflow lists are server-shaped query projections; selection

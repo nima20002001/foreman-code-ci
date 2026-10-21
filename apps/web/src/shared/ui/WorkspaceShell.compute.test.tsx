@@ -6,7 +6,7 @@ import { WorkspaceShell } from './WorkspaceShell'
 
 afterEach(() => act(() => useNavigationUiStore.getState().setCollapsed(false)))
 
-it.each([false, true])('places both harness logos with Settings and theme controls, collapsed=%s', async collapsed => {
+it.each([false, true])('places both harness logos with Settings, the memory board and theme controls, collapsed=%s', async collapsed => {
   act(() => useNavigationUiStore.getState().setCollapsed(collapsed))
   renderWithRouter(<WorkspaceShell workspaceId="workspace-1" />)
   const sidebar = await screen.findByRole('complementary', { name: 'Primary navigation' })
@@ -15,5 +15,6 @@ it.each([false, true])('places both harness logos with Settings and theme contro
   expect(within(preferences).getByRole('button', { name: /Switch to .* theme/ })).toBeInTheDocument()
   expect(await within(preferences).findByRole('button', { name: /^Claude:/ })).toBeVisible()
   expect(within(preferences).getByRole('button', { name: /^Codex:/ })).toBeVisible()
-  expect(within(preferences).getAllByRole('button')).toHaveLength(4)
+  expect(within(preferences).getByRole('button', { name: 'Workspace memory board' })).toBeVisible()
+  expect(within(preferences).getAllByRole('button')).toHaveLength(5)
 })

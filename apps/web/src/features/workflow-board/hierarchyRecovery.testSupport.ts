@@ -1,4 +1,4 @@
-import { isInaccessible, queryAllByAttribute, queryByAttribute, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect } from 'vitest'
 import { HttpResponse } from 'msw'
@@ -13,35 +13,7 @@ import { meaningfulSaveFixture } from './meaningfulSave.testSupport'
 
 export type Fixture = Awaited<ReturnType<typeof recoveryFixture>>
 export const draft = (f: Fixture) => useGraphDraftStore.getState().nextDrafts[f.key]!
-
-/** The one element with this exact aria-label. Role and label-text queries over the
- * whole mounted Board cost seconds each in jsdom, so these tests find named landmarks
- * by attribute and run role and label queries only inside them. */
-export function labelled(name: string, root: HTMLElement = document.body) {
-  const found = queryAllByAttribute('aria-label', root, name)
-  if (found.length !== 1) throw new Error(`Expected one element labelled "${name}", found ${found.length}`)
-  return found[0]!
-}
-export const authoringRegion = () => labelled('Workflow authoring')
-export const authoring = () => within(authoringRegion())
-export const toolbar = (name: 'Draft actions' | 'Workflow controls') => within(labelled(name, authoringRegion()))
-export const recovery = () => within(labelled('Draft conflict recovery'))
-export const hierarchyForm = () => within(labelled('Master hierarchy'))
-export const agentList = () => within(labelled('Agents and connections', authoringRegion()))
-export const rail = () => within(labelled('Workflow side panel'))
-export const queryLabelled = (name: string) => queryByAttribute('aria-label', document.body, name)
-/** The accessible dialog titled `name`, as getByRole(role, { name }) would return it. */
-export function queryDialog(name: string, role: 'dialog' | 'alertdialog' = 'dialog') {
-  const found = Array.from(document.querySelectorAll<HTMLElement>(`[role="${role}"]`)).filter(element => !isInaccessible(element)
-    && document.getElementById(element.getAttribute('aria-labelledby') ?? '')?.textContent === name)
-  if (found.length > 1) throw new Error(`Found ${found.length} ${role} elements named "${name}"`)
-  return found[0] ?? null
-}
-export const findDialog = (name: string, role: 'dialog' | 'alertdialog' = 'dialog') => waitFor(() => {
-  const element = queryDialog(name, role)
-  if (!element) throw new Error(`No ${role} named "${name}"`)
-  return element
-})
+export const authoring = () => within(screen.getByRole('region', { name: 'Workflow authoring' }))
 
 /** Only HTTP replies are simulated. The mounted router, editor, storage,
  * private-command journal client and fresh transport base are production code. */
@@ -96,7 +68,7 @@ export async function recoveryFixture(source = authoringFixture()) {
 }
 export async function mount(f: Fixture) {
   const view = await mountMeasuredBoard(f.href)
-  await waitFor(() => authoringRegion())
+  await screen.findByRole('region', { name: 'Workflow authoring' })
   await waitFor(() => expect(draft(f)).toBeDefined())
   await waitFor(() => expect(view.cache.getQueryState(graphEditIntentKey(f.workspaceId, f.workflowId,
     draft(f).context.draft.id))).toMatchObject({ status: 'success', fetchStatus: 'idle' }))
@@ -104,11 +76,11 @@ export async function mount(f: Fixture) {
 }
 export async function rename(name: string) {
   await userEvent.click(authoring().getByTitle('Rename workflow'))
-  const field = labelled('Workflow name', authoringRegion())
+  const field = authoring().getByRole('textbox', { name: 'Workflow name' })
   await userEvent.clear(field); await userEvent.type(field, `${name}{Enter}`)
-  await userEvent.click(within(await findDialog('Rename workflow?')).getByRole('button', { name: 'Rename' }))
+  await userEvent.click(within(await screen.findByRole('dialog', { name: 'Rename workflow?' })).getByRole('button', { name: 'Rename' }))
 }
 export async function settings() {
-  if (!queryLabelled('Draft conflict recovery')) await userEvent.click(toolbar('Workflow controls').getByRole('button', { name: 'Workflow settings' }))
-  return waitFor(() => labelled('Draft conflict recovery'))
+  if (!screen.queryByRole('region', { name: 'Draft conflict recovery' })) await userEvent.click(authoring().getByRole('button', { name: 'Workflow settings' }))
+  return screen.findByRole('region', { name: 'Draft conflict recovery' })
 }

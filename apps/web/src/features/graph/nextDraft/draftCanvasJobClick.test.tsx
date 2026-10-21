@@ -1,6 +1,7 @@
 import { WorkflowDefinitionV3Schema } from '@foreman-code/contracts/wave25'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { definition } from '../../jobs/fixtures'
 import { clickConnectionHandles } from '../testConnectionHandles'
 import { GraphPresentationProvider } from '../GraphPresentation'
@@ -28,8 +29,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); useGra
 
 function mount(canvasGraph = graph) {
   const change = vi.fn()
-  render(<GraphPresentationProvider><DraftCanvas draftKey={key} graph={canvasGraph} agents={context.agents.map((item) => item.agent)} kind="execution"
-    change={change} geometry={vi.fn()} pending={vi.fn()} report={vi.fn()} /></GraphPresentationProvider>)
+  render(<QueryClientProvider client={new QueryClient()}><GraphPresentationProvider><DraftCanvas draftKey={key} graph={canvasGraph} agents={context.agents.map((item) => item.agent)} kind="execution"
+    change={change} geometry={vi.fn()} pending={vi.fn()} report={vi.fn()} /></GraphPresentationProvider></QueryClientProvider>)
   const job = () => screen.getByRole('button', { name: new RegExp(`${definition.name}, job`) })
   const agent = (index: number) => screen.getByRole('button', { name: new RegExp(`^Node ${index}, `) })
   const edges = () => change.mock.calls.map(([update]) => update(graph).edges.at(-1)).map((edge: { source: string; target: string }) => `${edge.source}>${edge.target}`)
