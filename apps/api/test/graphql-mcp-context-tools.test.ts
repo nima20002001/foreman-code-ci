@@ -15,25 +15,23 @@ const scope = { workspaceIds: ['workspace'], workflowIds: ['workflow'], runIds: 
 const worker: ManagementPrincipal = { id: 'worker-1', name: 'Worker', audience: 'worker', agentId: 'agent-1',
   expiresAt: '2099-01-01T00:00:00.000Z', revokedAt: null, grants: [{ actions: ['interactions:read'], scope }] }
 
-// A Worker credential is never a scoped conversation credential, which the interaction service checks first.
-const rowsFor = (row: unknown) => async (text = ''): Promise<{ rows: unknown[] }> =>
-  text.includes('agent_conversation_credentials') ? { rows: [] } : { rows: [row] }
-
 it('advertises only the interaction capabilities whose tools are enabled for the Agent and node', async () => {
   // The Coder's pinned configuration allows only context_get; the node adds nothing.
-  const query = vi.fn(rowsFor({ role: 'coder', defaults: ['context_get'], override: null }))
+  const query = vi.fn(async (): Promise<{ rows: unknown[] }> => ({ rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }))
   const service = new PostgresAppInteractionService({ query } as unknown as pg.Pool, {} as never, {} as never)
   const context = await service.context(worker) as { tools: string[]; capabilities: Record<string, boolean> }
   expect(context.tools).toEqual(['bug_report', 'context_get'])
   expect(context.capabilities).toEqual({ contextGet: true, bugReport: false,
     interactionList: false, interactionGet: false, interactionRespond: false })
-  query.mockImplementation(rowsFor({ role: 'coder', defaults: ['context_get'], override: { add: ['interaction_get'], remove: [] } }))
+  query.mockResolvedValueOnce({ rows: [{ role: 'coder', defaults: ['context_get'], override: { add: ['interaction_get'], remove: [] } }] })
   expect((await service.context(worker) as { capabilities: Record<string, boolean> }).capabilities)
     .toMatchObject({ interactionList: false, interactionGet: true })
 })
 
 it('keeps scoped bug reporting available when all configurable tools are removed', async () => {
-  const query = vi.fn(rowsFor({ role: 'coder', defaults: [], override: { add: [], remove: ['bug_report'] } }))
+  const query = vi.fn(async (): Promise<{ rows: unknown[] }> => ({
+    rows: [{ role: 'coder', defaults: [], override: { add: [], remove: ['bug_report'] } }],
+  }))
   const service = new PostgresAppInteractionService({ query } as unknown as pg.Pool, {} as never, {} as never)
   const reporter: ManagementPrincipal = { ...worker, grants: [{ actions: ['bug_reports:report'], scope }] }
   expect(await service.context(reporter)).toMatchObject({
@@ -45,22 +43,20 @@ it('keeps scoped bug reporting available when all configurable tools are removed
 })
 
 it('tells the Agent which worktree and branch it owns', async () => {
-  const query = vi.fn(async (text: string): Promise<{ rows: unknown[] }> => text.includes('agent_conversation_credentials') ? { rows: [] }
-    : text.includes('execution_native_placements')
+  const query = vi.fn(async (text: string): Promise<{ rows: unknown[] }> => text.includes('execution_native_placements')
     ? { rows: [{ worktree: { repository: 'octo/site', branch: 'foreman/review/coder-1a2b3c4d', commit: 'a'.repeat(40) },
       path: '/home/agent/project/2c1d/tree' }] }
     : { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] })
   const service = new PostgresAppInteractionService({ query } as unknown as pg.Pool, {} as never, {} as never)
   expect((await service.context(worker) as { worktree?: unknown }).worktree).toEqual({ repository: 'octo/site',
     branch: 'foreman/review/coder-1a2b3c4d', baseCommit: 'a'.repeat(40), path: '/home/agent/project/2c1d/tree' })
-  query.mockImplementation(rowsFor({ role: 'coder', defaults: ['context_get'], override: null }))
+  query.mockImplementation(async () => ({ rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }))
   expect(await service.context(worker)).not.toHaveProperty('worktree')
 })
 
 it('tells the Agent where its workspace synced folder is available on its own computer', async () => {
   const deviceId = '22222222-2222-4222-8222-222222222222'
-  const query = vi.fn(async (text: string): Promise<{ rows: unknown[] }> => text.includes('agent_conversation_credentials') ? { rows: [] }
-    : text.includes('workspaces w')
+  const query = vi.fn(async (text: string): Promise<{ rows: unknown[] }> => text.includes('workspaces w')
     ? { rows: [{ device_id: deviceId, workspace_id: 'workspace', name: 'Cross/computer team' }] }
     : text.includes('execution_native_placements') ? { rows: [] }
       : { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] })
@@ -80,7 +76,6 @@ it('gives colliding workspace names distinct synced folders that survive renames
   let name = 'Client/Web'
   let deviceId: string | null = null
   const query = vi.fn(async (text: string): Promise<{ rows: unknown[] }> => {
-    if (text.includes('agent_conversation_credentials')) return { rows: [] }
     if (text.includes('workspaces w')) return { rows: [{ device_id: deviceId, workspace_id: workspaceId, name }] }
     if (text.includes('execution_native_placements')) return { rows: [] }
     return { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }
@@ -103,7 +98,6 @@ it('gives colliding workspace names distinct synced folders that survive renames
 it('returns the stable workspace directory through authenticated MCP and denies an invalid caller', async () => {
   let name = 'Client/Web'
   const pool = { query: vi.fn(async (text: string) => {
-    if (text.includes('agent_conversation_credentials')) return { rows: [] }
     if (text.includes('workspaces w')) return { rows: [{ device_id: null, workspace_id: 'workspace', name }] }
     if (text.includes('execution_native_placements')) return { rows: [] }
     return { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }
