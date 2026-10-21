@@ -14,6 +14,7 @@ import { currentWorkflowFixture } from '../../shared/mocks/currentWorkflow'
 import { createCurrentBoardMock } from '../../shared/mocks/currentBoard'
 import { useGraphDraftStore } from '../graph/store'
 import { nextDraftKey, nextDraftDirty } from '../graph/nextDraft/state'
+import { attachAgent } from '../graph/nextDraft/model'
 import { readBoardStart } from './startOutbox'
 import { readBoardStop } from './stopOutbox'
 import { readEditOutbox } from '../graph/nextDraft/editIntentStorage'
@@ -407,19 +408,21 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     expect(within(authoring()).queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument()
   })
 
-  it('keeps the agent picker open across additions and connects handles with undo and redo', async () => {
+  it('adds Agents from the role menu and connects handles with undo and redo', async () => {
     const mock = newBoardMock(), user = userEvent.setup()
     await mount(mock)
     // A node that was never saved has no saved chat target.
     server.use(http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/execution-chat/target',
       () => HttpResponse.json({ kind: 'unavailable', reason: 'NODE_UNAVAILABLE' })))
     const { key } = await create(mock, user)
-    await user.click(control('Add agent or job to graph'))
-    const picker = screen.getByRole('complementary', { name: 'Add node' })
-    await user.click(within(picker).getByRole('button', { name: `Add ${mock.agents[0]!.name}` }))
-    await user.click(within(picker).getByRole('button', { name: `Add ${mock.agents[1]!.name}` }))
-    expect(picker).toBeVisible()
-    expect(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes).toHaveLength(2)
+    for (let added = 0; added < 2; added++) {
+      await user.click(control('Add agent'))
+      const worker = within(screen.getByRole('menu', { name: 'Add agent' })).getByRole('menuitem', { name: 'Worker' })
+      await waitFor(() => expect(worker).not.toHaveAttribute('aria-disabled'))
+      await user.click(worker)
+    }
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    expect(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes.map(node => node.name)).toEqual(['Worker', 'Worker 2'])
     const draftActions = within(screen.getByRole('group', { name: 'Draft actions' }))
     expect(draftActions.getByRole('button', { name: 'Discard changes' })).toBeVisible()
     expect(draftActions.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['Undo', 'Discard changes', 'Save workflow'])
@@ -430,7 +433,6 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     expect(within(authoring()).queryByRole('button', { name: 'Discard changes' })).not.toBeInTheDocument()
     await user.keyboard('{Control>}y{/Control}{Control>}y{/Control}')
     await waitFor(() => expect(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes).toHaveLength(2))
-    await user.click(within(picker).getByRole('button', { name: 'Close node picker' }))
     stageShape(key, 'sequential', mock)
     act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => ({ ...graph, edges: [] })))
     const canvas = within(screen.getByLabelText('Editable workflow graph'))
@@ -461,10 +463,9 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
     const mock = newBoardMock({ allowSimulatedStart: true }), user = userEvent.setup(), first = await mount(mock)
     const { id, key } = await create(mock, user)
     if (shape === 'single') {
-      // Exercise real keyboard-accessible attach + entry controls from the empty Board.
-      await user.click(control('Add agent or job to graph'))
-      const add = within(screen.getByRole('complementary', { name: 'Add node' }))
-      await user.click(add.getByRole('button', { name: `Add ${mock.agents[0]!.name}` }))
+      // Attach a saved Agent to the empty Board, then exercise the real entry controls.
+      const record = useGraphDraftStore.getState().nextDrafts[key]!.context.agents.find(item => item.agent.id === mock.agents[0]!.id)!
+      act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => attachAgent(graph, record, 'node-single')))
       await user.click(control('Workflow settings'))
       const node = nativeNode(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes[0]!)
       const settings = within(screen.getByRole('complementary', { name: 'Workflow settings' }))

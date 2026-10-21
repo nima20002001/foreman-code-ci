@@ -1,6 +1,6 @@
 import { nativeNode } from '../../shared/mocks/nativeFixtureTypes'
 // @vitest-environment jsdom
-import { act, queryAllByAttribute, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Edge, Node, ReactFlowProps } from '@xyflow/react'
 import { CurrentRunDetailsSchema, RepeatGraphCurrentV3Schema, WorkflowVersionV3Schema, repeatGraphTopologyV3 } from '@foreman-code/contracts/wave25'
@@ -25,9 +25,6 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 
 installBoardTestLifecycle()
 let serial = 0
-// The canvas is named by its aria-label. *ByLabelText also resolves <label> controls for every element,
-// which jsdom does by walking the whole document per element: quadratic, seconds per call on 200 nodes.
-const savedRunGraphs = () => queryAllByAttribute('aria-label', document.body, 'Saved Run graph')
 beforeEach(() => { observed.frames.length = 0 })
 
 async function largeBoard() {
@@ -65,7 +62,7 @@ async function largeBoard() {
 describe('ENG05-D real saved Run canvas scale and invalidation', () => {
   it('keeps one immutable 200-node canvas and exposes every saved node through the accessible inspector', async () => {
     const { wire, cache } = await largeBoard()
-    expect(savedRunGraphs()).toHaveLength(1)
+    expect(screen.getAllByLabelText('Saved Run graph')).toHaveLength(1)
     const inspector = await openRunDetails()
     const nodePicker = within(inspector).getByRole('combobox', { name: 'Run node' })
     expect(within(nodePicker).getAllByRole('option')).toHaveLength(201)
@@ -87,8 +84,7 @@ describe('ENG05-D real saved Run canvas scale and invalidation', () => {
   it('regression: a Run snapshot refresh with unchanged facts preserves every node data object and edge', async () => {
     const { wire, cache } = await largeBoard()
     const board = screen.getByTestId('unified-workflow-board')
-    const graphs = savedRunGraphs()
-    expect(graphs).toHaveLength(1)
+    const canvas = screen.getByLabelText('Saved Run graph')
     const before = observed.frames.at(-1)!
     const reads = wire.samples.filter((sample) => sample.path.endsWith('/snapshot')).length
     await act(async () => { await cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }) })
@@ -98,9 +94,7 @@ describe('ENG05-D real saved Run canvas scale and invalidation', () => {
     const byId = new Map(before.nodes.map((node) => [node.id, node]))
     const changed = after.nodes.filter((node) => node.data !== byId.get(node.id)?.data).map((node) => node.id)
     expect(screen.getByTestId('unified-workflow-board')).toBe(board)
-    const remounted = savedRunGraphs()
-    expect(remounted).toHaveLength(1)
-    expect(remounted[0]).toBe(graphs[0])
+    expect(screen.getByLabelText('Saved Run graph')).toBe(canvas)
     expect(after.nodes).toHaveLength(200)
     expect(after.edges.map((edge) => edge.id)).toEqual(before.edges.map((edge) => edge.id))
     expect(wire.activity()).toHaveLength(0)

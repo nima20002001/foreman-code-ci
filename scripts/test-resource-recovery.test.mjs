@@ -284,3 +284,33 @@ test('recovery ignores a process whose protected environment belongs to another 
   assert.deepEqual(recovered.removed, [resource.directory])
   assert.equal(existsSync(resource.directory), false)
 })
+
+test('fixture database cleanup skips records removed by a concurrent cleanup', async t => {
+  const resource = resources.createTestRoot(fixture(t))
+  const environment = { FOREMAN_CODE_TEST_ROOT: resource.directory, FOREMAN_CODE_TEST_OWNER: resource.token,
+    TEST_DATABASE_URL: new URL('/graphql_test_owned', resources.testAdminUrl).href }
+  const previous = Object.fromEntries(Object.keys(environment).map(name => [name, process.env[name]]))
+  Object.assign(process.env, environment)
+  t.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+  const vanishing = resources.registerTestResourceCleanup(resource, { kind: 'fixture-database', name: 'other_db' })
+  const matching = resources.registerTestResourceCleanup(resource, { kind: 'fixture-database', name: 'fixture_db' })
+  const vanishingFile = join(resource.directory, '.graphql-test-cleanup', `${vanishing}.json`)
+  const readFile = fs.readFileSync
+  t.mock.method(fs, 'readFileSync', (path, ...args) => {
+    if (path === vanishingFile) rmSync(vanishingFile)
+    return readFile(path, ...args)
+  })
+  syncBuiltinESMExports()
+  const marker = `graphql-test:${resource.token}`
+  const sql = { query: async () => ({ rows: [{ marker }] }) }
+  await resources.dropFixtureDatabase(sql, 'fixture_db')
+  t.mock.restoreAll()
+  syncBuiltinESMExports()
+  assert.deepEqual(resources.readTestResourceCleanups(resource), [])
+  assert.equal(existsSync(join(resource.directory, '.graphql-test-cleanup', `${matching}.json`)), false)
+})

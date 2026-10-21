@@ -13,6 +13,7 @@ import { fixture } from './nextDraft/core.cases'
 import { journalIntent, savedJournal } from './nextDraft/nim2644Journal.fixture'
 import { nextDraftApi, type AuthoringContext } from './nextDraft/transport'
 import { nextDraftKey } from './nextDraft/state'
+import { attachAgent } from './nextDraft/model'
 import { clearEditIntentStorage } from './nextDraft/editIntentStorage'
 import { graphEditIntentKey } from './nextDraft/useGraphEditIntent'
 import { useGraphDraftStore } from './store'
@@ -95,7 +96,7 @@ it.each(['Agent settings Save', 'Agent settings Save and run', 'added Agent Save
     source.agents = source.agents.map((item) => ({ ...item, agent: { ...item.agent,
       harness: 'codex', harnessConfiguration: DEFAULT_HARNESS_DEFAULTS.codex } }))
     if (path === 'added Agent Save') {
-      // The third Agent is available but not yet on the Board; the person adds it from the panel.
+      // The third Agent is available but not yet on the Board; the draft attaches it before Save.
       source.draft.graph.nodes = source.draft.graph.nodes.slice(0, 2)
       source.draft.graph.edges = source.draft.graph.edges.slice(0, 1)
     }
@@ -139,9 +140,7 @@ it.each(['Agent settings Save', 'Agent settings Save and run', 'added Agent Save
     expect(screen.queryByRole('heading', { name: 'Authoring unavailable' })).not.toBeInTheDocument()
     await waitFor(() => expect(accessReads).toBeGreaterThan(0))
     if (path === 'added Agent Save') {
-      await user.click(await screen.findByRole('button', { name: 'Add agent or job to graph' }))
-      await user.click(screen.getByRole('button', { name: 'Add Agent 2' }))
-      await user.click(screen.getByRole('button', { name: 'Close node picker' }))
+      act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => attachAgent(graph, source.agents[2]!, 'node-2')))
     } else {
       await user.click(await screen.findByRole('button', { name: 'Open fixture settings' }))
       const dialog = screen.getByRole('dialog', { name: 'Agent settings' })
