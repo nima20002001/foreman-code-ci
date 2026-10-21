@@ -484,18 +484,14 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
 
   private async *stream(frame: WorkerConversationRpcRequest, input: NativeTurnInput,
     initial: NativeInitialTurnInput | undefined, signal?: AbortSignal, openSession?: NativeSessionReference) {
-    // The Worker journals its session before its callback reaches Main, and Main can read that journaled session
-    // (with the first native events) first. Whichever path comes first persists the observation exactly once.
-    let observation: Promise<void> | undefined
-    const observeSession = (session: NativeSessionReference) => observation ??= (async () => {
-      if (!initial || session.harness !== this.harness) conflict('Unexpected initial native session observation.')
-      await initial.onSessionObserved(session)
-      this.session = structuredClone(session)
-      await this.options.observeSession?.(session)
-      await this.releaseCredential()
-    })()
     const lease = await this.capture(frame, { ...(openSession ? { session: openSession } : {}), callbacks: {
-      sessionObserved: observeSession,
+      sessionObserved: async session => {
+        if (!initial || session.harness !== this.harness) conflict('Unexpected initial native session observation.')
+        await initial.onSessionObserved(session)
+        this.session = structuredClone(session)
+        await this.options.observeSession?.(session)
+        await this.releaseCredential()
+      },
       submitted: async (_correlationId, identity) => {
         if (identity.nativeTurnId) await input.onSubmitted?.(identity.nativeTurnId)
         if (identity.nativeSubmission) await input.onMessageSubmitted?.(identity.nativeSubmission)
@@ -521,7 +517,6 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
           this.checkRejection(input.clientCorrelationId)
           if (!this.session) { await delay(100, undefined, { signal: pollSignal }); continue }
         }
-        if (initial) await observeSession(this.session)
         const readStarted = performance.now()
         const value = z.object({ history: WorkerConversationHistorySchema, context: ContextSnapshotSchema.nullable(),
           receipt: WorkerConversationReceiptSchema }).parse(await this.request({ method: 'conversation.history',

@@ -169,8 +169,9 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
   const [connecting, setConnecting] = useState(false)
   // Every Board shows the CI server automatically; it is never a workflow node and cannot be added by hand.
   const ci = useBoardCiServer({ nodes, names: noNames, workflow: { workspaceId: graph.workspaceId, workflowId: graph.id } })
-  const flowNodes: (GraphNode | CiServerFlowNode)[] = [...nodes.filter(node => !collapsed.has(node.id)).map(node =>
-    board?.teamNodeId === node.id ? { ...node, selected: true } : node), ci.node]
+  const teamNodeId = board?.teamNodeId
+  const flowNodes = useMemo<(GraphNode | CiServerFlowNode)[]>(() => [...nodes.filter(node => !collapsed.has(node.id)).map(node =>
+    teamNodeId === node.id ? { ...node, selected: true } : node), ci.node], [nodes, collapsed, teamNodeId, ci.node])
   const selectedIds = useGraphPresentation((state) => state.selectedNodeIds)
   const presentation = useGraphPresentationStore()
   useLayoutEffect(() => { setNodes(adapter.reconcile(topology.nodes, selectedIds)) }, [adapter, topology.nodes, selectedIds])
@@ -216,6 +217,7 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
           } } }
     })
   }, [graph, baseGraph, semanticLocked, change, report, removalDisabled])
+  const visibleEdges = useMemo(() => edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target)), [edges, collapsed])
   const onNodesChange = (allChanges: NodeChange<GraphNode | CiServerFlowNode>[]) => {
     const changes = allChanges.filter((item): item is NodeChange<GraphNode> => !('id' in item) || item.id !== CI_SERVER_NODE_ID)
     const nextSelection = new Set(presentation.getState().selectedNodeIds)
@@ -273,7 +275,7 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
       {/* While a Run is shown, the draft's data stays mounted but its flow does not: a hidden
           flow measures a zero-size box and would come back empty on Return to draft. */}
       {selectedRun ? null : <ReactFlow<GraphNode | CiServerFlowNode, DraftEdge> nodes={flowNodes}
-        edges={edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target))} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+        edges={visibleEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={onNodesChange} connectionMode={ConnectionMode.Loose} connectionRadius={120} deleteKeyCode={null}
         fitView fitViewOptions={fitViewOptions} proOptions={proOptions} minZoom={RESPONSIVE_MIN_ZOOM} maxZoom={1.6} onInit={responsive.onInit}
         onMove={responsive.onMove}
