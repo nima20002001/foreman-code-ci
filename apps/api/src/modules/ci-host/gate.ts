@@ -105,8 +105,9 @@ export async function planCiGate(input: CiRunInput, integration: CiIntegrationIn
   const fleet = await gateComputers(endpoint, reservedCloudSlots, usedByComputer)
   const hosts = fleet.filter(item => item.computer.hostRef.kind !== 'cloud')
   const clouds = fleet.filter(item => item.computer.hostRef.kind === 'cloud')
-  if (!fleet.some(item => item.computer.hostRef.kind !== 'cloud') || !clouds.length || !integration.files.length) {
-    throw new DomainError('CI_GATE_CAPACITY_REQUIRED', 'A gate needs a ready build computer, cloud CI, and integration files.', 409)
+  // Build computers are optional: a cloud-only fleet runs the whole gate.
+  if (!clouds.length || !integration.files.length) {
+    throw new DomainError('CI_GATE_CAPACITY_REQUIRED', 'A gate needs cloud CI and integration files.', 409)
   }
   const availableSlots = clouds.reduce((sum, item) => sum + item.freeSlots, 0)
   const slots = Math.min(unitSlots ?? availableSlots, availableSlots)
