@@ -225,10 +225,8 @@ it('starts a single-tool Coder MCP session across publication and denies revoked
       return { rows: values[0] === tokenHash ? [principal] : [] }
     }
     if (text.startsWith('select 1 from worker_credential_bindings')) return { rows: [{}], rowCount: 1 }
-    if (text.includes('from agent_conversation_credentials')) return { rows: [] }
     if (text.includes("c.record->>'productRole' as role")) {
-      return { rows: [{ role: row.configuration.productRole, defaults: row.configuration.graphqlTools, override: null,
-        harness: row.configuration.harness }] }
+      return { rows: [{ role: row.configuration.productRole, defaults: row.configuration.graphqlTools, override: null }] }
     }
     return stored.query(text)
   } } as unknown as pg.Pool

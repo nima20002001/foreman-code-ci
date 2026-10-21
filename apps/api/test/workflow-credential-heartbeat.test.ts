@@ -15,7 +15,6 @@ import type { RunOwnership } from '../src/modules/runs/ownership.js'
 import { nativeLanes } from './helpers/nativeLanes.js'
 import { AppMcpRoutes } from '../src/modules/harnesses/appMcpRoutes.js'
 import { deferred } from './helpers/deferred.js'
-import { idleWorkflowControls, idleWorkflowRepeat } from './helpers/idleWorkflowControls.js'
 
 const connections: ExclusiveGraphConnection[] = []
 afterEach(async () => {
@@ -61,8 +60,7 @@ function fixture() {
     },
     recordActivity: async () => {}, appendNativeEvents: async () => {}, requestCleanup: async () => {},
     recordExecutionFailure: async () => {},
-    ...idleWorkflowControls,
-    repeat: async () => ({ ...idleWorkflowRepeat, readExecution: store.readExecution, settleNegativeExecution: async () => {} }),
+    repeat: async () => ({ readExecution: store.readExecution, settleNegativeExecution: async () => {} }),
     getRepeatSnapshot: async () => ({ stopRequested: false }),
   } as unknown as CoordinatorArguments[0]
   const interactions = { coordination: nativeLanes(), cancelPendingForRun: async () => 0 } as unknown as CoordinatorArguments[1]
