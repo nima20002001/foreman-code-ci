@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type Que
 import type { MemoryBoardScope, MemoryCard, MemoryNote } from '@foreman-code/contracts'
 import { sessionGeneration } from '../../shared/api/sessionBoundary'
 import { ApiError } from '../../shared/api/client'
-import type { CardFilter, MemoryBoardClient, MemoryBoardView, MemoryChange, MemoryConnection, MemoryPage, MemoryCardDetail } from './ports'
+import type { CardFilter, MemoryBoardClient, MemoryBoardView, MemoryConnection, MemoryPage, MemoryCardDetail } from './ports'
 
 export const memoryKey = (boardId: string) => ['memory-board', sessionGeneration(), boardId] as const
 export const memorySnapshotKey = (boardId: string) => [...memoryKey(boardId), 'snapshot'] as const
@@ -40,11 +40,8 @@ function useCursorRecovery(error: unknown, cache: QueryClient, boardId: string) 
   }, [error, cache, boardId])
 }
 
-/** onChange sees each new committed change once, as it arrives on the live stream. */
-export function useMemoryBoard(client: MemoryBoardClient, scope: MemoryBoardScope, onChange?: (change: MemoryChange) => void) {
+export function useMemoryBoard(client: MemoryBoardClient, scope: MemoryBoardScope) {
   const cache = useQueryClient()
-  const changed = useRef(onChange)
-  changed.current = onChange
   const identity = useQuery({ ...quiet, queryKey: ['memory-board-scope', sessionGeneration(), scope], queryFn: ({ signal }) => client.resolve(scope, signal) })
   const boardId = identity.data?.id
   const [registration, setRegistration] = useState<{ boardId: string; connection: MemoryConnection; ready: boolean }>()
@@ -86,7 +83,6 @@ export function useMemoryBoard(client: MemoryBoardClient, scope: MemoryBoardScop
         const tracked = sequence.current
         if (change.sequence <= Math.max(tracked.snapshot, tracked.received)) return
         tracked.received = change.sequence
-        changed.current?.(change)
         // Both gaps and consecutive events reconcile via one bounded, coalesced read.
         refresh()
       },
