@@ -214,8 +214,6 @@ export class ManagedBrowserNativeDriver implements BrowserNativeDriver {
     profile.tabs.set(targetId, tab)
     await profile.connection.send('Page.enable', {}, sessionId)
     await profile.connection.send('Page.setInterceptFileChooserDialog', { enabled: true }, sessionId)
-    // Tabs open in the background; without focus emulation Chromium drops keyboard and IME input to them.
-    await profile.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId)
     const tree = object(object(await profile.connection.send('Page.getFrameTree', {}, sessionId)).frameTree)
     const collect = (value: Record<string, unknown>) => {
       const id = text(object(value.frame).id); if (id) tab.frameIds.add(id)
