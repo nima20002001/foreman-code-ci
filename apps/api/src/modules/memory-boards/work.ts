@@ -32,16 +32,16 @@ export function aggregateCard(card: MemoryCard, bindings: MemoryCardWorkBinding[
   }
   if (required.some(binding => binding.state === 'queued')) return { ...card, status: 'todo', completionKind: null, reason: null }
   if (autoComplete && required.length && required.every(binding => binding.state === 'accepted')
-    && !claims.some(claim => claim.state === 'armed') && card.status !== 'blocked') {
+    && !claims.some(claim => claim.state === 'armed') && card.status !== 'blocked' && card.status !== 'waiting_for_user') {
     return { ...card, status: 'done', completionKind: 'completed', reason: null }
   }
   return card
 }
 export function validateCardState(card: MemoryCard, before?: MemoryCard): void {
   if ((card.status === 'done') !== (card.completionKind !== null)) invalid('Completion kind is required exactly for Done tasks.')
-  if ((card.status === 'blocked' || card.completionKind === 'dropped'
+  if ((card.status === 'blocked' || card.status === 'waiting_for_user' || card.completionKind === 'dropped'
     || (before?.status === 'done' && card.status !== 'done')) && !card.reason?.trim()) {
-    invalid('Blocked, dropped and reopened tasks need a reason.')
+    invalid('Blocked, waiting-for-user, dropped and reopened tasks need a reason.')
   }
 }
 export async function validateLinks(tx: GraphTransactionSql, authority: MemoryBoardAuthority,

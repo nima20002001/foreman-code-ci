@@ -16,6 +16,10 @@
 .workflow-side-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: var(--space-3); }
 .workflow-side-panel-body > .agent-chat-panel { min-height: 0; flex: 1; }
 .workflow-panel-hint { margin: var(--space-2) var(--space-3); color: var(--text-muted); font: var(--type-caption); }
+.workflow-operator-launcher { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; padding: var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text); cursor: pointer; }
+.workflow-side-panel .operator-chat-root { display: flex; flex: 1; min-height: 0; }
+.workflow-side-panel .operator-chat { position: static; transform: none; width: 100% !important; height: 100% !important; max-width: none; max-height: none; box-shadow: none; border: 0; }
+.workflow-side-panel .operator-chat-resize, .workflow-side-panel .operator-chat-launcher { display: none; }
 .workflow-rail-size { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); color: var(--text-muted); font: var(--type-caption); }
 @container (max-width: 900px) {
   .workflow-collaboration-layout[data-panel-open='true'] > .workflow-collaboration-canvas,

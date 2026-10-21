@@ -34,7 +34,7 @@ export async function readDigest(tx: GraphTransactionSql, authority: MemoryBoard
     await authority.scope(tx,scope)
     const row = await findScopeBoard(tx,scope)
     if (!row) continue
-    total += row.counts.todo + row.counts.doing + row.counts.blocked
+    total += row.counts.todo + row.counts.doing + row.counts.waiting_for_user + row.counts.blocked
     cards.push(...await readDigestCards(tx,row.board,access))
     const noteRows = await tx.query<{record:unknown}>('select record from memory_notes where board_id=$1 and archived=false order by rank,id limit 20',[row.board.id])
     for (const entry of noteRows.rows) { const note = MemoryNoteSchema.parse(entry.record); notes.push({id:note.id,revision:note.revision,text:note.text}) }

@@ -71,6 +71,7 @@ export function OperatorChatControls({ conversation, retired, settings, preferen
       <p role="status">{turnStatus}</p>
     </div> : null}
     <CompactionActivity controls={sessionControls} />
+    {canonical ? <AcceptedOperatorSettings conversation={conversation} /> : null}
     {canonical ? <CanonicalOperatorComposer key={`${identityEpoch()}:${conversation.conversation.id}`} conversation={conversation}
       attachments={attachments} sessionControls={sessionControls} fileDropProps={fileDrop.dropTargetProps}
       attachmentControl={<ChatAttachmentControl draft={attachments} disabled={attachmentsDisabled} composerDrop={fileDrop} />}
@@ -95,4 +96,13 @@ export function OperatorChatControls({ conversation, retired, settings, preferen
       isSending={preparing || (send.isPending && send.variables?.id === selectedId)} onSubmit={submit}
       onCancel={requestId && conversation.turnState !== 'canceling' ? () => cancel.mutate({ id: conversation.conversation.id, requestId, generation: sessionGeneration() }) : undefined} />}
   </footer>
+}
+
+function AcceptedOperatorSettings({ conversation }: { conversation: OperatorConversationState }) {
+  const settings = conversation.settings
+  if (!settings) return <p role="status">Current chat settings are unavailable.</p>
+  const effort = settings.harness === 'codex' ? settings.reasoningEffort : settings.harness === 'claude' ? settings.effort : undefined
+  return <p aria-label="Accepted chat settings">This chat: {settings.harness === 'codex' ? 'Codex' : settings.harness === 'claude' ? 'Claude' : 'OpenCode'}
+    {' · '}{settings.model}{effort ? ` · ${effort} effort` : ''}
+    {settings.harness === 'codex' && settings.serviceTier === 'priority' ? ' · Fast' : ''}</p>
 }

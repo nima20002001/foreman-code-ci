@@ -64,18 +64,19 @@ describe('Operator chat interactions', () => {
     await waitFor(() => expect(launcher).toHaveFocus())
     expect(launcher).toHaveAttribute('aria-expanded', 'false')
   })
-  it('keeps active drafting editable with Stop and a live Send in the original composer, without a delivery picker', async () => {
+  it('keeps active drafting editable and exposes separate live delivery and active-only Stop', async () => {
     useOperatorChatStore.setState({ open: true })
     renderChat()
     const textarea = await findOperatorComposer()
     expect(textarea).not.toBeDisabled()
     fireEvent.change(textarea, { target: { value: 'My next message' } })
-    expect(await screen.findByRole('button', { name: 'Stop response' })).toBeEnabled()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+    expect(await screen.findByRole('button', { name: 'Stop active turn' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: /Steer now|Queue next/ })).toBeEnabled())
     expect(useConversationDraftStore.getState().drafts['conversation-one']).toBe('My next message')
     expect(sendOperatorMessage).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Delivery action')).not.toBeInTheDocument()
-    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Delivery action'), { target: { value: 'interrupt_and_send' } })
+    expect(sendOperatorMessage).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Interrupt and send' })).toBeEnabled()
   })
   it('pins a draft typed while its target loads only after the target is read, so it can still be sent', async () => {
     useOperatorChatStore.setState({ open: true })
@@ -90,7 +91,7 @@ describe('Operator chat interactions', () => {
     renderChat()
     fireEvent.change(await findOperatorComposer(), { target: { value: 'Typed before the target was read' } })
     await act(async () => release())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^(Steer now|Queue next)$/ })).toBeEnabled())
     expect(screen.queryByText(/The selected turn changed/)).not.toBeInTheDocument()
   })
   it('keeps context-left in the header beside Close, showing the model window before the first turn', async () => {

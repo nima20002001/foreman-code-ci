@@ -188,6 +188,7 @@ describe('Operator chat UX', () => {
     api.send.mockResolvedValue({ state: pinned, replayed: false })
     chat()
     fireEvent.click(await screen.findByRole('button', { name: /Agent settings:/ }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('This chat: Codex · model-b · low effort')
     expect(screen.getByText('These settings apply to new chats. The selected chat keeps its current settings.')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
     fireEvent.click(screen.getByRole('button', { name: /Model A/ }))
@@ -195,7 +196,8 @@ describe('Operator chat UX', () => {
     await waitFor(() => expect(screen.getByRole('slider', { name: 'Effort' })).toBeEnabled())
     fireEvent.change(screen.getByRole('slider', { name: 'Effort' }), { target: { value: '1' } })
     await waitFor(async () => expect((await getManagedAgentDefaults()).value.operator.harness).toMatchObject({ model: 'model-a', reasoningEffort: 'high' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Agent settings: Model A, high' }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('model-b · low effort')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent settings: New chats, Model A, high' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Use this selected chat' } })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
@@ -207,7 +209,8 @@ describe('Operator chat UX', () => {
     useOperatorChatStore.getState().select('future-chat')
     api.get.mockResolvedValue(operatorState({ conversation: { ...operatorState().conversation, id: 'future-chat' }, settings: future, turnState: 'idle', activeRequestId: null }))
     chat()
-    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: Model A, high' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: New chats, Model A, high' }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('model-a · high effort')
     expect(screen.getByRole('switch', { name: 'Show thinking' })).toBeInTheDocument()
   })
 
@@ -247,7 +250,7 @@ describe('Operator chat UX', () => {
       http.get('/api/operator/setup', () => HttpResponse.json(configuredOperatorSetup('claude'))),
     )
     chat()
-    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: Sonnet 5.5, medium' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: New chats, Sonnet 5.5, medium' }))
     const choose = async (name: string, id: string) => {
       fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`${name}.*${id}`) }))
@@ -260,7 +263,7 @@ describe('Operator chat UX', () => {
     delete nativeDefault.effort
     expect(saved.value.operator.harness).toEqual(nativeDefault)
     expect(screen.queryByText('Changes were not saved')).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5' })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5' })).toBeEnabled())
     expect(screen.queryByRole('slider', { name: 'Effort' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /Choose model/ })).toBeEnabled())
     await choose('Sonnet 5.5', 'claude-sonnet-5-5')
@@ -312,10 +315,10 @@ describe('Operator chat UX', () => {
     chat()
     if (action === 'retry a frozen request') expect(await screen.findByText(/The previous save may have committed/)).toBeVisible()
     else expect(await screen.findByText('Changes were not saved')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5, medium' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5, medium' })).toBeVisible()
     if (action !== 'select a supported model') fireEvent.click(screen.getByRole('button', { name: 'Retry settings save' }))
     else {
-      fireEvent.click(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5, medium' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5, medium' }))
       fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
       fireEvent.click(screen.getByRole('button', { name: /Sonnet 5.5.*claude-sonnet-5-5/ }))
     }
@@ -334,7 +337,7 @@ describe('Operator chat UX', () => {
     expect(requests[0]!.value.operator.harness).toMatchObject({ model: action === 'retry settings' ? 'claude-haiku-4-5-20251001' : harness.model, sandbox: harness.sandbox,
       tools: harness.tools, instructions: harness.instructions })
     await waitFor(() => expect(screen.queryByText('Changes were not saved')).not.toBeInTheDocument())
-    expect(screen.getByRole('button', { name: action === 'retry settings' ? 'Agent settings: Haiku 4.5' : 'Agent settings: Sonnet 5.5, medium' })).toBeVisible()
+    expect(screen.getByRole('button', { name: action === 'retry settings' ? 'Agent settings: New chats, Haiku 4.5' : 'Agent settings: New chats, Sonnet 5.5, medium' })).toBeVisible()
     expect(api.send).not.toHaveBeenCalled()
   })
 
