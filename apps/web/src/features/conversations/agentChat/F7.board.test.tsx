@@ -7,15 +7,14 @@ import { http, HttpResponse } from 'msw'
 import { AgentConfigurationVersionSchema } from '@foreman-code/contracts'
 import { LocalHumanAccessSchema } from '@foreman-code/contracts/management'
 import { WorkflowVersionV3Schema } from '@foreman-code/contracts/wave25'
-import type { AgentChatContext, SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
+import type { AgentChatContext } from '@foreman-code/contracts/agent-chat'
 import { server } from '../../../mocks/server'
 import { agentChatFixtureFor, agentChatTestActions, createAgentChatMock } from '../../../shared/mocks/agentChatHandlers'
 import { installBoardTestLifecycle, mountMeasuredBoard } from '../../workflow-board/eng05D.testSupport'
 import { inspectionBoardFixture } from '../../workflow-board/inspect/inspectionFixtures'
 import { useConversationDraftStore } from '../conversationDraftStore'
 import { agentChatContextKey } from './model'
-import { agentChatStateKey } from './useAgentChat'
-import { chatHarnesses, completedFixture, providerFixture, startedFixture } from './f7.testSupport'
+import { chatHarnesses, providerFixture } from './f7.testSupport'
 import { installChatSource } from './testSupport'
 
 installBoardTestLifecycle()
@@ -48,7 +47,14 @@ async function selectionFixture(harness: typeof chatHarnesses[number], width: nu
   const runContext: AgentChatContext = { ...draftContext, agentId: fixture.first.agentId, runId: saved.runId }
   const chat = createAgentChatMock(agentChatFixtureFor(providerFixture(harness), draftContext))
   chat.setState(agentChatFixtureFor(providerFixture(harness), runContext))
-  server.use(...chat.handlers.slice(1), ...mock.handlers)
+  server.use(...chat.handlers.slice(1), ...mock.handlers,
+    // A saved Run node resolves to a Run execution; this fixture's saved Run recorded none to chat with.
+    http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/execution-chat/target', ({ request }) => {
+      const target = new URL(request.url).searchParams
+      return HttpResponse.json(target.get('runId') ? { kind: 'unavailable', reason: 'NO_EXECUTION' } : { kind: 'outside_run',
+        workflowVersionId: currentVersion.id, reason: 'NO_LIVE_RUN', agent: { workspaceId, workflowId,
+          workflowNodeId: draftContext.workflowNodeId, agentId: draftContext.agentId } })
+    }))
   // Grant chat actions explicitly; this fixture does NOT grant graph writes or Run Stop authority.
   server.use(http.get('/api/local-human', () => HttpResponse.json(LocalHumanAccessSchema.parse({ principal: {
     id: 'f7-board-reader-and-chat-writer', name: 'F7 Board tester', expiresAt: '2099-01-01T00:00:00.000Z', grants: [{
@@ -59,13 +65,13 @@ async function selectionFixture(harness: typeof chatHarnesses[number], width: nu
   return { fixture, chat, saved, draftContext, runContext }
 }
 
-/** Mounted product routeTree -> WorkflowBoard -> NextDraftEditor -> DraftCanvas/SelectedRunCanvas
- * -> WorkflowSidePanel -> AgentChatPanel, with MSW. Width/element measurements are JSDOM test fixtures:
+/** Mounted product routeTree -> WorkflowBoard -> NextDraftEditor -> DraftCanvas / saved Run Board
+ * -> WorkflowSidePanel -> execution-chat target resolution, with MSW. Width/element measurements are JSDOM test fixtures:
  * these tests exercise placement branches and focus, NOT browser geometry or real native sessions. */
 describe.each(chatHarnesses)('mounted Board chat: %s', (harness) => {
   it.each([1280, 390])('keeps pinned-Run and draft Agent chats isolated through the shared rail and URL at %ipx', async (width) => {
     vi.stubGlobal('innerWidth', width); installChatSource()
-    const { fixture, chat, saved, draftContext, runContext } = await selectionFixture(harness, width)
+    const { fixture, chat, saved, draftContext } = await selectionFixture(harness, width)
     const beforeRun = structuredClone(fixture.mock.runs.get(saved.runId))
     const mounted = await mountMeasuredBoard(`/workspaces/${saved.workspaceId}?workflowId=${saved.workflowId}`)
     const board = screen.getByTestId('unified-workflow-board')
@@ -78,42 +84,20 @@ describe.each(chatHarnesses)('mounted Board chat: %s', (harness) => {
     expect(within(rail).getByTestId('agent-conversation')).toHaveAttribute('data-chat-key', agentChatContextKey(draftContext))
     await act(async () => { await mounted.router.navigate({ to: '/workspaces/$workspaceId', params: { workspaceId: saved.workspaceId },
       search: { workflowId: saved.workflowId, runId: saved.runId, workflowVersionId: saved.workflowVersionId, executionSemanticsVersion: 3 } }) })
-    await screen.findByRole('region', { name: 'Selected Run pinned topology' })
+    await screen.findByRole('region', { name: 'Selected Run board' })
     expect(screen.getByTestId('unified-workflow-board')).toBe(board)
-    const runName = fixture.first.name!, runTrigger = await screen.findByRole('button', { name: `Open ${runName} chat` })
+    const runName = fixture.first.name!, runTrigger = await screen.findByRole('button', { name: `Inspect ${runName}` })
     await userEvent.click(runTrigger)
-    expect(await screen.findByRole('complementary', { name: 'Workflow side panel' })).toBe(rail)
-    const input = await within(rail).findByRole('textbox', { name: 'Message' })
-    await waitFor(() => expect(input).toHaveFocus())
-    expect(input).toHaveValue('')
-    expect(within(rail).getByRole('heading', { name: runName })).toBeVisible()
-    expect(within(rail).getByTestId('agent-conversation')).toHaveAttribute('data-chat-key', agentChatContextKey(runContext))
+    const runRail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    expect(runRail).toBe(rail)
+    await userEvent.click(within(runRail).getByRole('button', { name: 'Chat' }))
+    // The saved Run's chat is its own target; the draft Agent's unsent text and conversation never reach it.
+    expect(await within(runRail).findByText(/This saved node has no available execution/)).toBeVisible()
+    expect(within(runRail).queryByTestId('agent-conversation')).not.toBeInTheDocument()
+    expect(within(runRail).queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument()
     expect(mounted.history.location.search).toContain(`runId=${saved.runId}`)
-    fireEvent.change(input, { target: { value: 'Ask the pinned Run Agent' } })
-    await userEvent.click(within(rail).getByRole('button', { name: 'Send message' }))
-    await within(rail).findAllByLabelText('Queued').then(items => items.at(-1)!)
-    const posts = () => chat.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/messages'))
-    const first = posts()[0]!.body as SendAgentChatMessageRequest
-    expect(first.context).toEqual({ workflowId: saved.workflowId, workflowNodeId: fixture.first.id, agentId: fixture.first.agentId, runId: saved.runId })
-    expect(first.expectedConversationId).toBeNull()
-    expect(chat.getState(runContext).conversation).toMatchObject({ harness, agentId: fixture.first.agentId, origin: { kind: 'run_execution', runId: saved.runId } })
     expect(chat.getState(draftContext).conversation).toBeNull()
-    chat.setState(completedFixture(startedFixture(chat.getState(runContext), first.requestId), 'Pinned Agent reply'))
-    await act(async () => { await mounted.cache.invalidateQueries({ queryKey: agentChatStateKey(runContext) }) })
-    await within(rail).findAllByLabelText('Completed').then(items => items.at(-1)!)
-    fireEvent.change(input, { target: { value: 'Same pinned conversation follow-up' } })
-    await userEvent.click(within(rail).getByRole('button', { name: 'Send message' }))
-    await waitFor(() => expect(posts()).toHaveLength(2))
-    await within(rail).findAllByLabelText('Queued').then(items => items.at(-1)!)
-    const followup = posts()[1]!.body as SendAgentChatMessageRequest
-    expect(followup.expectedConversationId).toBe(chat.getState(runContext).conversation!.id)
-    expect(followup.context).toEqual(first.context)
-    chat.setState(startedFixture(chat.getState(runContext), followup.requestId))
-    await act(async () => { await mounted.cache.invalidateQueries({ queryKey: agentChatStateKey(runContext) }) })
-    await within(rail).findAllByLabelText('Delivered').then(items => items.at(-1)!)
-    if (harness === 'claude') expect(within(rail).getByRole('button', { name: 'Steer' })).toBeDisabled()
-    await userEvent.click(within(rail).getByRole('button', { name: 'Stop chat' }))
-    await waitFor(() => expect(chat.getState(runContext).activeTurn).toBeNull())
+    expect(chat.calls.filter((call) => call.method === 'POST')).toEqual([])
     expect(fixture.mock.runs.get(saved.runId)).toEqual(beforeRun)
     expect(fixture.mock.calls.filter((call) => call.method !== 'GET')).toEqual([])
     await userEvent.keyboard('{Escape}')
@@ -121,15 +105,13 @@ describe.each(chatHarnesses)('mounted Board chat: %s', (harness) => {
     await waitFor(() => expect(runTrigger).toHaveFocus())
     await userEvent.click(screen.getByRole('button', { name: /^Runs$/ }))
     await userEvent.click(await screen.findByRole('menuitemradio', { name: 'New run' }))
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Selected Run pinned topology' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Selected Run board' })).not.toBeInTheDocument())
     if (!screen.queryByRole('complementary', { name: 'Workflow side panel' })) await userEvent.click(screen.getByRole('button', { name: 'Open Draft Agent chat' }))
     const returned = await screen.findByRole('complementary', { name: 'Workflow side panel' })
-    expect(within(returned).getByRole('heading', { name: 'Draft Agent' })).toBeVisible()
     expect(screen.getAllByTestId('agent-conversation')).toHaveLength(1)
     expect(await within(returned).findByRole('textbox', { name: 'Message' })).toHaveValue('Unsent draft Agent text')
-    expect(within(returned).queryByText('Pinned Agent reply')).not.toBeInTheDocument()
     expect(screen.getByTestId('unified-workflow-board')).toBe(board)
     expect(mounted.history.location.search).not.toContain('runId=')
-    expect(posts()).toHaveLength(2)
+    expect(chat.calls.filter((call) => call.method === 'POST')).toEqual([])
   }, 30_000)
 })

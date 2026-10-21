@@ -12,7 +12,6 @@ import { useGraphDraftStore } from '../features/graph/store'
 import { nextDraftKey } from '../features/graph/nextDraft/state'
 import { nextDraftApi } from '../features/graph/nextDraft/transport'
 import { boardDraftContextKey } from '../features/workflow-board/keys'
-import { runInspectionQueryKey } from '../features/workflow-board/inspect/queries'
 import { pinnedRunHandlers, reply, runsUrl, versionReply } from '../features/run-board/testFixtures'
 import { installFlowLayout } from '../features/run-board/testFlowLayout'
 import { page, runA, runB } from '../features/runs-selector/testFixtures'
@@ -82,10 +81,11 @@ async function choose(runId: string | null) {
   })
   await userEvent.click(item)
 }
-const savedY = () => screen.findByRole('button', { name: 'Inspect Run node Y' })
+const savedY = () => screen.findByRole('button', { name: 'Inspect Y' })
 const pinnedUrl = (runId: string) => `${runsUrl(null, scope)}&runId=${runId}&workflowVersionId=version-${runId.slice(4)}&executionSemanticsVersion=3`
 async function openActivities() {
-  const trigger = screen.getByLabelText('Activities', { selector: 'button' })
+  // The retained editor's own Activities button is hidden while a Run is shown.
+  const trigger = screen.getByRole('button', { name: 'Activities' })
   expect(trigger).toBeVisible()
   await userEvent.click(trigger)
   return screen.findByRole('region', { name: 'Activities popover' })
@@ -164,6 +164,8 @@ beforeEach(() => {
         target: { workspaceId: String(params.workspaceId), workflowId: String(params.workflowId),
           runId: String(params.runId), workflowNodeId: String(params.workflowNodeId) }, reason: 'execution_missing',
       }))),
+    http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/execution-chat/target',
+      () => HttpResponse.json({ kind: 'unavailable', reason: 'NO_EXECUTION' })),
     http.get('*/api/management/workspaces/:workspaceId/workflows/:workflowId/schedule', ({ request }) => {
       scheduleReads.push(new URL(request.url).pathname)
       return HttpResponse.json({ schedule: null })
@@ -197,7 +199,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     }))
     const { client } = await mount(runsUrl(runId, scope))
     await waitForBoardContext(client)
-    const name = runId ? 'Selected Run pinned topology' : 'Workflow authoring'
+    const name = runId ? 'Selected Run board' : 'Workflow authoring'
     expect(await screen.findByRole('region', { name })).toBeVisible()
     expect(screen.queryByText('This browser cannot safely recover independent tab edits.')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Board controls' })).toBeVisible()
@@ -209,12 +211,12 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const editor = await authoring()
     await choose('run-a')
     expect(await savedY()).toBeVisible()
-    expect(screen.getByRole('region', { name: 'Selected Run pinned topology' })).toBeVisible()
-    expect(router.state.location.search.runId).toBe('run-a')
+    expect(screen.getByRole('region', { name: 'Selected Run board' })).toBeVisible()
+    expect(router.state.location.search.selectedRunId).toBe('run-a')
     await choose(null)
     await waitFor(() => expect(editor).toBeVisible())
     expect(within(editor).getByRole('heading', { name: 'Research to review' })).toBeVisible()
-    expect(router.state.location.search.runId).toBeUndefined()
+    expect(router.state.location.search.selectedRunId).toBeUndefined()
     expect(writes).toEqual([])
   })
 
@@ -223,39 +225,40 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const current = getMockFixture(scope.workspaceId)!.workflows.find(item => item.id === scope.workflowId)!
     expect(current.nodes.some(node => node.id === 'node-x')).toBe(false)
     const { router, unmount } = await mount(`${pinnedUrl('run-a')}&runNodeId=node-x`)
-    const inspect = await screen.findByRole('button', { name: 'Inspect Run node X before rename' }, { timeout: 5000 })
+    const inspect = await screen.findByRole('button', { name: 'Inspect X before rename' }, { timeout: 5000 })
     expect(inspect).toBeEnabled()
-    await userEvent.click(screen.getByText('Runs and Run details'))
-    const inspector = await screen.findByRole('region', { name: 'Exact execution inputs and results' })
-    await within(inspector).findByText('No execution is recorded for this selection.')
-    expect(screen.getByRole('region', { name: 'Selected Run pinned topology' })).toBeVisible()
+    // The linked node opens its saved details in the shared rail, which owns the selection afterwards.
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    expect(await within(rail).findByRole('region', { name: 'Run node inspector: X before rename' })).toBeVisible()
+    await within(rail).findByText('No execution recorded for this node yet.')
+    expect(screen.getByRole('region', { name: 'Selected Run board' })).toBeVisible()
     expect(screen.getByRole('group', { name: 'Board controls' })).toBeVisible()
-    expect(router.state.location.search).toMatchObject({ runId: 'run-a', workflowVersionId: 'version-a', executionSemanticsVersion: 3, runNodeId: 'node-x' })
+    expect(router.state.location.search).toMatchObject({ runId: 'run-a', workflowVersionId: 'version-a', executionSemanticsVersion: 3,
+      boardPanel: 'agent', boardAgentTab: 'details', boardNodeId: 'node-x' })
+    expect(router.state.location.search).not.toHaveProperty('runNodeId')
     expect(reads[0]!.searchParams.get('workflowNodeId')).toBe('node-x')
     expect(reads[0]!.pathname).toBe(`/api/management/workspaces/${scope.workspaceId}/runs/run-a/executions`)
     const href = router.history.location.href
     unmount()
     await mount(href)
-    await userEvent.click(await screen.findByText('Runs and Run details'))
-    expect(await screen.findByRole('region', { name: 'Exact execution inputs and results' })).toBeVisible()
+    const reopened = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    expect(await within(reopened).findByRole('region', { name: 'Run node inspector: X before rename' })).toBeVisible()
     expect(screen.queryByText('Invalid board selection')).toBeNull()
     expect(writes).toEqual([])
   }, 20_000)
 
-  it('clears an unknown saved node filter without losing the Run', async () => {
+  it('keeps the Run and says so when a linked saved node is not in the Run', async () => {
     const reads = installNodeInspection()
     const { router } = await mount(`${pinnedUrl('run-a')}&runNodeId=missing-node`)
-    await userEvent.click(await screen.findByText('Runs and Run details'))
-    const inspector = await screen.findByRole('region', { name: 'Exact execution inputs and results' })
-    expect(within(inspector).getByText('This selection is not in the Run’s saved version.')).toBeVisible()
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    expect(await within(rail).findByText('This node is not in the saved Run.')).toBeVisible()
     expect(screen.getByRole('group', { name: 'Board controls' })).toBeVisible()
     expect(await savedY()).toBeVisible()
     expect(reads).toEqual([])
-    await userEvent.click(within(inspector).getByRole('button', { name: 'Clear detail filter' }))
-    await waitFor(() => expect(router.state.location.search.runNodeId).toBeUndefined())
+    await userEvent.click(within(rail).getByRole('button', { name: 'Close inspector' }))
+    await waitFor(() => expect(router.state.location.search.boardPanel).toBeUndefined())
     expect(router.state.location.search.runId).toBe('run-a')
-    expect(within(inspector).getByRole('combobox', { name: 'Run node' })).toHaveValue('')
-    expect(within(inspector).queryByText('This selection is not in the Run’s saved version.')).toBeNull()
+    expect(router.state.location.search).not.toHaveProperty('runNodeId')
     expect(writes).toEqual([])
   })
 
@@ -270,58 +273,32 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     installFlowLayout(320, 800)
     const { router, client } = await mount(runsUrl('run-a', scope))
     await waitForBoardContext(client)
-    await waitForQuery(client, [...runInspectionQueryKey({ ...scope, runId: 'run-a',
-      workflowVersionId: 'version-a', executionSemanticsVersion: 3 }), 'version'])
-    const canvas = await screen.findByLabelText('Selected Run pinned topology')
+    const canvas = await screen.findByLabelText('Selected Run board')
     expect(canvas).toHaveRole('region')
     expect(canvas).toBeVisible()
-    const savedNode = await within(canvas).findByLabelText('Inspect Run node Y')
+    const savedNode = await within(canvas).findByLabelText('Inspect Y')
     expect(savedNode).toHaveRole('button')
     expect(savedNode).toBeVisible()
     expect(canvas.getBoundingClientRect().width).toBe(320)
-    const node = within(canvas).getByLabelText('Inspect Run node X before rename')
+    const node = within(canvas).getByLabelText('Inspect X before rename')
     expect(node).toHaveRole('button')
     expect(node).toBeVisible()
-    const actionGroup = within(canvas).getByLabelText('X before rename actions')
-    expect(actionGroup).toHaveRole('group')
-    const actions = within(actionGroup)
-    node.focus()
-    expect(actionGroup).toBeVisible()
-    await user.keyboard('{Enter}')
     expect(screen.queryByRole('complementary', { name: 'Workflow side panel' })).toBeNull()
-    await user.click(actions.getByLabelText('Open X before rename information', { selector: 'button' }))
+    await user.click(node)
     const info = await screen.findByRole('complementary', { name: 'Workflow side panel' })
     expect(info).toHaveRole('complementary')
     expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'details' })
-    expect(within(info).getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true')
-    await user.click(within(info).getByRole('tab', { name: 'Activity' }))
-    expect(await within(info).findByRole('region', { name: 'Activities' })).toBeVisible()
+    expect(within(info).getByRole('button', { name: 'Details' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await within(info).findByRole('region', { name: 'Run node inspector: X before rename' })).toBeVisible()
+    await user.click(within(info).getByRole('button', { name: 'Settings' }))
+    expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'settings' })
+    expect(within(info).getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await within(info).findByText(/This Run keeps its saved Agent configuration/)).toBeVisible()
+    await user.click(within(info).getByRole('button', { name: 'Chat' }))
+    expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'chat' })
+    expect(await within(info).findByText(/This saved node has no available execution/)).toBeVisible()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(info).not.toBeVisible())
-    await user.click(actions.getByLabelText('Open X before rename settings', { selector: 'button' }))
-    const settings = await screen.findByRole('complementary', { name: 'Workflow side panel' })
-    expect(settings).toHaveRole('complementary')
-    expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'settings' })
-    expect(within(settings).queryByText(/This is a saved Run Agent/)).not.toBeInTheDocument()
-    const settingsHint = within(settings).getByRole('button', { name: 'About Settings' })
-    await user.hover(settingsHint)
-    expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'This is a saved Run Agent. Return to the draft to edit settings for future work. Chat does not change this Run.',
-    )
-    await user.click(settingsHint)
-    expect(settingsHint).toHaveFocus()
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-    expect(settings).toBeVisible()
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(settings).not.toBeVisible())
-    await user.click(actions.getByLabelText('Open X before rename chat', { selector: 'button' }))
-    const chat = await screen.findByRole('complementary', { name: 'Workflow side panel' })
-    expect(chat).toHaveRole('complementary')
-    expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'chat' })
-    expect(chat).toBeVisible()
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(chat).not.toBeVisible())
     const activities = await openActivities()
     expect(await within(activities).findByText('History for run-a')).toBeVisible()
     expect(router.state.location.search).toMatchObject({ runId: 'run-a', workflowVersionId: 'version-a',
@@ -360,11 +337,11 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const writesBefore = [...writes]
 
     await choose('run-a'); await savedY()
-    expect(router.state.location.search).toMatchObject({ runId: 'run-a', workflowVersionId: 'version-a',
-      executionSemanticsVersion: 3 })
-    expect(screen.getByRole('region', { name: 'Selected Run pinned topology' })).toBeVisible()
-    expect(canvas).toHaveAttribute('inert')
-    expect(canvas).toHaveAttribute('aria-hidden', 'true')
+    expect(router.state.location.search).toMatchObject({ selectedRunId: 'run-a' })
+    expect(screen.getByRole('region', { name: 'Selected Run board' })).toBeVisible()
+    // The retained editor and its canvas stay mounted but hidden and inert behind the saved Run.
+    expect(editor.closest('.run-board-current')).toHaveAttribute('inert')
+    expect(editor).not.toBeVisible()
     expect(canvas).not.toBeVisible()
     const activities = await openActivities()
     expect(await within(activities).findByText('History for run-a')).toBeVisible()
@@ -385,7 +362,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     expect(router.state.location.search.runId).toBeUndefined()
     expect(router.state.location.search.workflowVersionId).toBeUndefined()
     expect(router.state.location.search.executionSemanticsVersion).toBeUndefined()
-    expect(screen.queryByRole('region', { name: 'Selected Run pinned topology' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Selected Run board' })).not.toBeInTheDocument()
   }, 20_000)
 
   it.each([0, 1_100])('restores the URL-selected Run in a fresh Router and QueryClient, with back/forward selection and %s ms context reads', async contextDelay => {
@@ -395,7 +372,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     await waitFor(() => expect(screen.getByLabelText('Editable workflow graph')).toBeVisible())
     await act(async () => { first.router.history.forward() })
     await savedY()
-    await waitFor(() => expect(first.router.state.location.search.runId).toBe('run-a'))
+    await waitFor(() => expect(first.router.state.location.search.selectedRunId).toBe('run-a'))
     const href = first.router.history.location.href
     first.unmount(); first.client.clear(); useGraphDraftStore.getState().clearAllDrafts()
     if (contextDelay) server.use(http.get('/api/management/workspaces/:workspaceId/agents', async () => {
@@ -404,10 +381,8 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const refreshed = await mount(href)
     await waitForBoardContext(refreshed.client)
     await savedY()
-    await waitFor(() => expect(refreshed.router.state.location.search).toMatchObject({
-      runId: 'run-a', workflowVersionId: 'version-a', executionSemanticsVersion: 3,
-    }))
-    expect(await screen.findByRole('region', { name: 'Workflow authoring' })).toBeVisible()
+    await waitFor(() => expect(refreshed.router.state.location.search).toMatchObject({ selectedRunId: 'run-a' }))
+    expect(await screen.findByRole('region', { name: 'Workflow authoring', hidden: true })).not.toBeVisible()
     expect(screen.getByLabelText('Editable workflow graph')).not.toBeVisible()
     expect(writes).toEqual([])
   })
@@ -435,8 +410,8 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
 
       await choose('run-a')
       await savedY()
-      await waitFor(() => expect(workspaceReads).toBe(initialWorkspaceReads + 1))
-      expect(within(editor).getByRole('heading', { name: 'Retained local name' })).toBeVisible()
+      expect(workspaceReads).toBe(initialWorkspaceReads)
+      expect(within(editor).getByRole('heading', { name: 'Retained local name', hidden: true })).toBeInTheDocument()
       await waitFor(() => expect(client.isFetching({ queryKey: boardDraftContextKey(scope.workspaceId, scope.workflowId) })).toBe(0))
       const selectedWorkspaceReads = workspaceReads
       const historyReads = context.mock.calls.length
@@ -450,7 +425,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
       const restoredReads = context.mock.calls.length
       await act(async () => { await vi.advanceTimersByTimeAsync(pollingTime) })
       await waitFor(() => expect(context.mock.calls.length).toBeGreaterThan(restoredReads))
-      expect(workspaceReads).toBe(initialWorkspaceReads + 1)
+      expect(workspaceReads).toBe(initialWorkspaceReads)
       expect(writes).toEqual([])
       expect(within(editor).getByRole('heading', { name: 'Retained local name' })).toBeVisible()
       expect(useGraphDraftStore.getState().nextDrafts[key]!.graph).toBe(graph)
@@ -460,12 +435,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     }
   }, 15_000)
 
-  it.each([
-    { executionState: 'running', snapshotDelay: 0 },
-    { executionState: 'queued', snapshotDelay: 0 },
-    { executionState: 'running', snapshotDelay: 1_500 },
-    { executionState: 'queued', snapshotDelay: 1_500 },
-  ] as const)('automatically pins a $executionState Run with a $snapshotDelay ms snapshot delay and returns to authoring through New run', async ({ executionState, snapshotDelay }) => {
+  it.each(['running', 'queued'] as const)('keeps the draft selected while a %s Run is discovered, and shows the Run only after an explicit choice', async executionState => {
     const fixture = getMockFixture(scope.workspaceId)!
     server.use(
       http.get('/api/workspaces/workspace-1', () => HttpResponse.json({
@@ -476,25 +446,22 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
       http.get(`${runsRoute}/summaries`, () => HttpResponse.json(page([
         { ...runA, status: executionState }, runB,
       ]))),
-      http.get(`${runsRoute}/:runId/snapshot`, async ({ params }) => {
-        if (snapshotDelay) await delay(snapshotDelay)
-        return HttpResponse.json(reply(String(params.runId), scope))
-      }),
     )
     const listed = await runsSelectorApi.list({ ...scope, limit: 20 })
     expect(listed.items.find(run => run.runId === 'run-a')).toMatchObject({ status: executionState })
     const { router } = await mount()
-    await waitFor(() => expect(router.state.location.search).toMatchObject({
-      runId: 'run-a', workflowVersionId: 'version-a', executionSemanticsVersion: 3,
-    }), { timeout: 3000 })
-    await authoring()
+    const editor = await authoring()
+    expect(router.state.location.search.runId).toBeUndefined()
+    expect(router.state.location.search.selectedRunId).toBeUndefined()
+    expect(screen.queryByRole('region', { name: 'Selected Run board' })).not.toBeInTheDocument()
+    expect(editor).toBeVisible()
+    await choose('run-a')
     expect(await savedY()).toBeVisible()
-    expect(screen.getByText('a', { selector: '.board-run-tag code' }).closest('[role="status"]')).toHaveTextContent('Run a')
-    expect(screen.queryByRole('button', { name: 'Return to draft' })).not.toBeInTheDocument()
+    expect(router.state.location.search).toMatchObject({ selectedRunId: 'run-a' })
     await choose(null)
     await waitFor(() => expect(screen.getByLabelText('Editable workflow graph')).toBeVisible())
-    expect(router.state.location.search.runId).toBeUndefined()
-    expect(screen.queryByRole('region', { name: 'Selected Run pinned topology' })).not.toBeInTheDocument()
+    expect(router.state.location.search.selectedRunId).toBeUndefined()
+    expect(screen.queryByRole('region', { name: 'Selected Run board' })).not.toBeInTheDocument()
     expect(writes).toEqual([])
   })
 
@@ -510,7 +477,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     expect(within(modal).getByRole('button', { name: /^Save$/ })).toBeEnabled()
     await userEvent.click(within(modal).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(modal).not.toBeVisible())
-    expect(screen.getByRole('region', { name: 'Selected Run pinned topology' })).toHaveTextContent('Run run-a · version version-a')
+    expect(screen.getByRole('region', { name: 'Selected Run board' })).toHaveAttribute('data-run-id', 'run-a')
   })
 
   it('canonicalizes a legacy Run link and preserves unrelated selection and hash', async () => {
@@ -518,19 +485,20 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const { router } = await mount(entry)
     await savedY()
     expect(router.state.location.pathname).toBe('/workspaces/workspace-1')
+    // The linked node moves into the shared rail; unrelated selection and the hash are preserved.
+    await screen.findByRole('complementary', { name: 'Workflow side panel' })
     expect(router.state.location.search).toMatchObject({ runId: 'run-a', workflowVersionId: 'version-a',
-      executionSemanticsVersion: 3, runNodeId: 'node-x', agentId: 'agent-researcher' })
-    const linkedActivities = await screen.findByRole('region', { name: 'Activities popover' })
-    await userEvent.click(within(linkedActivities).getByRole('button', { name: 'Close Activities' }))
+      executionSemanticsVersion: 3, boardPanel: 'agent', boardAgentTab: 'details', boardNodeId: 'node-x', agentId: 'agent-researcher' })
+    expect(router.state.location.search).not.toHaveProperty('runNodeId')
     const hash = router.history.location.hash
     await choose('run-b')
-    await screen.findByRole('button', { name: 'Inspect Run node X in B' })
+    await screen.findByRole('button', { name: 'Inspect X in B' })
     const activities = await openActivities()
     await within(activities).findByText('History for run-b')
     await userEvent.click(within(activities).getByRole('button', { name: 'Close Activities' }))
     expect(router.state.location.pathname).toBe('/workspaces/workspace-1')
-    expect(router.state.location.search).toMatchObject({ workflowId: scope.workflowId, runId: 'run-b', workflowVersionId: 'version-b', executionSemanticsVersion: 3, agentId: 'agent-researcher' })
-    expect(router.state.location.search.selectedRunId).toBeUndefined()
+    expect(router.state.location.search).toMatchObject({ workflowId: scope.workflowId, selectedRunId: 'run-b', agentId: 'agent-researcher' })
+    expect(router.state.location.search.runId).toBeUndefined()
     expect(router.history.location.hash).toBe(hash)
     await choose(null)
     expect(router.state.location.search.agentId).toBe('agent-researcher')
@@ -573,7 +541,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     const files = within(group).getByRole('button', { name: 'Files' })
     expect(selector.compareDocumentPosition(clock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(clock.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(group.closest('header')).toHaveStyle({ position: 'absolute', minWidth: '0', boxSizing: 'border-box' })
+    expect(group.closest('header')).toHaveStyle({ position: 'static', minWidth: '0', boxSizing: 'border-box' })
     expect(container.querySelector('.unified-workflow-board')).toHaveStyle({ flexDirection: 'column' })
     await userEvent.click(selector)
     const menu = await screen.findByRole('menu', { name: 'Runs' })
