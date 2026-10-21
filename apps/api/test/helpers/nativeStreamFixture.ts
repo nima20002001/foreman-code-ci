@@ -2,11 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { HarnessExecutionSchema, type HarnessNativeEvent } from '@foreman-code/contracts'
 import { canonicalGraphJson, makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import type { currentDatabase } from './eng04CurrentDatabase.js'
-import { currentRepositoryFixture } from './wave25CurrentRepository.js'
+import { currentRepositoryFixture, currentRepositoryServices } from './wave25CurrentRepository.js'
 import { RunOwnership } from '../../src/modules/runs/ownership.js'
 import { PostgresRunRepository } from '../../src/modules/runs/postgres.js'
 import { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
-import { createWorkflowRepositoryServices } from '../../src/modules/runs/workflowRepositoryServices.js'
 import { createWorkflowNativeCaptureChannel } from '../../src/modules/interactions/workflowNativeCapture.js'
 import type { SingleWriterSessionManager, SessionWriteLease } from '../../src/modules/interactions/sessionWriter.js'
 import { openWorkflowLifecycleLocked } from '../../src/modules/runs/repeatLifecycle.js'
@@ -29,7 +28,7 @@ export async function nativeStreamFixture(db: Awaited<ReturnType<typeof currentD
   if (!owner) throw new Error('Fixture Run already has an owner')
   const channel = createWorkflowNativeCaptureChannel()
   const repository = new PostgresRunRepository(db.pool, new PostgresWorkflowRepository(db.pool), f.locations,
-    { runtimeRoot: db.directory, ...createWorkflowRepositoryServices(channel.verify, checkPhysical) })
+    { runtimeRoot: db.directory, ...currentRepositoryServices(db, channel.verify, checkPhysical) })
   const scope = f.f.scope
   const { executionId: _id, ...identity } = f.f.identities[0]!
   void _id

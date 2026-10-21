@@ -9,6 +9,7 @@ import {
   makeCurrentWorkflowFixture, type RunExecutionSummary,
 } from '@foreman-code/contracts/wave25'
 import { RunEventsListInputSchema, RunEventsPageSchema } from '@foreman-code/contracts/management'
+import { answerForRun } from './coordinationEnvelope.js'
 import { currentOperatorIntegration } from './currentOperatorIntegration.js'
 import {
   value, reader, pairedRead, pairedDenial, terminal, startThroughHttp,
@@ -72,14 +73,15 @@ export async function inspectRepeatRun({ exit, maxOccurrences, expectedOccurrenc
   } }))
   const exitId = fixture.version.definition.nodes[1]!.id
   let exits = 0
-  const f = await currentOperatorIntegration({ fixture, insertRun: false, approvalNodeIds: [], outputFor: (nodeId) => {
-    if (nodeId !== exitId) return { nodeId }
+  const f = await currentOperatorIntegration({ fixture, insertRun: false, approvalNodeIds: [], outputFor: (nodeId, request) => {
+    if (nodeId !== exitId) return answerForRun(request, { data: { nodeId } })
     exits++
     const outcome = exit === 'early' && exits === 2 ? 'pass' : 'issues'
-    return { text: JSON.stringify({ routing: { outcome }, data: {
+    const answer = answerForRun(request, { routing: { outcome }, data: {
       latestDeliverable: { task: 'ENG05-D', occurrence: exits },
       remainingFindings: outcome === 'pass' ? [] : [{ id: 'task-owned-finding' }],
-    } }) }
+    } })
+    return { text: JSON.stringify(answer) }
   } })
   const measurements: InspectionMeasurement[] = []
   try {

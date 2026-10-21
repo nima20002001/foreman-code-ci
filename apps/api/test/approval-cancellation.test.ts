@@ -33,6 +33,7 @@ import type { RunOwnership } from '../src/modules/runs/ownership.js'
 import type { WorkspaceLocationService } from '../src/modules/workspaces/location.js'
 import { AcceptedWorkflowRunV3Schema, makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import { rejectableDeferred } from './helpers/deferred.js'
+import { idleWorkflowControls, idleWorkflowRepeat } from './helpers/idleWorkflowControls.js'
 
 const now = '2026-09-16T00:00:00.000Z'
 const never = () => new Promise<never>(() => undefined)
@@ -130,7 +131,8 @@ async function fixture(items: HarnessExecution[], cold = false) {
     get: async () => ({ id: 'run-1', workspaceId: 'workspace-1', executionState: 'running' }),
     getExecution: async (id: string) => rows.get(id),
     requestCleanup: async () => { stopRequested = true },
-    repeat: async () => ({ settleNegativeExecution: async () => undefined }),
+    ...idleWorkflowControls,
+    repeat: async () => ({ ...idleWorkflowRepeat, settleNegativeExecution: async () => undefined }),
     listExecutions: async () => { calls.push('list'); return [...rows.values()] },
     getExecutionConfiguration: async (id: string) => configuration(id.slice('config-'.length)),
     ensureExecution: async (item: HarnessExecution) => ({ execution: rows.get(item.id) ?? item, created: !rows.get(item.id)?.nativeSessionId }),

@@ -61,7 +61,8 @@ it('appends transcript batches in a constant number of statements and preserves 
   expect(await f.read()).toEqual(saved)
   console.info('appendNativeEvents', batch)
   expect(batch.statements).toBeLessThanOrEqual(first.statements + 2)
-  expect(batch.statements).toBeLessThanOrEqual(26)
+  // Includes the one lookup that decides whether any chat receipt needs projecting for the whole batch.
+  expect(batch.statements).toBeLessThanOrEqual(27)
 })
 
 it('replays retained semantic history with constant statement count and unchanged persisted events', async () => {
