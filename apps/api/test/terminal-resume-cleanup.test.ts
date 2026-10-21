@@ -31,6 +31,7 @@ function fixture() {
     requestColdRunCleanup: async () => false,
     finishRun: vi.fn(async () => undefined),
     cancelRun: vi.fn(),
+    executionCapacity: () => undefined, reconcileWorkflowControls: async () => undefined,
   }
   const onTerminal = vi.fn(async () => undefined)
   type Args = ConstructorParameters<typeof LangGraphWorkflowEngine>
