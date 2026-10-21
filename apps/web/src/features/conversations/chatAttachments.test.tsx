@@ -350,10 +350,11 @@ describe('FIL-13 real chat mounts', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(sendCalls).toHaveLength(1))
-    const retry = await screen.findByRole('button', { name: 'Retry original message' })
+    const retry = await screen.findByRole('button', { name: 'Retry pending message' })
     await waitFor(() => expect(retry).toBeEnabled())
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Original file message')
     expect(screen.getByRole('list', { name: 'Attachments' })).toHaveTextContent('notes.md')
+    expect(readPendingOperatorMessage('conversation-one').command).toMatchObject(sendCalls[0])
     if (published) {
       // Native publication finishes after durable admission but before receipt recovery.
       // Hydration exposes both input and output pins on the accepted user message.
@@ -370,17 +371,19 @@ describe('FIL-13 real chat mounts', () => {
     }
     loseOperatorAck = false
     fireEvent.click(retry)
-    // The retained receipt confirms the original command, so recovery does not send it again.
+    await waitFor(() => expect(sendCalls).toHaveLength(2))
+    expect(sendCalls[1]).toEqual({ ...sendCalls[0], recovery: 'receipt' })
     await waitFor(() => {
       expect(screen.queryByRole('list', { name: 'Attachments' })).not.toBeInTheDocument()
+      expect(readPendingOperatorMessage('conversation-one').command).toBeUndefined()
       expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('')
-      expect(screen.queryByRole('button', { name: 'Retry original message' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Retry pending message' })).not.toBeInTheDocument()
     })
-    expect(sendCalls).toHaveLength(1)
     const article = within(await screen.findByRole('article', { name: 'Message from You' }))
     expect(await article.findByText('notes.md')).toBeVisible()
     if (published) expect(await article.findByText('result.md')).toBeVisible()
     expect(operatorStates.get('conversation-one')!.messages).toHaveLength(1)
+    expect(sendCalls.filter((command) => !command.recovery)).toHaveLength(1)
     expect(uploadPaths).toHaveLength(1)
   })
 
