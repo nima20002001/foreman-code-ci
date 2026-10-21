@@ -7,6 +7,7 @@ import { resolveAgentChatDirectory } from './agentChatDirectory.js'
 import { HANDOFF_MESSAGE_LIMIT, handoffContext } from './operatorChatRepository.js'
 import { harnessSessionChanged } from '../harnesses/providerAccountConfiguration.js'
 import { DomainError } from '../errors.js'
+import type { SqlQuery } from '../../infrastructure/transaction.js'
 
 type Queryable = Pick<pg.PoolClient, 'query'>
 
@@ -42,7 +43,7 @@ export async function agentConfigurationDirectory(sql: Queryable, row: AgentConv
 }
 
 /** Before admission all messages precede the new turn; dispatch excludes its already-persisted message. */
-export async function agentConfigurationHandoff(sql: Queryable, conversationId: string, beforeRequestId?: string) {
+export async function agentConfigurationHandoff(sql: SqlQuery, conversationId: string, beforeRequestId?: string) {
   const history = await sql.query<{ role: string; content: string }>(`select role,content
     from operator_conversation_messages where conversation_id=$1 and role in ('user','assistant')
     and ($2::text is null or sequence < (select sequence from operator_conversation_messages

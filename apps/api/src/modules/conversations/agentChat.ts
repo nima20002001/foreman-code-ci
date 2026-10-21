@@ -21,7 +21,7 @@ import { SessionControlStore } from './sessionControls/store.js'
 import { acceptedResponseControl } from './acceptedResponseControl.js'
 import { nativeNonSubmission } from './nativeNonSubmission.js'
 import { sessionStartConfiguration } from '../harnesses/sessionStart.js'
-import { agentConfigurationTransition, agentConfigurationDirectory } from './agentConfigurationTransition.js'
+import { agentConfigurationTransition, agentConfigurationDirectory, agentConfigurationHandoff } from './agentConfigurationTransition.js'
 import { pendingInteractionAfterHistory } from './pendingInteractionReadback.js'
 import { qualifyChatActivity } from './qualifiedActivity.js'
 import { reconcileKnownActivities } from './reconcileKnownActivities.js'
@@ -1151,8 +1151,18 @@ export class AgentChatService {
     const context: AgentChatContext = { workspaceId: row.workspace_id, workflowId: row.workflow_id,
       workflowNodeId: row.workflow_node_id, agentId: row.agent_id, ...(row.origin_run_id ? { runId: row.origin_run_id } : {}) }
     const input = await this.preflightInput(principal, request, { context, row: { ...row,
-      agent_configuration_version_id: configuration.id }, configuration }, sql, channelContext)
+      agent_configuration_version_id: configuration.id, record: await this.acceptedRecord(row, configuration, sql) },
+    configuration }, sql, channelContext)
     return { input, configurationVersionId: configuration.id }
+  }
+
+  /** The accepted prompt is composed before dispatch applies the saved configuration. A change that replaces
+   * the native session restarts startup delivery with the prior conversation as handoff, exactly as dispatch records it. */
+  private async acceptedRecord(row: AgentConversationRow, configuration: AgentConfigurationVersion, sql?: TransactionSql) {
+    if (configuration.id === row.agent_configuration_version_id) return row.record
+    const previous = await this.conversationConfiguration(row)
+    if (!previous || !agentConfigurationTransition(row, previous, configuration).replaceSession) return row.record
+    return { ...row.record, handoffContext: await agentConfigurationHandoff(sql ?? this.pool, row.id), startupDelivered: false }
   }
 
   private async steer(principal: ManagementPrincipal, context: AgentChatContext, key: string, input: SendAgentChatMessageRequest, resolution: Resolution, selectedRun: boolean, assertCurrent: RunChatAuthorityCheck,
@@ -1616,11 +1626,13 @@ export class AgentChatService {
     return configuration
   }
 
-  private async applyTurnConfiguration(row: AgentConversationRow, acceptedConfigurationId?: string): Promise<AgentConversationRow> {
-    if (acceptedConfigurationId === row.agent_configuration_version_id) return row
+  private async applyTurnConfiguration(row: AgentConversationRow, acceptedConfigurationId?: string): Promise<{
+    row: AgentConversationRow; replacedSession: boolean
+  }> {
+    if (acceptedConfigurationId === row.agent_configuration_version_id) return { row, replacedSession: false }
     const configuration = acceptedConfigurationId ? await this.workflows.getAgentConfiguration(acceptedConfigurationId) : await this.pendingConfiguration(row)
     if (acceptedConfigurationId && !configuration) throw new DomainError('AGENT_CHAT_CONFIGURATION_MISSING', 'The accepted configuration is unavailable.', 409)
-    if (!configuration) return row
+    if (!configuration) return { row, replacedSession: false }
     const previous = await this.conversationConfiguration(row)
     if (!previous) {
       throw new DomainError('AGENT_CHAT_CONFIGURATION_MISSING', 'The saved Agent configuration is unavailable.', 409)
@@ -1641,7 +1653,8 @@ export class AgentChatService {
     }
     await this.release(row.id, previousProfile?.target.hostRef.kind === 'device'
       ? { workerClosure: replaceSession ? 'close' : 'release' } : undefined)
-    return this.repository.applyConfiguration(row.id, row.active_request_id!, configuration, { replaceSession, directoryBinding })
+    return { row: await this.repository.applyConfiguration(row.id, row.active_request_id!, configuration, { replaceSession, directoryBinding }),
+      replacedSession: replaceSession }
   }
 
   private async runtime(row: AgentConversationRow, configuration: AgentConfigurationVersion, correlationId: string, signal: AbortSignal, controlPrincipalId?: string): Promise<Runtime> {
@@ -1798,7 +1811,8 @@ export class AgentChatService {
       const principalId = await this.repository.turnPrincipalId(id, turn.requestId)
       if (principalId) this.runtimes.get(id)?.manager.setSessionControlPrincipal?.(principalId)
       const acceptedInput = await this.repository.turnPreparedInput(id, turn.requestId)
-      row = await this.control(id, () => this.applyTurnConfiguration(row!, acceptedInput?.configurationVersionId))
+      const applied = await this.control(id, () => this.applyTurnConfiguration(row!, acceptedInput?.configurationVersionId))
+      row = applied.row
       const configuration = await this.conversationConfiguration(row)
       if (!configuration) throw new DomainError('AGENT_CHAT_CONFIGURATION_MISSING', 'The pinned Agent configuration is unavailable.', 409)
       const selectedMode = await this.repository.turnSessionMode(id, turn.requestId)
@@ -1807,7 +1821,9 @@ export class AgentChatService {
         ...(selectedMode ? { initialMode: selectedMode } : {}), busyReason: null })
       creatingSession = !row.native_session_id
       runtime = await this.runtime(row, configuration, correlationId, signal, principalId)
-      if (acceptedInput) restoreAcceptedChatInput(runtime.manager, correlationId, acceptedInput.input)
+      // A session-replacing transition retires the prepared frame's session, binding and method. The new owner
+      // composes its frame from the exact accepted prompt and settings and still validates its serialized size.
+      if (acceptedInput && !applied.replacedSession) restoreAcceptedChatInput(runtime.manager, correlationId, acceptedInput.input)
       creatingSession = !runtime.session
       const onSubmitted = async (nativeId: string) => {
         nativeTurnId = nativeId; submitted = true

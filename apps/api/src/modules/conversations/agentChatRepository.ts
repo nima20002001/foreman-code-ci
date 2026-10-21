@@ -573,7 +573,10 @@ export class PostgresAgentChatRepository {
       if (claimed.rowCount !== 1) return false
       const prepared = await this.turnPreparedInput(id, requestId, client)
       if (prepared) {
-        const selected: AcceptedChatInput = row.record.startupDelivered && prepared.input.subsequent ? prepared.input.subsequent : prepared.input
+        // Input accepted for a configuration that dispatch has not applied yet was composed for that transition.
+        const current = prepared.configurationVersionId === row.agent_configuration_version_id
+        const selected: AcceptedChatInput = current && row.record.startupDelivered && prepared.input.subsequent
+          ? prepared.input.subsequent : prepared.input
         const input = omitProperties(selected, ['subsequent'])
         await client.query(`update operator_conversation_turns set payload=jsonb_set(payload,'{preparedInput}',$3::jsonb)
           where conversation_id=$1 and request_id=$2`, [id, requestId, JSON.stringify({ ...prepared, input })])

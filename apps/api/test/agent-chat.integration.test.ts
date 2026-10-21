@@ -1699,7 +1699,9 @@ describe('F4 authenticated transport / persistence regressions', { timeout: 60_0
       expect(native.cancels).toBe(1)
       expect((await read()).activeTurn?.requestId).toBe(next.activeTurn?.requestId)
       const receipts = (await pool.query<{ result: { status: string } }>(`select result from management_command_receipts
-        where principal_id=$1 and operation='agent_chat_control' and target_key=$2`, [writer.id, id])).rows
+        where principal_id=$1 and operation='agent_chat_control' and target_key=$2 and command_id=any($3::text[])`,
+      // Earlier tests reuse this deterministic conversation id; count only this test's three commands.
+      [writer.id, id, [cancel.requestId, respond.requestId, interrupt.requestId]])).rows
       expect(receipts.map((row) => row.result.status)).toEqual(['completed', 'completed', 'completed'])
     } finally {
       if (native.activeTurn) native.finish({ outcome: 'canceled' })
