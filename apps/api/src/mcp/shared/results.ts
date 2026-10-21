@@ -30,7 +30,6 @@ export function toolFailure(error: unknown, internalMessage = 'The Operator serv
     })
   }
   if (error instanceof FileTransferError) error = new DomainError(error.code, error.message, 409)
-  if (!(error instanceof DomainError)) console.error('DIAG-TOOLFAILURE', error)
   const failureClass = publicFailureClass(error)
   const classified = failureClass ? { class: failureClass } : {}
   const body = error instanceof DomainError

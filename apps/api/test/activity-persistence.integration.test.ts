@@ -21,7 +21,8 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
       active_native_turn_id text, deleted_at timestamptz, revision bigint not null default 0,
       harness text not null default 'codex', kind text not null default 'agent', record jsonb not null default '{}', active_phase text, cancel_requested boolean not null default false,
       turn_state text not null default 'idle', last_error text, last_result jsonb, pending_interaction jsonb, updated_at timestamptz not null default now());
-      create table operator_conversation_turns (conversation_id text, request_id text, intent text, delivery text, input_hash text default 'fixture', updated_at timestamptz);
+      create table operator_conversation_turns (conversation_id text, request_id text, intent text, delivery text, input_hash text default 'fixture', updated_at timestamptz,
+        payload jsonb not null default '{}');
       create table operator_conversation_activity (conversation_id text, request_id text, activity_id text,
         record jsonb not null, sequence bigint generated always as identity, revision bigint not null default 0,
         unique(conversation_id,request_id,activity_id));`)
@@ -87,7 +88,7 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
       alter table operator_conversation_turns add column turn_sequence bigint generated always as identity,
       add column message_id text default 'message', add column native_turn_id text, add column target_native_turn_id text,
       add column delivery_error jsonb, add column result jsonb,
-      add column payload jsonb default '{}'::jsonb, add column created_at timestamptz default now();
+      add column created_at timestamptz default now();
       create table operator_conversation_messages (conversation_id text not null references operator_conversations(id),
         record jsonb not null, sequence bigint generated always as identity, activity_record_revision bigint not null default 0);
       create table management_command_receipts (principal_id text, operation text, command_id text, target_key text,
@@ -150,6 +151,8 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
       // The pump awaits real PostgreSQL I/O; unit fixture tick counts are not a completion fence.
       await f.internals.tasks.get(f.store.row.id)
       await f.idle()
+      console.log('DIAG2', JSON.stringify({ outputs, state: f.store.row.turn_state, error: f.store.row.last_error, last: f.store.row.last_result,
+        turns: [...f.store.turns.values()].map(t => ({ d: t.delivery, e: t.delivery_error, r: t.result })), starts: f.manager.starts, acts: (await pool.query('select activity_id,revision::text from operator_conversation_activity')).rows }))
       expect(outputs).toEqual(ordered ? ['first', 'second', 'authoritative correction'] : ['first', 'authoritative correction'])
       const stored = (await pool.query("select record,revision::text,source_provenance from operator_conversation_activity where activity_id='mounted-tool'")).rows[0]
       expect(stored.record.output).toBe('authoritative correction'); expect(stored.revision).toBe(ordered ? '2' : '1')
