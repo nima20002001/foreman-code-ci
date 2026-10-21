@@ -93,8 +93,7 @@ async function projectCard(tx: GraphTransactionSql, row: BoardRow, cardId: strin
   if (!changed) return false
   const blockerSource = await cardBlockerSource(tx,card.id)
   const base = blockerSource === 'engine' ? { ...card,status:'todo' as const,completionKind:null,reason:null } : card
-  // Only the owner resolves Waiting for user; agent work facts never move it.
-  const manualBlocker = base.status === 'blocked' && blockerSource === 'manual' || base.status === 'waiting_for_user'
+  const manualBlocker = base.status === 'blocked' && blockerSource === 'manual'
   let projected = manualBlocker ? base : aggregateCard(base,bindings,claims)
   const continuationAdmitted = fact.phase === 'continuation_admitted'
     || (fact.phase === 'admitted' && fact.continuationOf !== undefined)

@@ -1,20 +1,15 @@
-import { InfoHint } from '../../../shared/ui/InfoHint'
-import { flushSync } from 'react-dom'
-import { useGraphDraftStore } from '../store'
 import { WorkflowSettings } from './WorkflowSettings'
 import { BoardNotice } from './BoardNotice'
 import { Inbox, Redo2, Save, Undo2 } from 'lucide-react'
-import { ActionMenu, Button, ConfirmDialog, EmptyState, Icon, IconButton, Toolbar } from '../../../shared/ui/nocturne'
+import { ActionMenu, Button, ConfirmDialog, Icon, IconButton, Toolbar } from '../../../shared/ui/nocturne'
 import { nodeTitle, removeRelationship } from './model'
 import { nextDraftDirty, type NextDraftEdit } from './state'
 import { WorkflowSaveError } from './WorkflowSaveError'
 import { EditIntentStatus } from './EditIntentStatus'
 import { ConflictRecoveryPanel } from './ConflictRecoveryPanel'
-import { CreateBoardAgent } from '../../workflow-hierarchy/CreateBoardAgent'
+import { AddBoardAgentMenu } from '../../workflow-hierarchy/AddBoardAgentMenu'
 import { RemoveHierarchyNodeDialog } from '../../workflow-hierarchy/RemoveHierarchyNodeDialog'
-import { AvailableAgentList } from './AuthoringFields'
 import { DraftCanvas } from './DraftCanvas'
-import { AgentPickerPanel } from '../../workflow-board/AgentPickerPanel'
 import { WorkflowName } from '../../workflow-board/WorkflowName'
 import { WorkflowWorktreeField } from '../../workflow-board/WorkflowWorktreeField'
 import { BoardUndoNotice } from '../../workflow-board/BoardUndoNotice'
@@ -37,11 +32,11 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
     reloading, stopAndSave, discardChanges, reload, inspectLatest, startMutation, starting, start, recoverStart,
     workspace, managedWorkflow, pendingApprovals, agents, hints, requestSave, historyAction, openAgent, panels,
     scheduleWrite, historyPending } = controller
-  const { panel, setPanel, settingsPanel, workflowName, openSaveField, openNode, setOpenNode, confirm, setConfirm, runAfterSave,
+  const { panel, settingsPanel, workflowName, openSaveField, openNode, setOpenNode, confirm, setConfirm, runAfterSave,
     message, setGeometryPending, canvas, presentation, change, geometry, report, inspect, openPanel, prepare } = core
   const { dirty, needsSave, canUndo, canRedo, startReloadRequired, startDisabled, startReason, saveBusy,
     affectedRuns, affectedWorkflows, stopBlocked, errorText, locationMessage, panelTitle } = controller.status
-  const repeatOpen = panel === 'repeat', settingsOpen = !!panel && panel !== 'repeat' && panel !== 'agents'
+  const repeatOpen = panel === 'repeat', settingsOpen = !!panel && panel !== 'repeat'
   const repeatZ = useFloatingZ('board-repeat', repeatOpen), settingsZ = useFloatingZ('board-settings', settingsOpen)
   return <section className="workflow-graph board-typed-editor" aria-label="Workflow authoring">
     <div className="workflow-graph-canvas">
@@ -51,16 +46,6 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
         change={change} geometry={geometry} pending={setGeometryPending} report={report} inspect={inspect}
         removalDisabled={edit.busy || reloading || editIntent.locked}
         open={openNode} setOpen={setOpenNode} panels={panels} />
-      {!graph.nodes.length ? <div className="board-empty"><EmptyState icon="bot" title="Add your first agent"
-        action={<><InfoHint label="Add your first agent">Start with a Master that coordinates teams, an Orchestrator, or a Worker.</InfoHint>
-          <Button variant="primary" leading={<Icon name="plus" size={15} />} onClick={() => openPanel('agents')}>Add node</Button>
-          <Button onClick={() => void prepare(() => {
-            useGraphDraftStore.getState().updateNextDraft(draftKey, current => current.workflowForms?.createAgent ? current : {
-              ...current, workflowForms: { ...current.workflowForms, createAgent: { role: 'master', name: '', parentNodeId: '' } },
-            })
-            setPanel('agents')
-          }).catch(report)}>{edit.workflowForms?.createAgent ? 'Continue Agent draft' : 'Add Master'}</Button>
-        </>} /></div> : null}
       <header className="board-topbar">
         <div className="board-title">
           <WorkflowName ref={workflowName} name={graph.name} disabled={saveBusy || starting || editIntent.locked}
@@ -99,13 +84,15 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
                 description: dirty ? 'Save or discard draft changes first.' : undefined,
                 onSelect: () => void prepare(remove) },
             ]} />} />
-          <IconButton label="Add agent or job to graph" onClick={() => openPanel('agents')}><Icon name="plus" size={16} /></IconButton>
+          <AddBoardAgentMenu draftKey={draftKey} edit={edit} report={report}
+            disabled={edit.busy || reloading || editIntent.locked || starting || !!edit.pending || !!pendingStart} />
           <IconButton label="Workflow settings" onClick={() => openPanel('workflow')}><Icon name="settings" size={16} /></IconButton>
           <Button variant="secondary" className="n-icon-button workflow-approval-inbox" aria-label={`Open human approval inbox${pendingApprovals ? `, ${pendingApprovals} pending` : ''}`}
             title="Approval inbox" onClick={() => useApprovalInboxStore.getState().openInbox({ workspaceId: graph.workspaceId, workflowId: graph.id })}><Inbox aria-hidden="true" size={16} />
             {pendingApprovals ? <span className="workflow-approval-inbox-badge" aria-hidden="true">{pendingApprovals}</span> : null}</Button>
           {!graph.handoffs ? <Button size="sm" variant="ghost" onClick={() => openPanel('repeat')}>Repeats</Button> : null}
           {board ? <IconButton label="Activities" onClick={board.openRuns}><Icon name="history" size={16} /></IconButton> : null}
+          {board?.selectSidePanel ? <IconButton label="Group chat" onClick={() => board.selectSidePanel!({ kind: 'group_chat' })}><Icon name="chat" size={16} /></IconButton> : null}
           <Button variant="primary" leading={<Icon name="play" size={14} />} aria-label={pendingStart ? 'Reconcile Start' : needsSave ? 'Save and run' : 'Start saved version'}
             title={startReason} disabled={startDisabled} loading={starting} onClick={() => void (pendingStart ? start() : prepare(() => needsSave ? startMutation.mutateAsync({ saveFirst: true }) : start())).catch(report)}>{pendingStart ? 'Confirm start' : needsSave ? 'Save and run' : 'Run'}</Button>
         </Toolbar>
@@ -116,7 +103,7 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
         pending={editIntent.mutation.isPending} openField={openSaveField} openIssue={(issue) => {
           if (issue.nodeId) openAgent(issue.nodeId)
           else if (issue.relationshipId) inspect(() => presentation.getState().setFocusedEdgeId(issue.relationshipId))
-          else openPanel(issue.code === 'ENTRY_REQUIRED' && !graph.nodes.length ? 'agents' : 'workflow')
+          else openPanel('workflow')
         }} />
       <div className="board-notices" aria-live="polite">
         {scheduleWrite.unconfirmed && scheduleWrite.command?.history ? <BoardNotice tone="warning"
@@ -150,13 +137,6 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
         <header><h2>Business repeats</h2><IconButton variant="ghost" label="Close panel" onClick={() => openPanel(null)}><Icon name="close" size={16} /></IconButton></header>
         <RepeatEditor graph={graph} change={change} disabled={edit.busy || reloading || editIntent.locked || !!edit.pending || !!pendingStart} />
       </aside>
-      {panel === 'agents' ? <AgentPickerPanel close={() => openPanel(null)}>
-        <fieldset disabled={edit.busy || reloading || editIntent.locked || starting}>
-          <CreateBoardAgent draftKey={draftKey} edit={edit} report={report} close={() => setPanel(null)}
-            openSettings={nodeId => { flushSync(() => setPanel(null)); openAgent(nodeId) }} />
-          <AvailableAgentList context={context} change={change} report={report} agentEdits={edit.agentEdits} />
-        </fieldset>
-      </AgentPickerPanel> : null}
       {settingsOpen ? <aside ref={settingsPanel} className="board-side-panel" aria-label={panelTitle || 'Board controls'} style={{ zIndex: settingsZ }}
         onPointerDownCapture={() => raiseFloating('board-settings')} onFocusCapture={() => raiseFloating('board-settings')}>
         <header><h2>{panelTitle}</h2><IconButton variant="ghost" label="Close panel" onClick={() => openPanel(null)}><Icon name="close" size={16} /></IconButton></header>

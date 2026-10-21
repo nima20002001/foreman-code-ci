@@ -39,9 +39,7 @@ export interface WorkflowSidePanelProps {
   slots?: WorkflowCollaborationSlots
 }
 
-const destinations = [
-  ['group_chat', 'Group chat'], ['agent', 'Agent'], ['browser', 'Browser'], ['operator', 'Operator'],
-] as const
+const destinations = [['agent', 'Agent'], ['browser', 'Browser']] as const
 
 /** Only the selected body mounts. The fixed portal host preserves existing conversation/store ownership. */
 export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workflowVersionId,
@@ -54,7 +52,9 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
   const attach = useCallback((element: HTMLDivElement | null) => { setHost(element); bodyRef(element) }, [bodyRef])
   useSidePanelScroll(host, JSON.stringify([scope, runId, selection,
     selection.kind === 'operator' ? conversationId : undefined]), modalOpen)
-  const active = selection.kind !== 'none'
+  // Group chat opens in its own resizable dialog, never in this rail.
+  const groupChat = selection.kind === 'group_chat'
+  const active = selection.kind !== 'none' && !groupChat
   useLayoutEffect(() => {
     const panel = panelRef.current
     if (!active || modalOpen || !panel) return
@@ -111,9 +111,7 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
     const openedFrom = opener.current
     return () => { if (openedFrom?.isConnected) openedFrom.focus() }
   }, [active, opener])
-  const content = modalOpen ? null : selection.kind === 'group_chat'
-    ? slots?.groupChat?.({ workspaceId, workflowId, ...(runId ? { runId } : {}) }) ?? <p role="status">Group chat is not available yet.</p>
-    : selection.kind === 'browser'
+  const content = modalOpen ? null : selection.kind === 'browser'
       ? slots?.browser?.({ ...selection, workspaceId, workflowId, ...(runId ? { runId } : {}),
         ...(workflowVersionId ? { workflowVersionId } : {}) }) ?? <p role="status">Browser is not available yet. No browser session has been started.</p>
       : selection.kind === 'agent' && selection.tab === 'chat'
@@ -124,11 +122,16 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
           ...(selection.waitingActivationId ? { waitingActivationId: selection.waitingActivationId } : {}) })
           ?? (selection.executionId || selection.waitingActivationId ? <p role="status">Chat for this selected execution is not available yet. Your execution selection is kept.</p> : null)
         : null
-  return <aside ref={panelRef} tabIndex={-1} className="workflow-side-panel" aria-label="Workflow side panel"
+  return <><Dialog open={groupChat && !modalOpen} onOpenChange={open => { if (!open) onSelect({ kind: 'none' }) }}
+    title="Group chat" closeLabel="Close group chat" className="workflow-group-chat-dialog">
+    {groupChat && !modalOpen ? slots?.groupChat?.({ workspaceId, workflowId, ...(runId ? { runId } : {}) })
+      ?? <p role="status">Group chat is not available yet.</p> : null}
+  </Dialog>
+  <aside ref={panelRef} tabIndex={-1} className="workflow-side-panel" aria-label="Workflow side panel"
     style={{ '--workflow-rail-width': `${width}px` } as CSSProperties}
     hidden={!active || modalOpen} inert={!active || modalOpen}>
     <header>
-      <h2>{destinations.find(([kind]) => kind === selection.kind)?.[1] ?? 'Agent'}</h2>
+      <h2>{selection.kind === 'operator' ? 'Operator' : selection.kind === 'browser' ? 'Browser' : 'Agent'}</h2>
       <Button size="sm" variant="ghost" onClick={() => onSelect({ kind: 'none' })}>Back to Board</Button>
     </header>
     <nav aria-label="Workflow panel destination">
@@ -148,7 +151,7 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
     <div className="workflow-rail-size"><Slider label="Panel width" min={320} max={640} value={width}
       onValueChange={value => useSidePanelPresentation.getState().setWidth(scope, value)} format={value => `${value} px`} /></div>
     <div className="workflow-side-panel-body" ref={attach}>{modalOpen ? null : content}</div>
-  </aside>
+  </aside></>
 }
 
 export function WorkflowMemoryDialog({ open, onOpenChange, slots }: {

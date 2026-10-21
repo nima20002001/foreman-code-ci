@@ -1,7 +1,7 @@
 import type { AgentNodeRef, MemoryCardWorkBinding } from '@foreman-code/contracts'
 import type { MemoryNodeOption } from './ports'
 
-export const statusLabels = { todo: 'Todo', doing: 'Doing', waiting_for_user: 'Waiting for user', blocked: 'Blocked', done: 'Done' } as const
+export const statusLabels = { todo: 'Todo', doing: 'Doing', blocked: 'Blocked', done: 'Done' } as const
 export const nodeKey = (node: AgentNodeRef) => `${node.workspaceId}/${node.workflowId}/${node.workflowNodeId}/${node.agentId}`
 export function nodeLabel(node: AgentNodeRef, nodes: readonly MemoryNodeOption[]): string {
   const found = nodes.find((candidate) => nodeKey(candidate.node) === nodeKey(node))

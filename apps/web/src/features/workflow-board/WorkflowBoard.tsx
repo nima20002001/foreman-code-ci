@@ -163,7 +163,6 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
         <Button size="sm" variant="ghost" aria-pressed={side.view === 'graph'} onClick={() => side.selectView('graph')}>Graph</Button>
         <Button size="sm" variant="ghost" aria-pressed={side.view === 'overview'} onClick={() => side.selectView('overview')}>Overview</Button>
         <Button size="sm" variant="ghost" onClick={() => side.setMemoryOpen(true)}>Memory board</Button>
-        <Button size="sm" variant="ghost" aria-pressed={side.panel.kind === 'group_chat'} onClick={() => side.selectPanel({ kind: 'group_chat' })}>Group chat</Button>
       </nav>
       {browserRelease.error ? <Alert tone="warning" title="Browser control release is unconfirmed.">
         {browserRelease.error} Use the retained browser recovery controls to reconcile the original release.</Alert> : null}
@@ -173,12 +172,13 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
         <BoardNavigationControls workspaceId={workspaceId} workflowId={workflowId} selection={navigationSelection}
           runsLabel={current && side.view === 'overview' ? 'Choose run' : undefined} />
         {detailsScope ? <IconButton label="Activities" onClick={() => setRunsOpen(true)}><Icon name="history" size={16} /></IconButton> : null}
+        <IconButton label="Group chat" onClick={() => side.selectPanel({ kind: 'group_chat' })}><Icon name="chat" size={16} /></IconButton>
         {boardSelection.active && !boardSelection.invalid && boardSelection.identity.runId ?
           <SelectedRunControls key={JSON.stringify(boardSelection.identity)} visible={!side.memoryOpen}
             scope={{ workspaceId, workflowId, runId: boardSelection.identity.runId,
               ...(picked?.kind === 'available' ? { workflowVersionId: picked.workflowVersionId } : {}) }} /> : null}
       </header> : null}
-      <div className="workflow-collaboration-layout" data-panel-open={side.panel.kind !== 'none' && !side.memoryOpen}>
+      <div className="workflow-collaboration-layout" data-panel-open={side.panel.kind !== 'none' && side.panel.kind !== 'group_chat' && !side.memoryOpen}>
       <div className="workflow-collaboration-canvas" hidden={side.view !== 'graph'} inert={side.view !== 'graph'}>
       <RunBoardSlot selection={boardSelection}>
         <div className="workflow-board-authoring" onClickCapture={authoringEvent} onKeyDownCapture={authoringEvent} onSubmitCapture={authoringEvent}>
