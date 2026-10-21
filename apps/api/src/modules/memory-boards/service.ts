@@ -109,8 +109,7 @@ export class MemoryBoardService implements MemoryBoardPort {
     if (!current || !same(current.work,input.work) || current.currentExecutionId!==input.execution.executionId) {
       throw new DomainError('STALE_EXECUTION','This result no longer owns the logical work.',409)
     }
-    // Without memory tools only a result with no board effect is accepted, whatever reason it reports.
-    if (!access.tools.some(tool => tool.startsWith('memory_')) && (result.kind!=='none' || result.appliedCommandIds?.length)) {
+    if (!access.tools.some(tool => tool.startsWith('memory_')) && (result.kind!=='none' || result.reason!=='no_access')) {
       throw new DomainError('ACCESS_DENIED','This agent has no memory board access.',403)
     }
     const rows=new Map<string,BoardRow>(), changed:string[]=[], commands:string[]=[]
