@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react'
+import { memo, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, type EdgeProps, type NodeProps } from '@xyflow/react'
 import { AgentNodeView } from '../../shared/ui/nocturne/Canvas'
@@ -70,17 +70,13 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode, SavedBoardEdge>({
     fitViewOptions,
   })
-  // Callers recreate their handler every render; reading it through a ref keeps unchanged nodes referentially stable.
-  const inspectNode = useRef(onInspectNode)
-  inspectNode.current = onInspectNode
-  const inspectable = Boolean(onInspectNode)
   const { nodes, edges } = useMemo(() => {
     const projected = projectRunBoard(snapshot, activitySnapshot, hierarchy)
-    if (inspectable) for (const node of projected.nodes) {
-      node.data = { ...node.data, inspect: () => inspectNode.current?.(node.id) }
+    if (onInspectNode) for (const node of projected.nodes) {
+      node.data = { ...node.data, inspect: () => onInspectNode(node.id) }
     }
     return projected
-  }, [snapshot, activitySnapshot, inspectable, hierarchy])
+  }, [snapshot, activitySnapshot, onInspectNode, hierarchy])
   const visibleNodes = nodes.filter(node => !collapsed.has(node.id)).map(node => ({ ...node,
     selected: board?.teamNodeId === node.id }))
   const visibleEdges = edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target))

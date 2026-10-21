@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { QueryClient } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpResponse } from 'msw'
 import { RunActivitySchema } from '@foreman-code/contracts'
 import { CurrentRunDetailsSchema, RunExecutionDetailSchema } from '@foreman-code/contracts/wave25'
+import { currentRunKey } from './currentRunQuery'
 import { inspectionBoardFixture } from './inspect/inspectionFixtures'
 import { executionPagesKey } from './inspect/queries'
 import {
-  boardHref, installBoardTestLifecycle, intervalTick, measureBoardWire, mountMeasuredBoard, openRunDetails,
+  advanceCurrentSequence, boardHref, currentIdle, installBoardTestLifecycle, intervalTick,
+  isCurrentRequest, measureBoardWire, mountMeasuredBoard, openRunDetails, setRunState,
   type InspectionFixture,
 } from './eng05D.testSupport'
 
@@ -40,12 +41,6 @@ async function seedLongHistory() {
     fixture.mock.runs.set(runId, CurrentRunDetailsSchema.parse({ ...base, run: { ...base.run, id: runId } }))
   }
 }
-
-// The selected Run's one polled live read is its saved-Board snapshot (every three seconds).
-const snapshotKeys = ['runs-selector', 'snapshot'] as const
-const isSnapshotRead = (request: Request) => request.method === 'GET' && new URL(request.url).pathname.endsWith('/snapshot')
-const snapshotState = (cache: QueryClient) => cache.getQueryCache().findAll({ queryKey: snapshotKeys })[0]?.state
-const snapshotIdle = (cache: QueryClient) => waitFor(() => expect(snapshotState(cache)).toMatchObject({ fetchStatus: 'idle' }))
 
 function totals(samples: readonly { responseBytes: number }[]) {
   return { requests: samples.length, bytes: samples.reduce((sum, sample) => sum + sample.responseBytes, 0) }
@@ -81,17 +76,16 @@ describe('mounted Board bounded-history wire budgets', () => {
     expect(styleReads.mock.calls.length).toBeGreaterThan(0)
   })
 
-  it('preserves loaded history while recovering a failed live Run read', async () => {
+  it('preserves loaded history while recovering a failed current read', async () => {
     await seedLongHistory()
     const scope = fixture.runs.before.scope
     let restarting = false
     const wire = measureBoardWire(fixture.mock, (request) => {
-      if (restarting && isSnapshotRead(request)) {
+      if (restarting && isCurrentRequest(request)) {
         return new HttpResponse(null, { status: 503 })
       }
       return undefined
     })
-    const live = () => wire.matching((sample) => sample.method === 'GET' && sample.path.endsWith('/snapshot'))
     const user = userEvent.setup()
     const { cache } = await mountMeasuredBoard(boardHref(scope))
     const inspector = await openRunDetails()
@@ -111,19 +105,20 @@ describe('mounted Board bounded-history wire budgets', () => {
     expect(wire.runLists()).toHaveLength(2)
 
     restarting = true
-    await act(async () => { await cache.invalidateQueries({ queryKey: snapshotKeys }) })
+    await act(async () => { await cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true }) })
     expect(await screen.findByRole('alert', { name: 'Server connection' }))
       .toHaveTextContent('Updating — reconnecting…')
-    const currentBefore = live().length
+    const currentBefore = wire.current().length
     restarting = false
     await intervalTick(1000)
-    await waitFor(() => expect(snapshotState(cache)).toMatchObject({ status: 'success', fetchStatus: 'idle' }))
+    await waitFor(() => expect(cache.getQueryState(currentRunKey(scope)))
+      .toMatchObject({ status: 'success', fetchStatus: 'idle' }))
     await waitFor(async () => {
       await intervalTick(1000)
       expect(screen.queryByRole('alert', { name: 'Server connection' })).not.toBeInTheDocument()
     })
     await waitFor(() => expect(cache.isFetching()).toBe(0))
-    expect(live().length).toBeGreaterThan(currentBefore)
+    expect(wire.current().length).toBeGreaterThan(currentBefore)
     expect(wire.executions()).toHaveLength(2)
     expect(wire.activity()).toHaveLength(2)
     expect(wire.runLists()).toHaveLength(2)
@@ -132,11 +127,14 @@ describe('mounted Board bounded-history wire budgets', () => {
     expect(wire.writes()).toHaveLength(0)
   }, 30_000)
 
-  it('keeps five loaded page windows off the live Run polling path and refreshes each from one bounded first page', async () => {
+  it('keeps five loaded page windows off the current polling path and refreshes each from one bounded first page', async () => {
     await seedLongHistory()
     const scope = fixture.runs.before.scope
-    const wire = measureBoardWire(fixture.mock)
-    const live = () => wire.matching((sample) => sample.method === 'GET' && sample.path.endsWith('/snapshot'))
+    setRunState(fixture, scope, 'running')
+    const wire = measureBoardWire(fixture.mock, (request) => {
+      if (isCurrentRequest(request)) advanceCurrentSequence(fixture, scope)
+      return undefined
+    })
     const user = userEvent.setup()
     const { cache } = await mountMeasuredBoard(boardHref(scope))
     const inspector = await openRunDetails()
@@ -186,15 +184,15 @@ describe('mounted Board bounded-history wire budgets', () => {
     }
     const historyBefore = { executions: totals(wire.executions()), events: totals(wire.activity()), runs: totals(wire.runLists()) }
     const retainedPages = cache.getQueryData(executionPagesKey(scope, {}))
-    const currentBefore = live().length
+    const currentBefore = wire.current().length
     for (let tick = 1; tick <= 8; tick++) {
-      await intervalTick(3000)
-      await waitFor(() => expect(live()).toHaveLength(currentBefore + tick))
-      await snapshotIdle(cache)
+      await intervalTick()
+      await waitFor(() => expect(wire.current()).toHaveLength(currentBefore + tick))
+      await currentIdle(cache, currentRunKey(scope))
     }
     expect({ executions: totals(wire.executions()), events: totals(wire.activity()), runs: totals(wire.runLists()) }).toEqual(historyBefore)
     expect(cache.getQueryData(executionPagesKey(scope, {}))).toBe(retainedPages)
-    expect(live().slice(currentBefore).every((sample) => sample.responseBytes > 0 && sample.responseBytes < 16 * 1024)).toBe(true)
+    expect(wire.current().slice(currentBefore).every((sample) => sample.responseBytes > 0 && sample.responseBytes < 16 * 1024)).toBe(true)
     expect(wire.writes()).toHaveLength(0)
 
     // Reconnect is automatic current evidence, not permission to replay five pages.
@@ -213,21 +211,21 @@ describe('mounted Board bounded-history wire budgets', () => {
     wire.report('mounted-151-attempts-252-events-64-runs-eight-ticks')
   }, 30_000)
 
-  it('isolates live Run refresh requests from unopened history collections', async () => {
+  it('isolates current refresh requests from unopened history collections', async () => {
     const scope = fixture.runs.before.scope
+    setRunState(fixture, scope, 'running')
     const wire = measureBoardWire(fixture.mock)
-    const live = () => wire.matching((sample) => sample.method === 'GET' && sample.path.endsWith('/snapshot'))
     const { cache } = await mountMeasuredBoard(boardHref(scope))
-    await waitFor(() => expect(live()).toHaveLength(1))
-    await snapshotIdle(cache)
-    const bytes = live()[0]!.responseBytes
+    await currentIdle(cache, currentRunKey(scope))
+    await waitFor(() => expect(wire.current()).toHaveLength(1))
+    const bytes = wire.current()[0]!.responseBytes
     const eventsBefore = wire.activity().length
     await seedLongHistory()
     // The current mock is fixed: this checks UI request isolation. Persisted
     // history payload growth is covered through the real API integration test.
-    await act(async () => { await cache.invalidateQueries({ queryKey: snapshotKeys }) })
-    await waitFor(() => expect(live()).toHaveLength(2))
-    expect(live()[1]!.responseBytes).toBe(bytes)
+    await act(async () => { await cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true }) })
+    await waitFor(() => expect(wire.current()).toHaveLength(2))
+    expect(wire.current()[1]!.responseBytes).toBe(bytes)
     expect(wire.activity()).toHaveLength(eventsBefore)
     expect(wire.matching((sample) => sample.query.has('cursor'))).toHaveLength(0)
     expect(wire.writes()).toHaveLength(0)

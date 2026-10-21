@@ -82,11 +82,10 @@ async function mount(url: string) {
   await router.load()
   const view = render(<QueryClientProvider client={cache}><RouterProvider router={router} /></QueryClientProvider>)
   await screen.findByTestId('unified-workflow-board')
-  // A selected Run replaces the retained (hidden) editor with its immutable saved Board.
-  await screen.findByRole('region', { name: 'Selected Run board' })
+  await screen.findByRole('region', { name: 'Workflow authoring' })
   return { ...view, cache, router, history }
 }
-const pinnedCanvas = () => screen.getByRole('region', { name: 'Selected Run board' })
+const pinnedCanvas = () => screen.getByRole('region', { name: 'Selected Run pinned topology' })
 const inspector = () => screen.getByRole('region', { name: 'Exact execution inputs and results' })
 const eventCalls = () => fixture.mock.calls.filter((call) => call.method === 'GET' && call.path.endsWith('/events'))
 function clickCiServer(button: HTMLElement) {
@@ -192,7 +191,7 @@ describe('Run inspection inside the one mounted Board', () => {
     const pinned = await screen.findByRole('region', { name: 'Selected Run pinned topology' })
     expect(pinned).toHaveTextContent(scope.workflowVersionId)
     expect(await within(pinned).findByRole('button', {
-      name: `Inspect ${fixture.first.name ?? fixture.first.label ?? fixture.first.id}`,
+      name: `Inspect Run node ${fixture.first.name ?? fixture.first.label ?? fixture.first.id}`,
     })).toBeVisible()
     expect(screen.getByLabelText('Editable workflow graph')).toHaveAttribute('aria-hidden', 'true')
 
@@ -331,7 +330,7 @@ describe('Run inspection inside the one mounted Board', () => {
     }))
     const { router, cache } = await mount(href(scope, { runNodeId: fixture.added.id }))
     await screen.findByText('The linked node is not in this Run’s saved version.')
-    expect(within(pinnedCanvas()).queryByRole('button', { name: 'Inspect Added later' })).not.toBeInTheDocument()
+    expect(within(pinnedCanvas()).queryByRole('button', { name: 'Inspect Run node Added later' })).not.toBeInTheDocument()
     await screen.findByText('This selection is not in the Run’s saved version.')
     // C's contextual status uses the same endpoint with limit=1. That bounded
     // read is allowed; the unavailable node must not enable B's history query.
@@ -625,7 +624,7 @@ describe('Live Run status on the Board', () => {
     const canvas = await screen.findByLabelText('Selected Run pinned topology')
     expect(canvas).toHaveRole('region')
     expect(canvas).toBeVisible()
-    const agentButton = (node: typeof first) => within(canvas).getByLabelText(`Inspect ${nameOf(node)}`, { selector: 'button' })
+    const agentButton = (node: typeof first) => within(canvas).getByLabelText(`Inspect Run node ${nameOf(node)}`, { selector: 'button' })
     const agentNode = (node: typeof first) => agentButton(node).closest<HTMLElement>('.n-agent')!
     const expectAgentVisible = (node: typeof first) => {
       expect(agentButton(node)).toHaveRole('button')
@@ -738,7 +737,7 @@ describe('CI server on the Board', () => {
     jobs = [job('running')]
     await refresh()
     expect((await serverNode(/^CI server, 1 running/)).getAttribute('data-state')).toBe('running')
-    const agentNode = within(pinnedCanvas()).getByRole('button', { name: `Inspect ${name}` }).closest<HTMLElement>('.n-agent')!
+    const agentNode = within(pinnedCanvas()).getByRole('button', { name: `Inspect Run node ${name}` }).closest<HTMLElement>('.n-agent')!
     await waitFor(() => expect(agentNode).toHaveAttribute('data-state', 'waiting'))
     expect(agentNode).toHaveTextContent('Waiting for CI unit-api · running')
     expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
@@ -835,7 +834,7 @@ it('inspects an immutable Run node named ci-server independently of its CI tower
     server.use(...fixture.mock.handlers)
     await mount(href(fixture.runs.before.scope))
     const canvas = pinnedCanvas()
-    const owner = await within(canvas).findByRole('button', { name: `Inspect ${fixture.first.name}` })
+    const owner = await within(canvas).findByRole('button', { name: `Inspect Run node ${fixture.first.name}` })
     expect(owner.closest('.react-flow__node')).toHaveAttribute('data-id', 'ci-server')
     // jsdom mouse-down events lack the window view required by the canvas drag handlers.
     fireEvent.click(owner)

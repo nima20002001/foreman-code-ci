@@ -14,8 +14,6 @@ import { WorkspaceDetailPage } from '../features/workspaces/WorkspaceDetailPage'
 import { Badge, Card, EmptyState, Icon, PageHeader, type IconName } from '../shared/ui/nocturne'
 import { WorkspaceShell, type WorkspaceSection } from '../shared/ui/WorkspaceShell'
 import { useCollaborationUISlots } from '../shared/ui/collaborationSlots'
-import { useManagedWorkspaceQuery } from '../shared/api/query'
-import { MemoryBoardSurface } from '../features/workflow-board/MemoryBoardSurface'
 import {
   WorkspaceDirectory,
   useNavigationUiStore,
@@ -151,11 +149,6 @@ export function ProjectFilesRouteEntry() {
   }} />
 }
 
-function WorkspaceMemoryBoard({ workspaceId }: { workspaceId: string }) {
-  const workspace = useManagedWorkspaceQuery(workspaceId)
-  return <MemoryBoardSurface scope={{ kind: 'workspace', workspaceId }} scopeName={workspace.data?.workspace.name ?? 'Workspace'} />
-}
-
 export function WorkspaceMemoryRouteEntry() {
   const { workspaceId } = useParams({ strict: false })
   const slots = useCollaborationUISlots()
@@ -163,7 +156,7 @@ export function WorkspaceMemoryRouteEntry() {
   return <WorkspaceShell workspaceId={workspaceId} activeSection="memory" slots={{ main:
     <WorkspaceDetailPage workspaceId={workspaceId} section="memory">
       <section aria-label="Workspace Memory board">{slots?.workspaceMemoryBoard?.({ workspaceId })
-        ?? <WorkspaceMemoryBoard workspaceId={workspaceId} />}</section>
+        ?? <p role="status">Memory board is not available yet.</p>}</section>
     </WorkspaceDetailPage>,
   }} />
 }

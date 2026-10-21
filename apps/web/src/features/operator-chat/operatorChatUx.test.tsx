@@ -54,10 +54,6 @@ beforeEach(() => {
   api.create.mockResolvedValue({ conversation: { ...operatorState().conversation, id: 'new-chat' } })
 })
 afterEach(() => { cleanup(); client.clear(); vi.restoreAllMocks() })
-/** The selected chat shows an editable placeholder draft until it loads; wait for the real composer. */
-async function loadedComposerInput() {
-  return within(await screen.findByRole('form', { name: 'Conversation composer' })).getByRole('textbox', { name: 'Message' })
-}
 function chat() { render(<QueryClientProvider client={client}><OperatorChatVisibilityProvider enabled><OperatorChat /></OperatorChatVisibilityProvider></QueryClientProvider>) }
 describe('Operator chat UX', () => {
   it('opens the chat and sends an app request in a new conversation once', async () => {
@@ -337,7 +333,7 @@ describe('Operator chat UX', () => {
     expect(requests[0]!.value.operator.harness).toMatchObject({ model: action === 'retry settings' ? 'claude-haiku-4-5-20251001' : harness.model, sandbox: harness.sandbox,
       tools: harness.tools, instructions: harness.instructions })
     await waitFor(() => expect(screen.queryByText('Changes were not saved')).not.toBeInTheDocument())
-    expect(screen.getByRole('button', { name: action === 'retry settings' ? 'Agent settings: New chats, Haiku 4.5' : 'Agent settings: New chats, Sonnet 5.5, medium' })).toBeVisible()
+    expect(screen.getByRole('button', { name: action === 'retry settings' ? 'Agent settings: Haiku 4.5' : 'Agent settings: Sonnet 5.5, medium' })).toBeVisible()
     expect(api.send).not.toHaveBeenCalled()
   })
 
@@ -428,7 +424,7 @@ describe('Operator chat UX', () => {
   it('handles /new locally even while a turn is running, without sending it to the agent', async () => {
     api.get.mockResolvedValue(operatorState())
     chat()
-    const input = await loadedComposerInput()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
     fireEvent.change(input, { target: { value: '/new' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(useOperatorChatStore.getState().selectedConversationId).toBe('new-chat'))
@@ -438,7 +434,7 @@ describe('Operator chat UX', () => {
   })
   it('offers /new on slash and executes it with Enter without sending a message', async () => {
     chat()
-    const input = await loadedComposerInput()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
     fireEvent.change(input, { target: { value: '/' } })
     expect(screen.getByRole('listbox', { name: 'Chat commands' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /new/ })).toBeInTheDocument()
@@ -452,7 +448,7 @@ describe('Operator chat UX', () => {
   it('retains /new when creation fails', async () => {
     api.create.mockRejectedValue(new Error('Offline'))
     chat()
-    const input = await loadedComposerInput()
+    const input = await screen.findByRole('textbox', { name: 'Message' })
     fireEvent.change(input, { target: { value: '/new' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(await screen.findByText('Offline')).toBeInTheDocument()

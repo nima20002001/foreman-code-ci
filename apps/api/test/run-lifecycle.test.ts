@@ -143,6 +143,7 @@ function fixture() {
   }
   const native = { adoptRunOwner: () => undefined, shareRunOwner: () => () => {}, cancelRun: async () => { calls.cancel++ }, finishRun: async () => { calls.finish++ },
     preserveActiveForRestart: async () => false,
+    executionCapacity: () => undefined, reconcileWorkflowControls: async () => undefined,
     reconcileReviews: async () => undefined, closeForRestart: async () => undefined, requestColdRunCleanup: async () => false,
     nativeBoundaryEvidence: async () => { throw new Error('No native evidence is fabricated in engine port tests') } }
   const interactions = { list: async () => { throw new Error('Historical pagination must never select resume IDs') } }

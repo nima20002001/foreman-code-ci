@@ -14,7 +14,6 @@ export function useRunNodeInspectionNavigation(selection: SelectedRunState) {
   const linkedExecutionId = readRunInspectionKey(exchange).executionId
   const selectSidePanel = board?.selectSidePanel
   useEffect(() => {
-    console.error('ZZDEBUG-NAV', JSON.stringify({ hasSelect: !!selectSidePanel, boardPanel: search.boardPanel ?? null, linkedNodeId: linkedNodeId ?? null, current: selection.isCurrent(selection.generation) }))
     if (selectSidePanel && !search.boardPanel && linkedNodeId && selection.isCurrent(selection.generation)) {
       selectSidePanel({ kind: 'agent', nodeId: linkedNodeId, tab: 'details', executionId: linkedExecutionId })
     }
