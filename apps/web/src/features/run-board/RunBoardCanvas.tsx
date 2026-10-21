@@ -40,7 +40,7 @@ const SavedAgent = memo(function SavedAgent({ id, data }: NodeProps<SavedBoardNo
     </div>
     {data.inspect ? <button type="button" className="run-board-inspect nodrag nopan"
       aria-label={`Inspect ${data.snapshot.name}`} onClick={data.inspect}>Inspect</button> : null}
-    {ci ? <span role="status">{presentation.label}</span> : null}
+    {ci ? <span role="status">{ciNodePresentation(ci).label}</span> : null}
     {data.snapshot.kind !== 'job' ? <p>{data.role ?? 'Role unavailable'}{data.reportingParent ? ` · Reports to ${data.reportingParent}` : ''}</p> : null}
     {/* Unlike the authoring AgentHandles, every saved target side must resolve. */}
     {sides.flatMap((side) => (['source', 'target'] as const).map((type) =>
@@ -119,7 +119,8 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   // A node waits on its newest unfinished CI from either the Run's Activity or the CI server's own list.
   const cis = useMemo(() => new Map([...runBoardCi(snapshot, activitySnapshot), ...ciNodeActivities(ciJobs ?? [])]),
     [snapshot, activitySnapshot, ciJobs])
-  const liveNodes = useRunLiveNodes(scope, names, cis, visible)
+  // Live node words belong to the mounted Board; a standalone saved Run Board reads only its saved Run.
+  const liveNodes = useRunLiveNodes(scope, names, cis, visible && !!board)
   // A light per Agent while its CI request or result travels; no lasting line to the server.
   const transfers = useCiTransfers(ciJobs, useReducedMotion())
   const flowEdges = useMemo<(SavedBoardEdge | CiTransferFlowEdge)[]>(() => transfers.size ? [...visibleEdges,
