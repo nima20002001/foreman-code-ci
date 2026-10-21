@@ -533,9 +533,8 @@ export class WorkflowNativeProofServices {
     })
     for (const [index, frame] of frames.entries()) {
       await this.afterPersistOriginalLocked?.(sql, frame.evidence, structuredClone(records[index]!))
+      await projectWorkflowChatNativeReceiptsLocked(sql, records[index]!)
     }
-    // The group shares one execution, session and lane, so its chat receipts project once, not per frame.
-    await projectWorkflowChatNativeReceiptsLocked(sql, records[0]!)
   }
 
   private eventCapture(event: HarnessNativeEvent, evidence: RepeatNativeEvidence,

@@ -37,6 +37,5 @@ export function masterApprovalFixture() {
 
 export async function masterApprovalOutput() {
   return JSON.stringify({ routing: { kind: 'request', outcome: 'delegate' },
-    data: { latestDeliverable: 'Review the delegated task', remainingFindings: [] },
-    summary: 'Delegated the review task.' })
+    data: { latestDeliverable: 'Review the delegated task', remainingFindings: [] } })
 }

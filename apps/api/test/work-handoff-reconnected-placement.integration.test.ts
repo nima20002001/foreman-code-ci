@@ -8,7 +8,11 @@ describe('handed-off node placement after a Worker reconnect', () => {
     const f = await handoffPlacementFixture()
     try {
       const accepted = await f.start()
-      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish')
+      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish').catch(async error => {
+        const events = await f.base.client.callTool({ name: 'run_events_list', arguments: { workspaceId: f.startInput.workspaceId, runId: accepted.run.id, limit: 200 } })
+        console.error('DEBUGDISPATCH', JSON.stringify(f.base.dispatchErrors.map(String)), 'DEBUGEVENTS', JSON.stringify(events).slice(0, 12000))
+        throw error
+      })
       expect(finished.run, JSON.stringify(finished.run.result)).toMatchObject({ outcome: 'succeeded' })
       expect(finished.executions).toHaveLength(4)
       expect(finished.executions.every(execution => execution.result?.outcome === 'succeeded')).toBe(true)
