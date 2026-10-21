@@ -36,7 +36,8 @@ describe('workflow session continuity', () => {
         error: { code, message: 'The original native connection was lost.', retryable: true } } })
       const retry = { ...execution, attempt: 2 }
       expect(canContinueWorkflowSession(failed, retry)).toBe(false)
-      const query = vi.fn(async () => ({ rows: [{ record: failed, configuration: {} }] }))
+      const query = vi.fn(async (text: string) => ({
+        rows: text.includes('run_control_continuations') ? [] : [{ record: failed, configuration: {} }] }))
       const closure = vi.spyOn(closures, 'readWorkflowClosure')
       expect(await readWorkflowSessionContinuation({ query } as unknown as GraphTransactionSql, retry)).toBeUndefined()
       expect(closure).not.toHaveBeenCalled()
@@ -77,7 +78,8 @@ describe('workflow session continuity', () => {
       const configuration = { id: 'configuration', agentId: 'agent', workspaceId: 'workspace', version: 1,
         prompt: {}, assignedSkills: [], harness, contentHash: 'fixture', createdAt: previous.createdAt }
       const sql = {
-        query: vi.fn(async () => ({ rows: [{ record: previous, configuration }] })),
+        query: vi.fn(async (text: string) => ({
+          rows: text.includes('run_control_continuations') ? [] : [{ record: previous, configuration }] })),
       } as unknown as GraphTransactionSql
       vi.spyOn(placement, 'readExecutionPlacement').mockResolvedValue(undefined)
       vi.spyOn(placement, 'readDispatchIntent').mockResolvedValue(undefined)

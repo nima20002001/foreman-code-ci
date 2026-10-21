@@ -12,9 +12,9 @@ import { RunManagementService } from '../src/modules/runs/management.js'
 import { WorkspaceLocationService } from '../src/modules/workspaces/location.js'
 import { RunOwnership } from '../src/modules/runs/ownership.js'
 import { RepeatRepositoryFactory } from '../src/modules/runs/repeatRepositoryHost.js'
-import { createWorkflowRepositoryServices } from '../src/modules/runs/workflowRepositoryServices.js'
 import { createWorkflowNativeCaptureChannel } from '../src/modules/interactions/workflowNativeCapture.js'
 import { agentWorkflowNode } from './helpers/agentWorkflowFixture.js'
+import { currentRepositoryServices } from './helpers/wave25CurrentRepository.js'
 import type { currentDatabase } from './helpers/eng04CurrentDatabase.js'
 import { nim2691TaskDatabase } from './helpers/nim2691Database.js'
 import { graphFixture, graphHeaders, graphRpc, graphRpcValue } from './eng04-graph-composition-fixture.js'
@@ -83,7 +83,7 @@ it('keeps admission-time Agent names in the Run board and Activities after prese
       if (!owner) throw new Error('Expected to acquire the Run owner')
       try {
         const factory = new RepeatRepositoryFactory(locations, directory,
-          createWorkflowRepositoryServices(createWorkflowNativeCaptureChannel().verify).services)
+          currentRepositoryServices({ pool }, createWorkflowNativeCaptureChannel().verify).services)
         const store = factory.forOwner(owner, fixture.version)
         const activationId = await store.ensureWorkEntry()
         await store.admitWorkActivation(activationId, () => ({

@@ -189,25 +189,6 @@ async function dispatchCurrentBoardRequest(request: Request, state: CurrentBoard
     try {
       if (method === 'GET' && path === publicPrefix) return HttpResponse.json(details())
       if (method === 'GET' && path === `${publicPrefix}/agents`) return HttpResponse.json({ agents })
-      const chatTarget = path.match(/^\/api\/workspaces\/[^/]+\/workflows\/([^/]+)\/execution-chat\/target$/)
-      if (method === 'GET' && chatTarget) {
-        // A node chats only through the SAVED workflow; without a Run the saved Agent has no execution to read.
-        const workflowId = chatTarget[1]!, nodeId = url.searchParams.get('workflowNodeId')
-        const saved = [...versions.values()].filter(version => version.workflowId === workflowId).at(-1)
-        const node = saved?.definition.nodes.find(item => item.id === nodeId)
-        if (!saved || !node || node.kind === 'job') return HttpResponse.json({ kind: 'unavailable', reason: 'NODE_UNAVAILABLE' })
-        if (url.searchParams.get('runId')) return HttpResponse.json({ kind: 'unavailable', reason: 'NO_EXECUTION' })
-        return HttpResponse.json({ kind: 'outside_run', workflowVersionId: saved.id, reason: 'NO_LIVE_RUN',
-          agent: { workspaceId, workflowId, workflowNodeId: node.id, agentId: node.agentId } })
-      }
-      const hierarchy = path.match(/^\/api\/management\/workspaces\/[^/]+\/workflows\/([^/]+)\/hierarchy$/)
-      if (method === 'GET' && hierarchy) {
-        // Fixture workflows carry no Master hierarchy; the Board reads this saved fact for every selected Run.
-        const runId = url.searchParams.get('runId'), run = runId ? runs.get(runId) : undefined
-        return HttpResponse.json({ workspaceId, workflowId: hierarchy[1], hierarchy: null, agents: [], revision: 1,
-          workflowVersionId: run?.run.workflowVersionId ?? url.searchParams.get('workflowVersionId'),
-          ...(runId ? { run: { runId, state: run?.run.executionState ?? 'completed' } } : {}) })
-      }
       const selectedChat = path.match(/^\/api\/workspaces\/[^/]+\/agent-chat\/workflows\/([^/]+)\/runs\/([^/]+)\/nodes\/([^/]+)$/)
       if (method === 'GET' && selectedChat) {
         // This Board fixture has Run facts but no selected-chat backing state.
@@ -229,7 +210,8 @@ async function dispatchCurrentBoardRequest(request: Request, state: CurrentBoard
         const runId = match[1]!, tail = match[2]!, detail = runs.get(runId)
         if (!detail) return failure('NOT_FOUND', 'Run not found', 404)
         if (tail === '/snapshot' && method === 'GET') return HttpResponse.json(RunBoardSnapshotGetResultSchema.parse({
-          snapshot: savedRunSnapshot(workspaceId, detail, versions.get(detail.run.workflowVersionId)),
+          snapshot: { kind: 'unavailable', reason: 'legacy_run', workspaceId,
+            workflowId: detail.run.workflowId, runId },
         }))
         if (!tail && method === 'GET') return HttpResponse.json(detail)
         if (tail === '/subagents' && method === 'GET') {
@@ -269,22 +251,6 @@ async function dispatchCurrentBoardRequest(request: Request, state: CurrentBoard
       return failure(code.length < 100 ? code : 'INVALID_INPUT', 'Current V3 mock rejected the exact request; no fallback occurred.')
     }
   }
-
-/** The admission-time Board a Run would persist: the pinned version's Agents, geometry and relationships. */
-function savedRunSnapshot(workspaceId: string, detail: CurrentRunDetails, version: WorkflowVersionV3 | undefined) {
-  const run = detail.run
-  if (!version) return { kind: 'unavailable' as const, reason: 'legacy_run' as const, workspaceId, workflowId: run.workflowId, runId: run.id }
-  return { kind: 'available' as const, workspaceId, workflowId: run.workflowId, runId: run.id, workflowVersionId: version.id,
-    capturedAt: run.startedAt ?? version.createdAt,
-    nodes: version.definition.nodes.map(node => {
-      const agent = nativeNode(node)
-      return { id: agent.id, name: agent.name ?? agent.label ?? agent.id, agentId: agent.agentId,
-        agentConfigurationVersionId: version.agentConfigurationVersionIds[agent.agentId]!,
-        position: { x: agent.position?.x ?? 0, y: agent.position?.y ?? 0 },
-        size: { width: agent.width ?? 156, height: agent.height ?? 156 } }
-    }),
-    edges: version.definition.edges }
-}
 
 function dispatchCurrentBoardAgents({ path, method, prefix, body }: CurrentBoardMockRequest, state: CurrentBoardMockState): Response | undefined {
   const { catalog, workspaceId, configurations, agents, workflows, archivedWorkflows, journal } = state

@@ -19,7 +19,7 @@ export function masterApprovalFixture() {
   fixture.version.agentConfigurationVersionIds[coordinator.agentId] = coordinatorConfiguration.id
   graph.nodes.push(coordinator)
   graph.handoffs = { contractVersion: 1 }
-  graph.executionPolicy = { maxParallelism: 1, maxNodeExecutions: 3 }
+  graph.executionPolicy = { maxParallelism: 1, maxNodeExecutions: 8 }
   graph.hierarchy = { version: 1, masterNodeId: master.id, parents: [
     { workflowNodeId: coordinator.id, parentNodeId: master.id },
     { workflowNodeId: worker.id, parentNodeId: coordinator.id },
@@ -37,5 +37,6 @@ export function masterApprovalFixture() {
 
 export async function masterApprovalOutput() {
   return JSON.stringify({ routing: { kind: 'request', outcome: 'delegate' },
-    data: { latestDeliverable: 'Review the delegated task', remainingFindings: [] } })
+    data: { latestDeliverable: 'Review the delegated task', remainingFindings: [] },
+    summary: 'Delegated the review task.' })
 }
