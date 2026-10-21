@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { MemoryCard, MemoryNote } from '@foreman-code/contracts'
+import { parseCoordinationResult, type MemoryCard, type MemoryNote } from '@foreman-code/contracts'
+import { makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { memoryBoardsMigration } from '../src/infrastructure/memoryBoardsMigration.js'
 import type { BoardSnapshot, ChangesPage, Page } from '../src/modules/memory-boards/types.js'
@@ -231,6 +232,24 @@ describe.skipIf(!postgresEnabled)('Memory boards public persistence and engine p
       .rejects.toMatchObject({code:'ACCESS_DENIED'})
     f.permissions.tools=[]
     expect(await f.readFreeService().readDigest({subject:task.subject})).toEqual({text:'',cardIds:[],byteLength:0,omittedCount:0})
+  })
+  it('applies a plain-text answer as no board change for Agents with and without board access',async()=>{
+    const workflow=makeCurrentWorkflowFixture('memory-plain-text','single'),node=workflow.version.definition.nodes[0]!
+    const {board}=parseCoordinationResult({text:'All checks pass.'},{resultProtocol:'f1-f4-v1',
+      definition:workflow.version.definition,workflowNodeId:node.id})
+    const apply=async(result:Parameters<typeof f.service.applyResultLocked>[1]['result'])=>{
+      const task=await f.prepareWork()
+      return f.transaction(tx=>f.service.applyResultLocked(tx,{subject:task.subject,execution:task.execution,work:task.work,
+        sourceEventKey:randomUUID(),result}))
+    }
+    expect(await apply(board)).toMatchObject({commandIds:[],changedCardIds:[],replayed:false})
+    f.permissions.tools=[]
+    expect(await apply(board)).toMatchObject({commandIds:[],changedCardIds:[],replayed:false})
+    await expect(apply({kind:'changes',operations:[{kind:'note_create',boardId,text:'Denied note'}]}))
+      .rejects.toMatchObject({code:'ACCESS_DENIED'})
+    await expect(apply({kind:'none',reason:'already_recorded',appliedCommandIds:[randomUUID()]}))
+      .rejects.toMatchObject({code:'ACCESS_DENIED'})
+    expect((await f.snapshot()).notes.items).toEqual([])
   })
   it('reconciles an immediate command from a custom write-only tool subset',async()=>{
     const task=await f.prepareWork();f.setSubject(task.subject);f.permissions.tools=['memory_note_create']
