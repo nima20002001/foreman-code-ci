@@ -11,9 +11,9 @@ const configuration: OperatorConfigurationVersion = {
 
 class UnreachableHistoryManager extends ReviewManager {
   reconciles = 0
-  // A disconnected provider never answers; only the caller's signal ends the read.
+  // The turn's observation read never answers; only the caller's signal ends it. Later reads (disposal) answer.
   override reconcile(_session: NativeSessionReference, _correlationId: string, signal?: AbortSignal) {
-    this.reconciles++
+    if (this.reconciles++ > 0) return super.reconcile()
     return new Promise<never>((_resolve, reject) => {
       signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
     })
