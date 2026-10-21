@@ -5,6 +5,8 @@ import { PostgresAccessService } from '../../src/modules/access/postgres.js'
 import { currentOperatorAuthority } from '../../src/modules/access/runAuthority.js'
 import { requireAuthorization } from '../../src/modules/access/policy.js'
 import { PostgresCommandCoordinator } from '../../src/modules/commands/postgres.js'
+import { memoryBoardAuthority } from '../../src/modules/collaboration/memoryBoardAuthority.js'
+import { createMemoryBoardService } from '../../src/modules/memory-boards/production.js'
 import { createWorkflowNativeCaptureChannel } from '../../src/modules/interactions/workflowNativeCapture.js'
 import { PostgresRunRepository } from '../../src/modules/runs/postgres.js'
 import { createWorkflowRepositoryServices } from '../../src/modules/runs/workflowRepositoryServices.js'
@@ -12,8 +14,18 @@ import { admitRepeatRun } from '../../src/modules/runs/repeatStartAdmission.js'
 import { repeatStartPublication } from '../../src/modules/run-graph/repeatStartPublication.js'
 import { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
 import { WorkspaceLocationService } from '../../src/modules/workspaces/location.js'
+import type { WorkflowNativeVerificationPort } from '../../src/modules/interactions/workflowNativeCapture.js'
 import type { GraphTransactionSql } from '../../src/modules/run-graph/connection.js'
 import { seedAgent3, type agent3Database } from './wave25Agent3.js'
+
+/** The repository services production wires for every started Run, including the
+ * memory board service the pinned coordination protocol requires. */
+export function currentRepositoryServices(db: Pick<Awaited<ReturnType<typeof agent3Database>>, 'pool'>,
+  captures: WorkflowNativeVerificationPort) {
+  const runtime = createWorkflowRepositoryServices(captures)
+  return { ...runtime, services: { ...runtime.services,
+    memoryBoards: createMemoryBoardService(db.pool, memoryBoardAuthority) } }
+}
 
 /** Real typed Save, Start authority, canonical publication, filesystem identity
  * and repository services. No provider is connected and no native proof is
@@ -39,7 +51,7 @@ export async function currentRepositoryFixture(db: Awaited<ReturnType<typeof age
   f.run = accepted.value; f.scope.runId = f.run.id
   const capture = createWorkflowNativeCaptureChannel()
   const repository = new PostgresRunRepository(db.pool, new PostgresWorkflowRepository(db.pool), locations,
-    { runtimeRoot: db.directory, ...createWorkflowRepositoryServices(capture.verify) })
+    { runtimeRoot: db.directory, ...currentRepositoryServices(db, capture.verify) })
   const authorizeStop = async (sql: GraphTransactionSql) => {
     // The authority reader uses only the promise/string query overload. Keep
     // it on this leased transaction, never on db.pool outside the Stop fence.

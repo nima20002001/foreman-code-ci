@@ -9,7 +9,7 @@ import { DomainError } from '../errors.js'
 import type { ChildProcessEnvironment } from '../harnesses/port.js'
 import type { PostgresAccessService } from './postgres.js'
 import { lockActiveWorkerPrincipal, lockWorkerExecution, requireActiveWorkerExecution } from './workerLifecycle.js'
-import { WORKER_BINDING_ELIGIBLE } from './workerEligibility.js'
+import { RETAINED_REVIEWER_SETTLEMENT_PENDING, WORKER_BINDING_ELIGIBLE } from './workerEligibility.js'
 import { readCoordinatorCredentialAuthority, readConsultationCredentialSubject } from './consultationAuthority.js'
 
 export const APP_MCP_TOKEN_ENVIRONMENT_VARIABLE = 'GRAPHQL_MCP_TOKEN'
@@ -369,7 +369,8 @@ export class WorkerCredentialService {
       left join runs r on r.id=b.run_id
       left join management_principals p on p.id=b.principal_id
       where (b.revoked_at is null or (p.id is not null and p.revoked_at is null))
-        and not coalesce((${WORKER_BINDING_ELIGIBLE}),false)`
+        and not coalesce((${WORKER_BINDING_ELIGIBLE}),false)
+        and not coalesce((${RETAINED_REVIEWER_SETTLEMENT_PENDING}),false)`
     const pending = await this.pool.query<{ execution_id: string; principal_id: string }>(
       `select b.execution_id,b.principal_id ${ineligible} order by b.principal_id limit 100`,
     )
