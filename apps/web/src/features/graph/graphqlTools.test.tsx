@@ -63,7 +63,7 @@ describe('Foreman Code MCP tools in Agent settings', () => {
     expect(within(within(tools).getByRole('group', { name: 'List interactions: this workflow' })).getByLabelText('On')).toBeChecked()
     fireEvent.click(within(tools).getByLabelText('List interactions: Agent default'))
     fireEvent.click(screen.getByRole('button', { name: 'Save agent settings' }))
-    expect(onSave.mock.calls[0]![0].graphqlTools).toEqual(['context_get', 'interaction_list'])
+    expect(onSave.mock.calls[0]![0].graphqlTools).toEqual(['bug_report', 'context_get', 'interaction_list'])
     expect(onSave.mock.calls[0]![3]).toBeUndefined()
   })
 

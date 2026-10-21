@@ -28,7 +28,8 @@ it('automatically recovers qualification after partial version output from an un
       activity.some(event => event.invalidVersion === true), 'partial startup version output')
     expect((await qualifications()).qualifications.some(record => record.status === 'failed'
       && record.binarySha256 === original.binarySha256)).toBe(false)
-    await expect(fixture.start()).rejects.toThrow('HARNESS_PROFILE_CHECK_PENDING')
+    // One attempt: the shared MCP helper replays retryable answers, which would outwait the check.
+    await expect(fixture.start({ replay: false })).rejects.toThrow('HARNESS_PROFILE_CHECK_PENDING')
     await fixture.provider.restoreVersions()
     invalidVersions = false
     await waitForRemoteReview(qualifications, result => result.qualifications.some(record =>

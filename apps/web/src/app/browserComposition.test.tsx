@@ -8,7 +8,7 @@ import { server } from '../mocks/server'
 import { installBoardTestLifecycle, newBoardQueryClient } from '../features/workflow-board/eng05D.testSupport'
 
 installBoardTestLifecycle()
-configure({ asyncUtilTimeout: 5000 })
+configure({ asyncUtilTimeout: 1000 })
 
 it('mounts the browser profile manager in production Settings', async () => {
   server.use(
