@@ -1,4 +1,3 @@
-import pg from 'pg'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { HarnessExecutionSchema, type HarnessNativeEvent } from '@foreman-code/contracts'
 import { currentDatabase } from './helpers/eng04CurrentDatabase.js'
@@ -55,20 +54,7 @@ it('appends graph frames without per-frame statements and retains ordered replay
   ], f.owner, lease)).rejects.toMatchObject({ code: 'NATIVE_EVENT_IDENTITY_CONFLICT' })
   expect(await f.read()).toEqual(saved)
   console.info('graph frame statements', { single: single.statements, batch: batch.statements })
-  const hist = async (size: number, from: number) => {
-    const original = pg.Client.prototype.query as (...args: unknown[]) => unknown
-    const seen = new Map<string, number>()
-    ;(pg.Client.prototype as unknown as { query: unknown }).query = function (this: unknown, ...args: unknown[]) {
-      const text = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string })?.text ?? ''
-      const key = text.replace(/\s+/g, ' ').slice(0, 110)
-      seen.set(key, (seen.get(key) ?? 0) + 1)
-      return original.apply(this, args)
-    }
-    try { await f.repository.appendNativeEvents(frames(from, size), f.owner, lease) } finally { (pg.Client.prototype as unknown as { query: unknown }).query = original }
-    return [...seen].sort((a, b) => b[1] - a[1]).map(([k, v]) => v + ' ' + k).join('\n')
-  }
-  const one = await hist(1, 100), many = await hist(16, 200)
-  throw new Error('HIST1\n' + one + '\nHIST16\n' + many)
+  expect(batch.statements).toBeLessThanOrEqual(single.statements + 4)
 })
 
 it('updates from unretained graph history with bounded statements and immutable terminal replay', async () => {
