@@ -55,7 +55,7 @@ describe.skipIf(!postgresEnabled)('immutable workflow result protocol and coordi
     } finally { await f.close() }
   }, 90_000)
 
-  it('starts the saved hierarchy equally through HTTP and MCP and pins the coordination protocol', async () => {
+  it('starts the saved hierarchy equally through HTTP and MCP while result-protocol enforcement stays off', async () => {
     const f = await currentOperatorIntegration({ fixture: hierarchyRuntimeFixture(), insertRun: false,
       approvalNodeIds: [], collaborationPorts: {}, outputFor: (node, request) => coordinationOutput(node, request,
         node === 'master' ? { select: ['build'] } : {}) })
@@ -74,7 +74,7 @@ describe.skipIf(!postgresEnabled)('immutable workflow result protocol and coordi
       const http = await f.app.inject({ method: 'POST', url, headers: graphHeaders(f.writer.token), payload: input })
       expect(http.statusCode, http.body).toBe(202)
       const started = RunStartV3ResultSchema.parse(http.json())
-      expect(started.run.resultProtocol).toBe(COORDINATION_RESULT_PROTOCOL)
+      expect(started.run.resultProtocol).toBeUndefined()
       const mcp = await graphRpc(f.app, f.writer.token, 'tools/call', { name: 'run_start', arguments: input })
       expect(mcp.result?.isError).not.toBe(true)
       expect(graphRpcValue(mcp.result)).toMatchObject({ run: { id: started.run.id }, replayed: true })

@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { AgentConfigurationVersionSchema, SessionControlStateSchema, SessionPreferencesSchema,
-  type AgentConfigurationVersion } from '@foreman-code/contracts'
+import { AgentConfigurationVersionSchema, SessionControlStateSchema, SessionPreferencesSchema } from '@foreman-code/contracts'
 import { commandInputHash } from '@foreman-code/contracts/command-identity-node'
 import { makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import { buildApp } from '../src/app.js'
 import { PostgresAccessService } from '../src/modules/access/postgres.js'
 import { PostgresCommandCoordinator } from '../src/modules/commands/postgres.js'
-import { AgentChatService, type AgentChatManagerFactory } from '../src/modules/conversations/agentChat.js'
-import { agentChatCorrelation, agentChatKey, PostgresAgentChatRepository } from '../src/modules/conversations/agentChatRepository.js'
+import { AgentChatService } from '../src/modules/conversations/agentChat.js'
+import { agentChatKey, PostgresAgentChatRepository } from '../src/modules/conversations/agentChatRepository.js'
 import { PostgresOperatorConversationRepository } from '../src/modules/conversations/operatorChatRepository.js'
 import { workerConversationFixture } from '../src/modules/conversations/workerFixtures.test-support.js'
 import { workerClaudeReplacementFixture } from '../src/modules/conversations/workerClaudeReplacement.test-support.js'
@@ -56,28 +55,12 @@ it('preserves remote Claude cold recovery, ownership and non-delivery through au
     const createChat = () => new AgentChatService(db.pool, repository, messages, new PostgresWorkflowRepository(db.pool), {
       getForWorkspace: async () => { throw new Error('Chat must not select a Run.') },
       getExecution: async () => { throw new Error('This fixture must not read a Run execution.') }, executionPages() { throw new Error('Chat must not select a Run execution.') },
-    }, Object.assign((id: string, selected: AgentConfigurationVersion, cwd: string) => {
+    }, (id, selected, cwd) => {
       expect(id).toBe(conversation.id)
       expect(selected).toEqual(configuration)
       expect(cwd).toBe(db.directory)
       return worker!.createManager()
-    }, {
-      // A Worker-hosted admission requires the exact prepared Worker input. The recorded
-      // Worker manager prepares the same frame it later verifies before offering it.
-      prepareInput: async ({ row, request, prompt, settings, configuration: accepted, workingDirectory }:
-        Parameters<NonNullable<AgentChatManagerFactory['prepareInput']>>[0]) => {
-        if (!row) throw new Error('Worker preparation requires the reserved conversation.')
-        const correlationId = agentChatCorrelation(row.id, request.requestId)
-        const input = { prompt, clientCorrelationId: correlationId, sessionMode: settings.sessionMode,
-          sessionPreferences: settings.sessionPreferences }
-        return worker!.manager.prepareInput(row.native_session_id && row.provider_version
-          ? { kind: 'turn', session: { harness: row.harness, nativeSessionId: row.native_session_id,
-            providerVersion: row.provider_version }, input }
-          : { kind: 'initial', input, start: { kind: 'agent-chat', conversationId: row.id, workflowId: row.workflow_id,
-            workflowNodeId: row.workflow_node_id, configuration: accepted, workingDirectory, correlationId,
-            instructionsDelivered: false, ...(row.record.systemPrompt ? { systemPrompt: row.record.systemPrompt } : {}) } })
-      },
-    }), db.directory)
+    }, db.directory)
     chat = createChat()
     const createApp = () => buildApp({ logger: false,
       readiness: { database: { ping: async () => {} }, checkpoints: { ping: async () => {} } },

@@ -1,5 +1,5 @@
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
-import { AgentChatHistoryPageSchema, AgentChatSendResponseSchema, AgentChatStateSchema } from '@foreman-code/contracts/agent-chat'
+import { AgentChatHistoryPageSchema, AgentChatStateSchema, SendAgentChatMessageResponseSchema } from '@foreman-code/contracts/agent-chat'
 import { ReadSelectedRunChatResponseSchema } from '@foreman-code/contracts/selected-run-chat'
 import { expect } from 'vitest'
 import { setup, completedRun, eventually, eventStream } from './activityReplayFixture.js'
@@ -38,8 +38,8 @@ export async function replayChatHistory(options: { selectedRun: boolean }) {
   const first = await f.http('POST', `${base}/messages`, selected ? { ...message('active-A', null), executionId: execution!.id }
     : { ...message('active-A', null), context: query })
   expect(first.statusCode, first.body).toBe(202)
-  // An explicit intent is a shared delivery command; standalone Agent readback returns its receipt with the state.
-  const id = AgentChatStateSchema.parse(AgentChatSendResponseSchema.parse(first.json()).state).conversation!.id
+  const initial = SendAgentChatMessageResponseSchema.parse(first.json())
+  const id = initial.state.conversation!.id
   const active = await eventually(read, (state) => !!state.activeTurn?.nativeTurnId)
   const native = active.activitySnapshot!.active.find((owner) => owner.ref.kind === 'chat_request')!.native!
   const second = await f.http('POST', `${base}/messages`, selected ? { ...message('queued-B', id), executionId: execution!.id }

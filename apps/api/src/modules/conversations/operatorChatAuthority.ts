@@ -173,19 +173,13 @@ export class PostgresOperatorChatAuthority implements OperatorChatAuthority {
   async retireTurn(conversationId: string, environment: ChildProcessEnvironment): Promise<boolean> {
     const credential = this.credentials.get(conversationId)
     if (!credential || !isDeepStrictEqual(credential.environment, environment)
-      || !credential.channel && !this.rebindsOperatorAccess(credential)) return false
+      || !credential.channel && !credential.manager.rebindApplicationAccess) return false
     await this.revokeCredentials(conversationId)
     await credential.relay?.unbindRelay()
     await credential.removeRoute?.()
     delete credential.removeRoute
     delete credential.principalId
     return true
-  }
-  /** Claude and Worker owners replace the Operator credential in place. A local Codex rebind
-   * serves only Agent and consultation subjects, so its Operator process is released after the turn. */
-  private rebindsOperatorAccess(credential: ConversationCredential): boolean {
-    return Boolean(credential.manager.rebindApplicationAccess) && (credential.configuration.harness.harness !== 'codex'
-      || credential.configuration.harnessProfileSelection?.target.hostRef.kind === 'device')
   }
   private invalidSetup(): never {
     throw new DomainError('OPERATOR_MCP_SETUP_REQUIRED', 'Install and enable Foreman Code MCP in the selected harness before chatting. Add it in Harness Settings for automatic app routing.', 409)
