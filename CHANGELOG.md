@@ -7,20 +7,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-## [0.0.116] - 2026-10-21
-
-### UI
-- Board: the empty-canvas "add your first agent" prompt is gone; the plus button adds an Orchestrator, Master or Worker in one click from the Settings profiles.
-- Operator chat restored as the movable app modal, without sidebars; the Operator button left the agent settings sidebar.
-- Group chat moved to a Board toolbar button that opens a resizable modal.
-- Workspace memory board opens from its own sidebar button; cards have colors and a new "Waiting for user" column.
-- Workflows page uses the previous hierarchy instead of workflow cards.
-- Kanban button on each workflow Board adds a movable, resizable, hideable Kanban object; hiding never deletes; layout is saved per workflow and editable through Operator MCP (workflow_kanban_layout_get/set).
-
-### Fixes
-- Production API build excludes test-support modules (v0.0.115 deploy failure).
-- CI typecheck now runs the production API build check, so this class of deploy failure is caught before release.
-
 ## [0.0.115] - 2026-10-21
 
 ### Features

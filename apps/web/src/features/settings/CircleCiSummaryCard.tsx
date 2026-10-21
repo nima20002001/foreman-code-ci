@@ -1,5 +1,5 @@
 import { Cloud } from 'lucide-react'
-import { DEFAULT_CIRCLE_ACCOUNT_ID, type CircleAccountRead, type CircleOrganizationRead } from '@foreman-code/contracts/management'
+import type { CircleAccountRead, CircleOrganizationRead } from '@foreman-code/contracts/management'
 import { useCircleAccountsQuery } from '../../shared/api/circleAccounts'
 import { Alert, Badge, Button, Card, LoadingState } from '../../shared/ui/nocturne'
 
@@ -13,7 +13,6 @@ const ROLE_LABELS: Record<CircleOrganizationRead['schedulingRole'], string> = {
 export function CircleCiSummaryCard() {
   const query = useCircleAccountsQuery()
   const accounts = query.data?.value.accounts
-  const second = accounts?.find(account => account.id !== DEFAULT_CIRCLE_ACCOUNT_ID)
   return <section className="circleci-summary" aria-label="CircleCI">
     <Card>
       <header className="circleci-summary-header"><Cloud size={18} aria-hidden="true" /><h2>CircleCI</h2></header>
@@ -23,8 +22,8 @@ export function CircleCiSummaryCard() {
           Retry CircleCI
         </Button>} />}
       {query.isSuccess && <div className="circleci-accounts">
-        <AccountSummary role="Primary" account={accounts?.find(account => account.id === DEFAULT_CIRCLE_ACCOUNT_ID)} />
-        <AccountSummary role={second?.role === 'primary' ? 'Second' : 'Standby'} account={second} />
+        <AccountSummary role="Primary" account={accounts?.find(account => account.role === 'primary')} />
+        <AccountSummary role="Standby" account={accounts?.find(account => account.role === 'standby')} />
       </div>}
       <p className="circleci-summary-note">
         The Operator manages account registration. Local setup supplies the API token.
@@ -33,7 +32,7 @@ export function CircleCiSummaryCard() {
   </section>
 }
 
-function AccountSummary({ role, account }: { role: 'Primary' | 'Second' | 'Standby'; account: CircleAccountRead | undefined }) {
+function AccountSummary({ role, account }: { role: 'Primary' | 'Standby'; account: CircleAccountRead | undefined }) {
   return <section className="circleci-account" aria-label={`${role} CircleCI account`}>
     <header><h3>{role}</h3>
       {account && <Badge tone={account.tokenConfigured ? 'neutral' : 'warning'}>
