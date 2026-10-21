@@ -1,6 +1,4 @@
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
-import { expect } from 'vitest'
 import { ChatSendRequestSchema, ChatStopRequestSchema, ChatQueueCancelRequestSchema,
   type ChatDeliveryReceipt, type ChatSendRequest } from '@foreman-code/contracts'
 import { server } from '../../mocks/server'
@@ -73,11 +71,4 @@ export function installCanonicalOperatorFixture() {
     }),
   )
   return { commands, receipts }
-}
-
-/** The draft stays editable while the selected chat loads, in a textbox the loaded composer then replaces.
- * Wait for the loaded composer before holding on to its textbox or its Send button. */
-export async function findOperatorComposer() {
-  await waitFor(() => expect(screen.queryByText(/Loading the selected chat/)).not.toBeInTheDocument())
-  return screen.findByRole('textbox', { name: 'Message' })
 }

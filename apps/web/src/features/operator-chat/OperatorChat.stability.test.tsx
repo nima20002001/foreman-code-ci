@@ -12,7 +12,7 @@ import { protectedKey } from '../../shared/api/protectedChatStorage'
 import { clearRevisionedFormPersistence } from '../settings/revisionedForm'
 import { useConversationDraftStore } from '../conversations'
 import { OperatorChat } from './OperatorChat'
-import { findOperatorComposer, installCanonicalOperatorFixture } from './canonicalOperator.test-support'
+import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { configuredOperatorSetup } from './operatorSetupTestFixture'
@@ -91,7 +91,7 @@ it('keeps an unsent empty conversation reachable through history and a restarted
   const view = mount()
   const input = await screen.findByRole('textbox', { name: 'Message' })
   fireEvent.change(input, { target: { value: 'Exact unsent draft\nsecond line' } })
-  fireEvent.click(await screen.findByRole('button', { name: /^Other topic/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Other topic/ }))
   await waitFor(() => expect(useOperatorChatStore.getState().selectedConversationId).toBe('b'))
   view.unmount()
   client.clear()
@@ -158,7 +158,7 @@ it('checks the original canonical receipt after response loss without issuing an
     replayed: true, state: states.a, requestId: command.requestId,
   }))
   mount()
-  const input = await findOperatorComposer()
+  const input = await screen.findByRole('textbox', { name: 'Message' })
   fireEvent.change(input, { target: { value: 'Continue once' } })
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
@@ -181,7 +181,7 @@ it.each([false, true])('retains the draft and reuses command identity through ab
   if (earlierLoss) api.send.mockRejectedValueOnce(new ApiError({ code: 'NETWORK_ERROR', message: 'Lost response' }))
   api.send.mockRejectedValue(conflict)
   mount()
-  const input = await findOperatorComposer()
+  const input = await screen.findByRole('textbox', { name: 'Message' })
   fireEvent.change(input, { target: { value: 'Retained request' } })
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
