@@ -6,6 +6,7 @@ import type {
 import { afterEach, expect, it, vi } from 'vitest'
 import { nativeLanes } from './helpers/nativeLanes.js'
 import { reviewerFixture } from './helpers/reviewerAudit.js'
+import { idleWorkflowControls } from './helpers/idleWorkflowControls.js'
 
 import { DEFAULT_WORKER_CREDENTIAL_TTL_MS, type IssuedWorkerCredential } from '../src/modules/access/workerCredentials.js'
 import { WorkerLaunchCredentialService, type ExecutionCredentialProvider } from '../src/modules/harnesses/mcpDetection.js'
@@ -99,6 +100,7 @@ function fixture(harness: AgentHarness = 'codex', started = true) {
     beginWait: vi.fn(async () => undefined), finish: vi.fn(async () => undefined), stop: vi.fn(async () => undefined),
   }
   const runs = {
+    ...idleWorkflowControls,
     getExecution: vi.fn(async () => execution),
     get: vi.fn(async () => ({ id: execution.runId, workspaceId: configuration.workspaceId })),
     getExecutionConfiguration: vi.fn(async () => configuration),

@@ -41,7 +41,7 @@ import { readWorkResultContextLocked } from './workReturnValidation.js'
 import { readWorkflowResultEffectFailureLocked, type WorkflowResultEffectFailure } from './workflowResultEffectFailure.js'
 import { markWorkflowCoordinationTerminalSettledLocked, readWorkflowCoordinationTerminalLocked } from './workflowCoordinationTerminal.js'
 import { finalizeRetainedRemoteReviewerLocked } from '../interactions/retainedRemoteReviewer.js'
-import { projectWorkflowChatNativeReceiptsLocked } from '../interactions/workflowChatNativeReceipts.js'
+import { hasWorkflowChatNativeReceiptsLocked, projectWorkflowChatNativeReceiptsLocked } from '../interactions/workflowChatNativeReceipts.js'
 
 /** Durable private ORIGINAL-source record. No payload/session/token reaches the
  * graph feed: G1 publishes only its immutable digest and ordinary graph facts. */
@@ -531,9 +531,10 @@ export class WorkflowNativeProofServices {
         }
       } catch (error) { poisonGraphTransaction(sql); throw error }
     })
+    const projectsReceipts = await hasWorkflowChatNativeReceiptsLocked(sql, scope.runId, stored.execution.id)
     for (const [index, frame] of frames.entries()) {
       await this.afterPersistOriginalLocked?.(sql, frame.evidence, structuredClone(records[index]!))
-      await projectWorkflowChatNativeReceiptsLocked(sql, records[index]!)
+      if (projectsReceipts) await projectWorkflowChatNativeReceiptsLocked(sql, records[index]!)
     }
   }
 

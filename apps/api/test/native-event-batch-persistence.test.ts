@@ -91,7 +91,8 @@ function fixture() {
     } else if (text.startsWith('with proposed as materialized')) {
       state.next = (JSON.parse(String(values[0])) as { next_sequence: string }[])[0]!.next_sequence
       state.events.push(...JSON.parse(String(values[1])) as typeof state.events)
-    } else if (!text.includes('run_node_placements') && !text.startsWith('with locked_head')
+    } else if (text.includes('from run_chat_commands')) rows = []
+    else if (!text.includes('run_node_placements') && !text.startsWith('with locked_head')
       && !text.startsWith('select run_id from run_graph_heads')
       && !text.startsWith('select id from harness_executions')) throw new Error(`Unexpected adapter query: ${text}`)
     return { rows: structuredClone(rows), rowCount: rows.length }

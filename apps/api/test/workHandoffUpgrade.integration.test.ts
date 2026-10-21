@@ -2,9 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, expect, it } from 'vitest'
 import { HarnessExecutionContextSchema, HarnessExecutionRequestSchema, HarnessExecutionSchema } from '@foreman-code/contracts'
 import { WorkActivationIdentitySchema, WorkActivationInputSchema, WorkReturnSchema } from '@foreman-code/contracts/wave25'
+import type pg from 'pg'
 import { applyApplicationMigrations } from '../src/infrastructure/migrations.js'
-import { workflowExecutionFailureMigration } from '../src/infrastructure/workflowExecutionFailureMigration.js'
-import { checkpointOwnerMigration } from '../src/infrastructure/checkpointOwnerMigration.js'
 import { workParentRequestMigration } from '../src/infrastructure/workParentRequestMigration.js'
 import { repeatExecutionIdentity, repeatId, workActivationSlotId } from '../src/modules/runs/repeatResolution.js'
 import { workflowNativeReservation } from '../src/modules/runs/workflowNativeEntry.js'
@@ -14,21 +13,21 @@ import { currentDatabase, postgresEnabled } from './helpers/eng04CurrentDatabase
 import { finished, workHandoffFixture } from './helpers/workHandoffFixture.js'
 import { digest, text, transaction } from './eng04-migration-fixtures.js'
 
+// Current readers need the whole current schema while historical inputs are staged, so only
+// the continuation upgrade is deferred. Its older redefinitions of shared functions must not
+// replace the current ones when it is finally applied.
 async function databaseBeforeContinuationUpgrade() {
-  const db = await currentDatabase({ beforeMigration: workParentRequestMigration.version })
-  try {
-    // Current readers need failure and checkpoint columns while historical inputs are staged.
-    await transaction(db.pool, async sql => {
-      await sql.query(workflowExecutionFailureMigration.sql)
-      await sql.query('insert into application_migrations(version) values($1)', [workflowExecutionFailureMigration.version])
-      await sql.query(checkpointOwnerMigration.sql)
-      await sql.query('insert into application_migrations(version) values($1)', [checkpointOwnerMigration.version])
-    })
-    return db
-  } catch (error) {
-    await db.close()
-    throw error
+  return currentDatabase({ deferMigration: workParentRequestMigration.version })
+}
+async function upgradeContinuations(pool: pg.Pool) {
+  const current = (await pool.query<{ definition: string }>(`select pg_get_functiondef(p.oid) as definition
+    from pg_proc p where p.pronamespace=current_schema()::regnamespace and p.prokind='f'`)).rows
+  // The upgrade creates its functions plainly; their current definitions are restored afterwards.
+  for (const [, name] of workParentRequestMigration.sql.matchAll(/create function (\w+)\(/g)) {
+    await pool.query(`drop function ${name} cascade`)
   }
+  await applyApplicationMigrations(pool)
+  for (const { definition } of current) await pool.query(definition)
 }
 
 function nativeReturnFromPrompt(prompt: string, includeRequestId: boolean) {
@@ -119,7 +118,7 @@ describe.skipIf(!postgresEnabled)('saved continuation inputs across an upgrade',
           values($1,'input.bind',$2,$3,'historical-fixture','1')`,
         [t.run.id, execution.id, digest({ execution, inputDigest })])
       })
-      await applyApplicationMigrations(db.pool)
+      await upgradeContinuations(db.pool)
       await t.restart()
       const replay = await t.queue(activationId)
       expect(replay.reused).toBe(true)

@@ -27,6 +27,7 @@ import type { PostgresRunRepository } from '../../src/modules/runs/postgres.js'
 import { nativeLanes } from './nativeLanes.js'
 import { currentUnitSnapshot } from './currentUnitSnapshot.js'
 import { rejectableDeferred } from './deferred.js'
+import { idleWorkflowControls } from './idleWorkflowControls.js'
 
 export const session = {
   harness: 'codex', providerVersion: 'codex-cli 0.154.0', nativeSessionId: 'review-native-exact',
@@ -246,8 +247,10 @@ export async function reviewerFixture(options: {
     },
   } satisfies Partial<Wave25InteractionCoordinationRepository>)
   let stopped = false
-  const owner = { runId: execution.runId, assertOwned() {}, client: {} } as unknown as RunOwnership
+  const owner = { runId: execution.runId, assertOwned() {}, retain: () => async () => {}, release: async () => {}, client: {} } as unknown as RunOwnership
   const runs = {
+    ...idleWorkflowControls,
+    async acquireOwnership() { return owner },
     async getRepeatSnapshot() { return { run, version, configurations: [configuration], stopRequested: stopped, cleanupPending: false } },
     async getRepeatVersion(runId: string, versionId: string) {
       assert.equal(runId, run.id)

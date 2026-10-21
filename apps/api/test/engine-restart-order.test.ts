@@ -57,7 +57,7 @@ for (const handoffs of preserving ? [false, true] : [false]) test(
       events.push('close-start')
       try { await closure.promise } finally { events.push('close-settled') }
     }),
-    adoptRunOwner: vi.fn(), cancelRun: vi.fn(), finishRun: vi.fn(),
+    adoptRunOwner: vi.fn(), cancelRun: vi.fn(), finishRun: vi.fn(), executionCapacity: () => undefined, reconcileWorkflowControls: async () => undefined,
   }
   type Args = ConstructorParameters<typeof LangGraphWorkflowEngine>
   const engine = new LangGraphWorkflowEngine(runs as unknown as Args[0], {
@@ -142,7 +142,7 @@ test('restart retains the original owner when cleanup persistence fails and retr
   }
   const native = { shareRunOwner: () => () => {}, preserveActiveForRestart: async () => false,
     requestColdRunCleanup: async () => false, closeForRestart: vi.fn(async () => { events.push('close') }),
-    adoptRunOwner: vi.fn(), cancelRun: vi.fn(), finishRun: vi.fn() }
+    adoptRunOwner: vi.fn(), cancelRun: vi.fn(), finishRun: vi.fn(), executionCapacity: () => undefined, reconcileWorkflowControls: async () => undefined }
   type Args = ConstructorParameters<typeof LangGraphWorkflowEngine>
   const engine = new LangGraphWorkflowEngine(runs as unknown as Args[0], {
     getVersion: async (versionId: string) => { assert.equal(versionId, f.version.id); return f.version },
@@ -187,7 +187,8 @@ for (const failFirst of [false, true]) test(`naturally completing drive holds it
     },
   }
   const native = { shareRunOwner: () => () => {}, preserveActiveForRestart: async () => false,
-    requestColdRunCleanup: async () => false, closeForRestart: vi.fn(async () => { owner.assertOwned(); events.push('close') }) }
+    requestColdRunCleanup: async () => false, closeForRestart: vi.fn(async () => { owner.assertOwned(); events.push('close') }),
+    executionCapacity: () => undefined, reconcileWorkflowControls: async () => undefined }
   type Args = ConstructorParameters<typeof LangGraphWorkflowEngine>
   const engine = new LangGraphWorkflowEngine(runs as unknown as Args[0], {
     getVersion: async (versionId: string) => { assert.equal(versionId, f.version.id); return f.version },
