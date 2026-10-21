@@ -25,25 +25,37 @@ it('keeps the API ready after PostgreSQL terminates idle application and checkpo
       throw new Error(`API startup failed:\n${output}`, { cause: error })
     }
     for (const application of ['graphql-api', 'graphql-checkpoints']) {
-      const backend = await readUntil(async () => {
-        // Select and terminate in one statement: a separate round trip can kill a newly borrowed client.
-        const result = await admin.query<{ pid: number; terminated: boolean }>(`
-          select pid, pg_terminate_backend(pid) as terminated from pg_stat_activity
-          where datname=current_database() and application_name=$1 and state='idle' limit 1`, [application])
-        return result.rows[0]
-      }, value => value !== undefined, { timeoutMs: 5_000, description: `an idle ${application} connection` })
-      expect(backend!.terminated).toBe(true)
-      await readUntil(async () => output, value => value.split('\n').some(line =>
-        line.includes('idle PostgreSQL connection failed') && line.includes(`"pool":"${application}"`)),
-      { timeoutMs: 5_000, description: `the handled ${application} connection loss`,
-        subscribe: changed => {
-          child.stdout?.on('data', changed)
-          child.stderr?.on('data', changed)
-          return () => {
-            child.stdout?.off('data', changed)
-            child.stderr?.off('data', changed)
-          }
-        } })
+      const handled = () => output.split('\n').filter(line =>
+        line.includes('idle PostgreSQL connection failed') && line.includes(`"pool":"${application}"`)).length
+      // pg_stat_activity reports a client a request has borrowed between statements as 'idle' too; its
+      // termination goes to that request, not the pool idle handler. Skip just-used backends and retry on a miss.
+      for (let attempt = 1; ; attempt += 1) {
+        const before = handled()
+        const backend = await readUntil(async () => {
+          // Select and terminate in one statement: a separate round trip can kill a newly borrowed client.
+          const result = await admin.query<{ pid: number; terminated: boolean }>(`
+            select pid, pg_terminate_backend(pid) as terminated from pg_stat_activity
+            where datname=current_database() and application_name=$1 and state='idle'
+              and state_change < now() - interval '500 milliseconds' limit 1`, [application])
+          return result.rows[0]
+        }, value => value !== undefined, { timeoutMs: 10_000, description: `an idle ${application} connection` })
+        expect(backend!.terminated).toBe(true)
+        try {
+          await readUntil(async () => handled(), count => count > before,
+            { timeoutMs: 10_000, description: `the handled ${application} connection loss`,
+              subscribe: changed => {
+                child.stdout?.on('data', changed)
+                child.stderr?.on('data', changed)
+                return () => {
+                  child.stdout?.off('data', changed)
+                  child.stderr?.off('data', changed)
+                }
+              } })
+          break
+        } catch (error) {
+          if (attempt >= 3) throw error
+        }
+      }
       expect(child.exitCode).toBeNull()
       expect(child.signalCode).toBeNull()
       const response = await fetch(`http://127.0.0.1:${port}/health/ready`, { signal: AbortSignal.timeout(5_000) })

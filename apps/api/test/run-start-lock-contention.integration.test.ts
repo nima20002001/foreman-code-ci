@@ -122,9 +122,7 @@ describe.runIf(postgresEnabled)('authenticated Start lock contention', () => {
       expect(response.isError).not.toBe(true)
       const started = RunStartV3ResultSchema.parse(decodeMcpToolResult(response))
       expect(started).toMatchObject({ accepted: true, replayed: false })
-      // Acceptance is asynchronous: dispatch, the first native turn and its result persistence all run
-      // before closure, which took over 5 s on a loaded CI machine. Same budget as settlement below.
-      await vi.waitFor(() => { expect(closing).toBe(true) }, { timeout: 25_000, interval: 20 })
+      await vi.waitFor(() => { expect(closing).toBe(true) }, { timeout: 5_000, interval: 20 })
 
       const callTool = starter.runtime.client.callTool.bind(starter.runtime.client)
       let sawPending = false
@@ -165,7 +163,7 @@ describe.runIf(postgresEnabled)('authenticated Start lock contention', () => {
       for (const runtime of runtimes.reverse()) await runtime.close()
       vi.restoreAllMocks()
     }
-  }, 90_000)
+  }, 60_000)
 
   it.each(['runner', 'workspace'] as const)(
     'queues four workflows across two workspaces beyond SQL deadlines at the %s lock', async (lockKind) => {
