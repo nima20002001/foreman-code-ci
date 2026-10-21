@@ -77,10 +77,9 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
     }
     return projected
   }, [snapshot, activitySnapshot, onInspectNode, hierarchy])
-  const teamNodeId = board?.teamNodeId
-  const visibleNodes = useMemo(() => nodes.filter(node => !collapsed.has(node.id)).map(node => ({ ...node,
-    selected: teamNodeId === node.id })), [nodes, collapsed, teamNodeId])
-  const visibleEdges = useMemo(() => edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target)), [edges, collapsed])
+  const visibleNodes = nodes.filter(node => !collapsed.has(node.id)).map(node => ({ ...node,
+    selected: board?.teamNodeId === node.id }))
+  const visibleEdges = edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target))
   const scope = useMemo(() => ({ workspaceId: snapshot.workspaceId, workflowId: snapshot.workflowId,
     runId: snapshot.runId, workflowVersionId: snapshot.workflowVersionId, executionSemanticsVersion: 3 as const }), [snapshot])
   const active = !activitySnapshot || activitySnapshot.active.length > 0
@@ -99,7 +98,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const ci = useBoardCiServer({ nodes: towerNodes, names, scope, workflow: { workspaceId: scope.workspaceId, workflowId: scope.workflowId },
     jobs: ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined,
     truncated: ciList.data?.truncated ?? false, error: ciList.isError, loading: ciList.isPending })
-  const flowNodes = useMemo(() => [...visibleNodes, ci.node], [visibleNodes, ci.node])
+  const flowNodes = [...visibleNodes, ci.node]
   return <div ref={containerRef} className="run-board-canvas" data-testid="run-board-canvas" onKeyDown={(event) => {
     // History keystrokes must not bubble into an ancestor's authoring shortcuts.
     event.stopPropagation()

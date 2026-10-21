@@ -10,8 +10,6 @@
     "src/features/workflow-board/WorkflowBoard.{actionsPolling,recovery,inspection}.test.tsx",
     "src/features/workflow-board/boardHistoryBudget.test.tsx",
     "src/features/workflow-board/manualPositions.test.tsx",
-    "src/features/workflow-board/hierarchy{Authoring,Conflict}Recovery.test.tsx",
-    "src/features/workflow-board/savedHierarchyContinuity.test.tsx",
     "src/features/graph/nextDraft/nim2644*.test.tsx",
     "src/features/conversations/agentChat/F7*.test.tsx",
     "src/features/operator-chat/operatorChatUx.test.tsx"

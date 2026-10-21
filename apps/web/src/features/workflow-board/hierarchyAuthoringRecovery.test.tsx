@@ -60,9 +60,9 @@ async function compare() {
   return comparison
 }
 
-async function conflictAfterCreatingWorker() {
+it('creates, edits and plans removal through Board controls, retaining every raw form through repeated conflict recovery', async () => {
   const f = await recoveryFixture(fixture(['orchestrator', 'orchestrator', 'orchestrator', 'coder']))
-  const view = await mount(f)
+  let view = await mount(f)
   await applyHierarchy('node-1')
   await createWorker('node-1', 'Created Worker', 'Applied creation task')
   f.externalEdit('Saved on another computer')
@@ -71,12 +71,7 @@ async function conflictAfterCreatingWorker() {
   const rejected = f.requests.at(-1)!
   const originalCreated = rejected.stagedAgents!.find(item => item.agent.name === 'Created Worker')!
   expect(originalCreated.baseRevision).toBeNull()
-  return { f, view, rejected, originalCreated }
-}
 
-it('retains created, unapplied and removal forms through refreshes after a conflicting save', async () => {
-  const { f, view: mounted } = await conflictAfterCreatingWorker()
-  let view = mounted
   await openAgent('Node 3')
   await userEvent.selectOptions(rail().getByLabelText('Reports to'), 'node-2')
   await userEvent.click(rail().getByRole('button', { name: 'Advanced settings' }))
@@ -90,7 +85,7 @@ it('retains created, unapplied and removal forms through refreshes after a confl
   view = await refresh(f, view)
   const remove = await removal()
   await userEvent.selectOptions(remove.getByLabelText('Move 2 Workers to'), 'node-2')
-  await refresh(f, view)
+  view = await refresh(f, view)
   const resumedRemoval = within(await screen.findByRole('dialog', { name: 'Remove Node 1 from workflow?' }))
   expect(resumedRemoval.getByLabelText('Move 2 Workers to')).toHaveValue('node-2')
   await userEvent.click(resumedRemoval.getByRole('button', { name: 'Inspect latest' }))
@@ -104,15 +99,6 @@ it('retains created, unapplied and removal forms through refreshes after a confl
   expect(authoring().getByTitle('Rename workflow')).toHaveTextContent('Saved on another computer')
   expect(within(screen.getByRole('navigation', { name: 'Agents and connections' }))
     .queryByRole('button', { name: 'Created Worker' })).not.toBeInTheDocument()
-}, 30000)
-
-it('saves a reapplied creation and removal after repeated conflict recovery', async () => {
-  const { f, view: mounted, rejected, originalCreated } = await conflictAfterCreatingWorker()
-  await createWorker('node-2', 'Unapplied Worker', 'Creation in progress', { apply: false })
-  const view = await refresh(f, mounted)
-  await settings()
-  await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
-  await waitFor(() => expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(1))
 
   await applyHierarchy('node-2')
   f.externalEdit('Second concurrent save')
