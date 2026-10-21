@@ -5,7 +5,7 @@ import { fixture } from '../graph/nextDraft/core.cases'
 import { authoringHints, draftOperations, removeNode } from '../graph/nextDraft/model'
 import { stageAgentEdits } from '../graph/nextDraft/agentEdits'
 import { newNextDraft, undoNextDraft } from '../graph/nextDraft/state'
-import { applyMasterHierarchy, removeMasterHierarchy, reparentHierarchyWorker, stageHierarchyAgent } from './authoring'
+import { applyMasterHierarchy, attachHierarchyAgent, removeMasterHierarchy, reparentHierarchyWorker, stageHierarchyAgent } from './authoring'
 
 function draft() {
   const context = fixture(['orchestrator', 'orchestrator', 'coder'])
@@ -96,6 +96,43 @@ describe('explicit Master authoring through the ordinary staged Agent journal', 
     expect(added.context.agents.some(record => record.agent.id === worker.id)).toBe(false)
     expect(added.graph.hierarchy?.parents).toContainEqual({ workflowNodeId: 'new-node', parentNodeId: 'node-1' })
     expect(undoNextDraft(added).graph).toEqual(first.graph)
+  })
+
+  it('attaches saved Master and Orchestrator identities with graph-only reporting defaults and preserves their configurations', () => {
+    const original = draft()
+    const master = { metadataRevision: 12, agent: { ...original.context.agents[0]!.agent,
+      id: 'saved-master', name: 'Existing Master', productRole: 'master' as const,
+      configurationVersionId: 'saved-master-config' } }
+    const orchestrator = { metadataRevision: 14, agent: { ...original.context.agents[1]!.agent,
+      id: 'saved-orchestrator', name: 'Existing Orchestrator', configurationVersionId: 'saved-orchestrator-config' } }
+    const context = { ...original.context, agents: [...original.context.agents, master, orchestrator] }
+    const before = structuredClone(context)
+    const withMaster = attachHierarchyAgent(original.graph, context, master, 'attached-master')
+    expect(withMaster.hierarchy).toEqual({ version: 1, masterNodeId: 'attached-master', parents: [
+      { workflowNodeId: 'node-0', parentNodeId: 'attached-master' },
+      { workflowNodeId: 'node-1', parentNodeId: 'attached-master' },
+    ] })
+    expect(withMaster.entryNodeId).toBe('attached-master')
+    const withOrchestrator = attachHierarchyAgent(withMaster, context, orchestrator, 'attached-orchestrator')
+    expect(withOrchestrator.hierarchy?.parents).toContainEqual({ workflowNodeId: 'attached-orchestrator', parentNodeId: 'attached-master' })
+    expect(withOrchestrator.edges).toEqual(expect.arrayContaining(original.graph.edges))
+    expect(context).toEqual(before)
+    expect(original.agentEdits).toBeUndefined()
+    expect(draftOperations(context, withOrchestrator).some(operation => operation.type === 'agent.configure')).toBe(false)
+    expect(() => attachHierarchyAgent(withOrchestrator, context, master, 'duplicate-master')).toThrow('already has a Master')
+  })
+
+  it('leaves a reused Worker unassigned until its reporting parent is explicitly chosen', () => {
+    const initial = applyMasterHierarchy(draft(), 'node-0', { 'node-2': 'node-1' })
+    const record = { metadataRevision: 9, agent: { ...initial.context.agents[2]!.agent,
+      id: 'reused-worker', name: 'Existing Worker', configurationVersionId: 'reused-worker-config' } }
+    const context = { ...initial.context, agents: [...initial.context.agents, record] }
+    const attached = attachHierarchyAgent(initial.graph, context, record, 'attached-worker', initial.agentEdits)
+    expect(attached.nodes).toContainEqual(expect.objectContaining({ id: 'attached-worker', agentId: 'reused-worker' }))
+    expect(attached.hierarchy?.parents.some(member => member.workflowNodeId === 'attached-worker')).toBe(false)
+    const assigned = reparentHierarchyWorker(attached, 'attached-worker', 'node-1')
+    expect(assigned.hierarchy?.parents).toContainEqual({ workflowNodeId: 'attached-worker', parentNodeId: 'node-1' })
+    expect(record.agent).toMatchObject({ productRole: 'coder', configurationVersionId: 'reused-worker-config' })
   })
 
   it('reuses an existing handoff when a Worker explicitly changes reporting parent', () => {

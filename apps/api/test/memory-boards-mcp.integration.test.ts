@@ -98,19 +98,8 @@ describe.skipIf(!postgresEnabled)('Memory board HTTP and authenticated MCP parit
       expect(view).toMatchObject({openColumns:[
         {status:'todo',items:[updated.card]},
         {status:'doing',items:[]},
-        {status:'waiting_for_user',items:[]},
         {status:'blocked',items:[]},
       ]})
-      const waitingCard={title:'Pay for hosting',body:'',status:'waiting_for_user',completionKind:null,reason:'Approve the payment page.',assignee:null,linkedNodes:[]}
-      expect((await readonly.callTool({name:'memory_card_create',arguments:{kind:'card_create',boardId,card:waitingCard}})).isError).toBe(true)
-      expect((await editor.callTool({name:'memory_card_create',arguments:{kind:'card_create',boardId,card:{...waitingCard,reason:null}}})).isError).toBe(true)
-      const waiting=decodeMcpToolResult(await editor.callTool({name:'memory_card_create',arguments:{kind:'card_create',boardId,commandId:randomUUID(),card:waitingCard}}))
-      const moved=decodeMcpToolResult(await editor.callTool({name:'memory_card_update',arguments:{kind:'card_update',boardId,cardId:saved.card!.id,
-        commandId:randomUUID(),patch:{status:'waiting_for_user',reason:'Sign in to the registrar.'}}}))
-      expect(moved.card).toMatchObject({status:'waiting_for_user',reason:'Sign in to the registrar.'})
-      const column=await app.inject({method:'GET',url:`/api/memory-boards?boardId=${boardId}&view=cards&status=waiting_for_user`,headers:{authorization:`Bearer ${reader.token}`}})
-      expect(column.json<{items:{id:string}[]}>().items.map(item=>item.id).sort()).toEqual([saved.card!.id,(waiting.card as {id:string}).id].sort())
-      expect(decodeMcpToolResult(await readonly.callTool({name:'memory_board_get',arguments:{boardId}}))).toMatchObject({counts:{todo:0,waiting_for_user:2}})
       expect(createMemoryBoardTools(undefined)).toEqual([])
     } finally {
       await Promise.allSettled(clients.map(client=>client.close()))

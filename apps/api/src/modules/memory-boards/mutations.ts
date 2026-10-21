@@ -48,8 +48,8 @@ async function cardMutation(tx: GraphTransactionSql, authority: MemoryBoardAutho
   await selectWork(tx,authority,row.board.scope,next,operation.workSelections,context,bindings,claims,creating)
   resolveTerminalWork(next,before,bindings,claims,operation,now)
   const hadNewWork = !same(bindings,oldBindings) || !same(claims,oldClaims)
-  // Explicit Blocked or Waiting for user is an honest blocker; work cannot silently complete it.
-  const projected = next.status === 'blocked' || next.status === 'waiting_for_user' || next.status === 'done'
+  // Explicit Blocked is an honest user blocker; work cannot silently complete it.
+  const projected = next.status === 'blocked' || next.status === 'done'
     ? next : aggregateCard(next,bindings,claims,false)
   const changed = !before || !same(before,projected) || hadNewWork
   const provenance = { principalId: context.principalId, ...(context.subject ? { subject: context.subject } : {}) }
@@ -93,7 +93,7 @@ export async function mutateLocked(tx: GraphTransactionSql, authority: MemoryBoa
   return receipt
 }
 export function checkCapacity(rows: Iterable<BoardRow>): void {
-  for (const row of rows) if (row.counts.todo + row.counts.doing + row.counts.waiting_for_user + row.counts.blocked > 10_000 || row.counts.notes > 1_000) {
+  for (const row of rows) if (row.counts.todo + row.counts.doing + row.counts.blocked > 10_000 || row.counts.notes > 1_000) {
     throw new DomainError('MEMORY_BOARD_CAPACITY','This board has reached its open task or active note capacity. Finish tasks or archive notes, then retry.',409)
   }
 }

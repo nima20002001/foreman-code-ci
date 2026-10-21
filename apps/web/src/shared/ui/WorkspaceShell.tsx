@@ -12,7 +12,6 @@ import { Settings } from 'lucide-react'
 import { SidebarNavigationButton } from './SidebarNavigationButton'
 
 import { SidebarComputers } from '../../features/computers/SidebarComputers'
-import { SidebarMemoryBoardButton } from '../../features/memory-boards/SidebarMemoryBoardButton'
 import { ThemeToggle } from '../../features/theme'
 import { HarnessStatusMenu } from '../../features/settings/HarnessStatusMenu'
 import { useWorkspacePages } from '../api/query'
@@ -152,8 +151,6 @@ export function WorkspaceShell({
             >
               <Settings aria-hidden="true" size={16} />
             </SidebarNavigationButton>
-            {navigationWorkspaceId && <SidebarMemoryBoardButton workspaceId={navigationWorkspaceId}
-              active={!activeGlobalSection && activeSection === 'memory'} />}
             <ThemeToggle />
             <HarnessStatusMenu />
           </div>

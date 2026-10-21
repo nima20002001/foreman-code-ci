@@ -22,7 +22,7 @@ export function MemoryBoardSurface({ scope, scopeName, dialog }: {
   const principal = access.isError ? undefined : access.data?.principal
   const workflowId = scope.kind === 'workflow' ? scope.workflowId : ''
   const workflow = useManagedWorkflowQuery(scope.workspaceId, workflowId, scope.kind === 'workflow')
-  const destination = scope.kind === 'workspace' ? '/workspaces/$workspaceId/memory' : '/workspaces/$workspaceId'
+  const destination = scope.kind === 'workspace' ? '/workspaces/$workspaceId/workflows' : '/workspaces/$workspaceId'
   const selected = useCallback((memoryCard: string | undefined) => {
     void navigate({ to: destination, params: { workspaceId: scope.workspaceId }, replace: true, search: previous => ({ ...previous, memoryCard }) })
   }, [navigate, destination, scope.workspaceId])

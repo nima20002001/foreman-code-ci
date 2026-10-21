@@ -29,7 +29,7 @@ export function useDraftAgentPanels({ draftKey, edit, editIntent, core, board, r
   const graph = edit.graph
   const context = edit.context
   const runRecord = useSelectedRunRecord()
-  const { inspect, presentation, setOpenNode, change, report } = core
+  const { inspect, presentation, setOpenNode, setPanel, change, report } = core
   const openAgent = (nodeId: string, next: AgentPanel = 'settings') => inspect(() => {
     presentation.getState().setFocusedNodeId(nodeId); presentation.getState().setFocusedEdgeId(undefined)
     if (board?.selectSidePanel) board.selectSidePanel({ kind: 'agent', nodeId, tab: next === 'info' ? 'details' : next })
@@ -63,8 +63,8 @@ export function useDraftAgentPanels({ draftKey, edit, editIntent, core, board, r
         if (board?.run) {
           board.selectRun()
           if (graph.nodes.some((item) => item.id === node.id && item.kind!=='job' && item.agentId === node.agentId)) setOpenNode({ nodeId: node.id, panel: 'chat' })
-          else setOpenNode(undefined)
-        } else setOpenNode(undefined)
+          else { setOpenNode(undefined); setPanel('agents') }
+        } else { setOpenNode(undefined); setPanel('agents') }
       }} />
     if (pinned) return { chat, chatHasHeader: true,
       settings: <h3>Settings<InfoHint label="Settings">This is a saved Run Agent. Return to the draft to edit settings for future work. Chat does not change this Run.</InfoHint></h3>,

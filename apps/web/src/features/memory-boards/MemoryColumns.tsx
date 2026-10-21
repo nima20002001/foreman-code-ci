@@ -43,9 +43,8 @@ function Column({ client, board, nodes, status, filters, onFiltersChange, onOpen
   const query = useMemoryCards(client, board, { status, query: filters.query || undefined,
     completionKind: status === 'done' ? filters.completionKind : undefined }, open)
   const cards = mergedMemoryItems(query.data?.pages)
-  return <section className="memory-column" data-status={status} aria-label={statusLabels[status]}>
-    <h3 className="memory-column-heading"><span className="memory-status-dot" aria-hidden="true" />{statusLabels[status]}
-      {!filters.query && <span className="memory-column-count" aria-label={`${board.counts[status]} cards`}>{board.counts[status]}</span>}</h3>
+  return <section className="memory-column" aria-label={statusLabels[status]}>
+    <h3>{statusLabels[status]}{!filters.query ? ` (${board.counts[status]})` : ''}</h3>
     {!shown ? <p>Hidden by status filter</p> : status === 'done' && !filters.doneOpen ? <Button onClick={() => onFiltersChange({ ...filters, doneOpen: true })}>Show Done</Button> : <>
       {status === 'done' && <Select label="Done outcome" value={filters.completionKind ?? ''}
         options={[{ value: '', label: 'All' }, { value: 'completed', label: 'Completed' }, { value: 'dropped', label: 'Dropped' }]}

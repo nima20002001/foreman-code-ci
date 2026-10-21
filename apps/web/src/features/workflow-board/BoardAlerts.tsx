@@ -48,11 +48,11 @@ export function BoardAlerts({ scope, hints, validation, error, pending, updateFa
       <ul className="board-alert-rows">{alerts.map(({ issue, tone, path, recovery }, index) => <li key={index} data-tone={tone}>
         <Icon name="warning" size={15} /><div><span className="n-sr-only">{tone === 'danger' ? 'Error: ' : 'Warning: '}</span>{issue.message}
           {recovery ? <Button size="sm" variant="ghost" disabled={pending || recovery.pending} aria-label={`Retry ${recovery.id === 'WORKSPACE_UPDATES_UNAVAILABLE' ? 'workspace' : 'draft'} updates`}
-            onClick={recovery.retry}>{recovery.pending ? 'Retrying…' : 'Retry'}</Button> : issue.code !== 'SAVE_ERROR' && !(issue.code === 'ENTRY_REQUIRED' && issue.message.startsWith('Add an agent')) && (!path || ['approval', 'executionPolicy', 'entryNodeId'].includes(String(path[0]))) ? <Button size="sm" variant="ghost" disabled={pending} onClick={() => {
+            onClick={recovery.retry}>{recovery.pending ? 'Retrying…' : 'Retry'}</Button> : issue.code !== 'SAVE_ERROR' && (!path || ['approval', 'executionPolicy', 'entryNodeId'].includes(String(path[0]))) ? <Button size="sm" variant="ghost" disabled={pending} onClick={() => {
             setOpen(false)
             if (path && ['approval', 'executionPolicy', 'entryNodeId'].includes(String(path[0]))) openField(path)
             else openIssue(issue)
-          }}>Review setting</Button> : null}
+          }}>{issue.code === 'ENTRY_REQUIRED' && issue.message.startsWith('Add an agent') ? 'Add node' : 'Review setting'}</Button> : null}
         </div>
       </li>)}</ul>
     </Dialog>

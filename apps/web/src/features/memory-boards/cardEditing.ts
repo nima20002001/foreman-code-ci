@@ -10,7 +10,7 @@ export function selectionKey(selection: MemoryCardWorkSelection): string {
 }
 export function cardDraftProblem(draft: CardDraft): { field: 'title' | 'reason'; message: string } | undefined {
   if (!draft.fields.title.trim()) return { field: 'title', message: 'Write a title for this card.' }
-  const reasonRequired = draft.fields.status === 'blocked' || draft.fields.status === 'waiting_for_user' || draft.fields.completionKind === 'dropped'
+  const reasonRequired = draft.fields.status === 'blocked' || draft.fields.completionKind === 'dropped'
     || draft.original?.status === 'done' && draft.fields.status !== 'done' || draft.resolutionRequired
   if (reasonRequired && !draft.fields.reason?.trim()) return { field: 'reason', message: 'Add a reason for this change.' }
   return undefined
