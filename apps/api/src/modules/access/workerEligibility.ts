@@ -1,4 +1,3 @@
-import type pg from 'pg'
 import { CONSULTATION_BINDING_ELIGIBLE } from './consultationAuthority.js'
 /** Shared durable eligibility; aliases b/p/he/r name binding/principal/execution/Run.
  * Expiry is checked separately at authentication. A paused, still-owned lease can
@@ -29,27 +28,3 @@ export const WORKER_BINDING_ELIGIBLE = `
   and r.record->>'id'=r.id and r.record->>'workspaceId'=b.workspace_id
   and r.record->>'workflowId'=b.workflow_id
 `
-
-/** A designated Orchestrator's marked result (F1) commits before its original
- * native turn settles. That settlement retains the same process credential as
- * the reviewer lease, or closes the process and revokes it. Until then the
- * workflow credential is not usable, but it is not terminal: sweeps leave it. */
-export const RETAINED_REVIEWER_SETTLEMENT_PENDING = `
-  b.purpose='workflow' and b.revoked_at is null and p.revoked_at is null
-  and he.id=b.execution_id and he.run_id=r.id and r.id=b.run_id
-  and he.worker_credentials_closed_at is null and r.worker_credentials_closed_at is null
-  and r.stop_requested_at is null and r.execution_state in ('running','waiting')
-  and r.record->>'outcome'='pending'
-  and he.record->>'state'='completed' and he.record#>>'{result,outcome}'='succeeded'
-  and r.record->'approval'->>'handler'='orchestrator'
-  and r.record->'approval'->>'designatedOrchestratorAgentId'=b.agent_id
-  and exists(select 1 from workflow_coordination_terminals t
-    where t.execution_id=he.id and t.run_id=r.id and t.settled_native_proof_id is null)
-`
-
-export async function retainedReviewerSettlementPending(client: pg.ClientBase | pg.Pool, principalId: string): Promise<boolean> {
-  const row = await client.query(`select 1 from worker_credential_bindings b
-    join management_principals p on p.id=b.principal_id join harness_executions he on he.id=b.execution_id
-    join runs r on r.id=b.run_id where b.principal_id=$1 and (${RETAINED_REVIEWER_SETTLEMENT_PENDING})`, [principalId])
-  return row.rowCount === 1
-}
