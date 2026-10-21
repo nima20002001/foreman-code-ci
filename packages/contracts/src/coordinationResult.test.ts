@@ -28,6 +28,25 @@ describe('saved-node coordination result parsing', () => {
     expect(() => parseCoordinationResult({ ...envelope, data: '  ' }, context())).toThrow();
   });
 
+  it('accepts a plain-text answer as the result of a node without an output schema', () => {
+    expect(parseCoordinationResult({ text: '  The fix is merged.  ' }, context())).toEqual({
+      data: 'The fix is merged.', summary: 'The fix is merged.', board: { kind: 'none', reason: 'no_changes' } });
+    expect(parseCoordinationResult({ text: '[1, 2]' }, context()).data).toBe('[1, 2]');
+    const long = parseCoordinationResult({ text: 'y'.repeat(2000) }, context());
+    expect(long.data).toBe('y'.repeat(2000));
+    expect(long.summary).toHaveLength(600);
+    const interval = { ...context({ interval: { everySeconds: 30 } }), interval: true };
+    expect(parseCoordinationResult({ text: 'Nothing changed.' }, interval).data).toBe('Nothing changed.');
+  });
+
+  it('keeps strict validation for explicit schemas, routing nodes, empty text and invalid envelopes', () => {
+    expect(() => parseCoordinationResult({ text: 'plain answer' }, context({ outputSchema }))).toThrow();
+    expect(() => parseCoordinationResult({ text: 'plain answer' }, context({ choice }))).toThrow();
+    expect(() => parseCoordinationResult({ text: '   ' }, context())).toThrow();
+    expect(() => parseCoordinationResult(nativeText({ data: 'x' }), context())).toThrow();
+    expect(() => parseCoordinationResult(nativeText({ ...envelope, actor: 'caller-chosen' }), context())).toThrow();
+  });
+
   it('selects declared choice outcomes and only checks ordinary choice data when a schema exists', () => {
     for (const data of [null, '  ']) expect(parseCoordinationResult({ ...envelope, data,
       routing: { outcome: 'done' } }, context({ choice })).data).toEqual(data);

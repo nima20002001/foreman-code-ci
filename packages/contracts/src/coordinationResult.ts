@@ -73,6 +73,17 @@ function readCoordinationCarrier(output: unknown, artifact: boolean): unknown {
   return text;
 }
 
+/** The text of an Agent answer that is not a JSON object, or undefined when it must be read as an envelope. */
+function plainTextDeliverable(output: unknown): string | undefined {
+  const carrier = output !== null && typeof output === 'object' && !Array.isArray(output)
+    && Object.keys(output).length === 1 && 'text' in output && typeof output.text === 'string';
+  const text = carrier ? (output as { text: string }).text : output;
+  if (typeof text !== 'string' || text.trim() === '' || new TextEncoder().encode(text).byteLength > 64 * 1024) return undefined;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return text.trim(); } // ignore: not JSON means plain text.
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? undefined : text.trim();
+}
+
 /** Pure parsing of the successful native output, selected by immutable Run protocol and saved node.
  * Existing Runs keep their existing parsers. This function never admits, publishes or repairs work. */
 export function parseCoordinationResult(output: unknown, context: CoordinationResultContext): CoordinationResult {
@@ -82,6 +93,14 @@ export function parseCoordinationResult(output: unknown, context: CoordinationRe
   if (!node || node.kind === 'job') throw new Error('COORDINATION_AGENT_NODE_REQUIRED');
   const artifacts = context.interval ? undefined : node.artifactOutputs;
   const choice = context.interval ? undefined : node.choice;
+  const exitsRepeat = !context.interval && (definition.repeat?.blocks.some((block) => block.exitNodeId === node.id) ?? false);
+  // A node with no declared output schema or routing accepts a plain-text answer as its result.
+  if (node.outputSchema === undefined && !artifacts && !choice && !exitsRepeat && (context.interval || !definition.handoffs)) {
+    const text = plainTextDeliverable(output);
+    if (text !== undefined) {
+      return { data: text, summary: text.length > 600 ? `${text.slice(0, 599)}…` : text, board: { kind: 'none', reason: 'no_changes' } };
+    }
+  }
   const raw = readCoordinationCarrier(output, artifacts !== undefined);
   const handoff = !context.interval && definition.handoffs
     ? HandoffCoordinationResultSchema.parse(raw) : undefined;
