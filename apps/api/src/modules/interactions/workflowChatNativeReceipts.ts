@@ -4,18 +4,6 @@ import { CONTROL_COMMAND_COLUMNS, captureWorkflowControlNativeLocked, markWorkfl
   type ControlCommandRow } from '../collaboration/workflowControlRecords.js'
 import type { WorkflowChatNativeTarget } from '../collaboration/workflowControlTypes.js'
 
-const ACTIVE_CONTROL_FILTER = `run_id=$1 and state not in ('completed','failed','canceled') and (
-      delivered_execution->>'executionId'=$2
-      or target #>> '{execution,executionId}'=$2 and operation in ('steer','stop'))`
-
-/** One statement tells a batch of frames for the same execution whether any of
- * them can have a chat receipt to project, instead of one lookup per frame. */
-export async function hasWorkflowChatNativeReceiptsLocked(sql: GraphTransactionSql,
-  runId: string, executionId: string): Promise<boolean> {
-  return (await sql.query(`select 1 from run_chat_commands where ${ACTIVE_CONTROL_FILTER} limit 1`,
-    [runId, executionId])).rows.length > 0
-}
-
 /** Called only after the original-source verifier has checked its live writer,
  * persisted physical evidence and canonical publication on THIS transaction. */
 export async function projectWorkflowChatNativeReceiptsLocked(sql: GraphTransactionSql,
@@ -24,7 +12,9 @@ export async function projectWorkflowChatNativeReceiptsLocked(sql: GraphTransact
   if (!providerId || proof.original.type === 'session_created' || proof.original.type === 'boundary') return
   const terminal = proof.original.type === 'history' ? proof.original.history.terminalTurn : undefined
   const rows = (await sql.query<ControlCommandRow>(`select ${CONTROL_COMMAND_COLUMNS} from run_chat_commands
-    where ${ACTIVE_CONTROL_FILTER}
+    where run_id=$1 and state not in ('completed','failed','canceled') and (
+      delivered_execution->>'executionId'=$2
+      or target #>> '{execution,executionId}'=$2 and operation in ('steer','stop'))
     order by sequence`, [proof.scope.runId, proof.execution.executionId])).rows
   for (const row of rows) {
     const captured = row.native_target as WorkflowChatNativeTarget | null

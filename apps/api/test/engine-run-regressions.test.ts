@@ -89,8 +89,7 @@ async function createFixture(placement?: AcceptedNodePlacement) {
     getRepeatSnapshot: async () => ({ run, stopRequested: false, cleanupPending }),
     requestCleanup: async () => { cleanupPending = true },
     async *executionPages() { yield [...rows.values()] },
-    readOutputSettlement: async () => undefined, readWorkflowTerminalSettlement: async () => undefined,
-    repeat: async () => ({ claimWorkflowInput: async () => undefined, workflowControlDisposition: async () => ({ kind: 'ordinary' as const }), settleNegativeExecution: async (id: string) => { negativeSettlements.push(id) },
+    repeat: async () => ({ settleNegativeExecution: async (id: string) => { negativeSettlements.push(id) },
       readExecution: (id: string) => store.readExecution(id) }),
     recordExecutionFailure: async (_owner: unknown, id: string, failure: ExecutionResult) => { failures.set(id, failure) },
     get: async () => run, getExecution: async (id: string) => rows.get(id),
@@ -290,8 +289,7 @@ it('sweeps terminal credentials before dispatching persisted current work throug
   const actions: string[] = []
   const engine = new LangGraphWorkflowEngine({ repeatRepositoryFactory: () => ({}),
     reconciliationCandidates: async () => [{ id: 'persisted-current-run', executionState: 'queued' }],
-  } as never, {} as never, { reconcileReviews: async () => { actions.push('reviews') },
-    reconcileWorkflowControls: async () => {} } as never,
+  } as never, {} as never, { reconcileReviews: async () => { actions.push('reviews') } } as never,
   new MemorySaver(), '/tmp/native-orphan', {} as never, {
     reconcileTerminalCredentials: async () => { actions.push('sweep') },
   } as never, {} as never)

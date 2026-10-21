@@ -77,8 +77,6 @@ export function recoveryDatabase(options: { bound?: boolean; detached?: boolean;
           reference: values[3] === null ? null : JSON.parse(String(values[3])) as unknown }
         state.inserts++; state.afterInsert?.(); return { rows: [], rowCount: 1 }
       }
-      // No retained workflow coordinator consultation exists in the recovery model.
-      if (text.startsWith('select c.command_id,c.binding,q.target,m.source_execution')) return rows([])
       throw new Error(`Unexpected SQL in recovery protocol test: ${text}`)
     },
   }

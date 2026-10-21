@@ -363,9 +363,6 @@ function postgresShape(cap = 3, artifacts: false | 'enabled' | 'missing' = false
     else if (q.startsWith('insert into run_repeat_decisions')) state.decisions.set(v[1]!, JSON.parse(v[4]!))
     else if (q.startsWith('select record from run_repeat_decisions') || q.startsWith('select 1 from run_repeat_decisions')) {
       const record = state.decisions.get(v[0]!); if (record) rows = [{ record }]
-    } else if (q.startsWith('select record,reserved_successor_execution_id,delivery_id from run_control_continuations')
-      || q.includes("from run_chat_commands where run_id=$1 and kind='stop'") || q.startsWith('with recursive lineage(id) as')) {
-      // This semantic repository fixture has no workflow control command, continuation or Stop receipt.
     } else if (/from execution_dispatch_intents where execution_id=\$1/.test(q) || q.startsWith('select record from execution_native_placements where execution_id=$1')) {
       // Main-local executions have no device dispatch intent or native placement.
     } else throw new Error(`Unscripted SQL: ${q}`)
