@@ -32,7 +32,6 @@ function fixture(options: Parameters<typeof recoveryDatabase>[0] = {}) {
       calls.push(canceled ? 'settle-canceled' : 'settle-interrupted')
     } }),
     acquireOwnership: async () => db.owner,
-    readOutputSettlement: async () => undefined,
   }
   const interactions = { coordination: { finishStoppedReviews: async () => {
     assert.ok(await readWorkflowClosure(db.connection, db.state.execution), 'retirement cannot precede closure')

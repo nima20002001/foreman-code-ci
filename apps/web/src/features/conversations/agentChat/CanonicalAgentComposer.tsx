@@ -33,7 +33,7 @@ export function CanonicalAgentComposer({ state, name, draftKey, inputRef, attach
     }
     refresh()
   }, { onDenied })
-  const pin = useDeliveryDraftPin(draftKey, target, delivery.presentation.nativeTurnId, !!draft || attachments.hasAttachments)
+  const pin = useDeliveryDraftPin(draftKey, target, delivery.presentation.nativeTurnId, !!draft || attachments.hasAttachments, !!delivery.state)
   const command = parseSessionCommand(draft)
   const mode = command.kind === 'plan-task' ? 'plan' : sessionControls.state?.desiredMode
   const presentation = { ...delivery.presentation, hasAttachments: attachments.hasAttachments,

@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEventLibrary from '@testing-library/user-event'
 import { expect } from 'vitest'
 import { HttpResponse } from 'msw'
 import { GraphEditAdvanceInputV3Schema, GraphEditStageInputV3Schema,
@@ -10,6 +10,8 @@ import { graphEditIntentKey } from '../graph/nextDraft/useGraphEditIntent'
 import { journalIntent, savedJournal } from '../graph/nextDraft/nim2644Journal.fixture'
 import { measureBoardWire, mountMeasuredBoard } from './eng05D.testSupport'
 import { meaningfulSaveFixture } from './meaningfulSave.testSupport'
+/** These journeys click hundreds of times through a large Board: skip per-click layout checks and timer hops. */
+const userEvent = userEventLibrary.setup({ pointerEventsCheck: 0, delay: null })
 
 export type Fixture = Awaited<ReturnType<typeof recoveryFixture>>
 export const draft = (f: Fixture) => useGraphDraftStore.getState().nextDrafts[f.key]!
