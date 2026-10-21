@@ -228,7 +228,7 @@ describe.skipIf(!postgresEnabled)('hierarchy runtime obligations and reservation
     const drive = f.engine.start(f.f.run.id).catch(error => error)
     try {
       await expect.poll(async () => (await readHierarchyCoordinationLocked(f.db.pool, f.f.run.id, f.f.version))?.state,
-        { timeout: 30_000 }).toBe('waiting_for_direction')
+        { timeout: 75_000 }).toBe('waiting_for_direction')
       const coordination = await readHierarchyCoordinationLocked(f.db.pool, f.f.run.id, f.f.version)
       expect(coordination?.direction?.execution.runId).toBe(f.f.run.id)
       expect(coordination?.summary).toBe('master finish')

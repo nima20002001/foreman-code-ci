@@ -1778,9 +1778,7 @@ export class OperatorChatService {
         ...(this.reconciliation ? [this.reconciliation] : []),
       ])
       const second = await Promise.allSettled([...this.runtimes.keys()].map((id) => this.release(id)))
-      // Work interrupted by this shutdown's own abort is expected, not an incomplete shutdown.
-      const errors = [...first, ...second].flatMap((result) => result.status === 'rejected'
-        && result.reason !== this.lifetime.signal.reason ? [result.reason] : [])
+      const errors = [...first, ...second].flatMap((result) => result.status === 'rejected' ? [result.reason] : [])
       await this.commandReceipts?.drain()
       if (errors.length) throw new AggregateError(errors, 'Operator chat shutdown was incomplete.')
     })()
