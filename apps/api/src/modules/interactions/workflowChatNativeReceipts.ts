@@ -4,8 +4,6 @@ import { CONTROL_COMMAND_COLUMNS, captureWorkflowControlNativeLocked, markWorkfl
   type ControlCommandRow } from '../collaboration/workflowControlRecords.js'
 import type { WorkflowChatNativeTarget } from '../collaboration/workflowControlTypes.js'
 
-const projectedNonTerminal = new WeakMap<GraphTransactionSql, Set<string>>()
-
 /** Called only after the original-source verifier has checked its live writer,
  * persisted physical evidence and canonical publication on THIS transaction. */
 export async function projectWorkflowChatNativeReceiptsLocked(sql: GraphTransactionSql,
@@ -13,15 +11,6 @@ export async function projectWorkflowChatNativeReceiptsLocked(sql: GraphTransact
   const providerId = proof.lane?.providerId
   if (!providerId || proof.original.type === 'session_created' || proof.original.type === 'boundary') return
   const terminal = proof.original.type === 'history' ? proof.original.history.terminalTurn : undefined
-  if (!terminal) {
-    // Frames of one native turn in a transaction project the same command receipts; read them once.
-    const key = [proof.scope.runId, proof.execution.executionId, proof.session.nativeSessionId, proof.commandId,
-      providerId, proof.lane?.id].join('|')
-    const seen = projectedNonTerminal.get(sql) ?? new Set<string>()
-    projectedNonTerminal.set(sql, seen)
-    if (seen.has(key)) return
-    seen.add(key)
-  }
   const rows = (await sql.query<ControlCommandRow>(`select ${CONTROL_COMMAND_COLUMNS} from run_chat_commands
     where run_id=$1 and state not in ('completed','failed','canceled') and (
       delivered_execution->>'executionId'=$2

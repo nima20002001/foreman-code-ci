@@ -17,6 +17,7 @@ import { agentChatKey, type AgentConversationRow, PostgresAgentChatRepository } 
 import type { PostgresOperatorConversationRepository } from '../src/modules/conversations/operatorChatRepository.js'
 import { HarnessExecutionError, NativeDeliveryError } from '../src/modules/harnesses/errors.js'
 import type { NativeHarnessSessionManager, NativeHistory, NativeSessionStart, NativeTurnInput } from '../src/modules/harnesses/port.js'
+import { immutableVersionRow, isCurrentVersionRead, isRunVersionRead, isSavedVersionRead } from './helpers/chatWorkflowVersion.js'
 import { deferred } from './helpers/deferred.js'
 import { createAdmittedNativeManager } from '../src/modules/harnesses/admittedManager.js'
 
@@ -50,6 +51,7 @@ class MemoryConversations {
   async turnContent(_id: string, requestId: string) { return `content-${requestId}` }
   async turnSessionMode() { return undefined }
   async turnPrincipalId() { return undefined }
+  async turnPreparedInput() { return undefined }
   async cancelQueued() { await this.beforeCancel?.(); this.cancels++; return true }
   async beginSessionCreation(_id: string, requestId: string) {
     if (this.row?.active_request_id !== requestId || this.row.record.sessionCreation) return false
@@ -182,9 +184,13 @@ async function setup(options: { ephemeral?: boolean; stored?: boolean; origin?: 
     async *executionPages() { sourceReads++; for (const execution of source) yield [execution] } }
   const workflows = { getSavedVersion: async () => fixture.version, getCurrentSavedVersion: async () => fixture.version,
     getAgentConfiguration: async () => configuration }
+  const versionRow = immutableVersionRow(fixture.version)
   const query = async (text: string, values: unknown[] = []) => {
     const sql = text.replace(/\s+/g, ' ').trim()
     if (['begin', 'commit', 'rollback'].includes(sql)) return { rows: [] }
+    if (isCurrentVersionRead(sql)) return { rows: values[0] === versionRow.workspace_id && values[1] === versionRow.workflow_id ? [versionRow] : [] }
+    if (isSavedVersionRead(sql)) return { rows: values[0] === versionRow.id ? [versionRow] : [] }
+    if (isRunVersionRead(sql)) return { rows: values[0] === fixture.run.id ? [{ workflow_version_id: fixture.run.workflowVersionId }] : [] }
     if (sql.startsWith('select record from conversation_session_controls where conversation_id=$1')) return { rows: [] }
     if (sql.startsWith('select current_configuration_version_id from agents')) return { rows:
       values[0] === configuration.workspaceId && values[1] === configuration.agentId

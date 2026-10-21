@@ -33,7 +33,9 @@ function fixture(options: { ci?: boolean; defaults?: GraphqlAgentTool[] } = {}) 
     saved.override = { add: [], remove: [] }
   }
   const query = vi.fn().mockImplementation(async () => ({ rows: [structuredClone(saved)] }))
-  const pool = { query } as unknown as pg.Pool
+  // A Worker credential is never a scoped conversation credential; only the node configuration reads are observed.
+  const pool = { query: (text: string, values?: unknown[]) => text.includes('agent_conversation_credentials')
+    ? Promise.resolve({ rows: [] }) : query(text, values) } as unknown as pg.Pool
   const interactions = new PostgresAppInteractionService(pool, {} as never, {} as never)
   const access = new PostgresAccessService(pool)
   vi.spyOn(access, 'authenticate').mockImplementation(async token => {
