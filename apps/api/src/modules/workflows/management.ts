@@ -22,6 +22,7 @@ import { lockActiveWorkspace } from '../workspaces/admission.js'
 import { readSavedWorkflowDefinition } from './immutableRead.js'
 import { assertMeaningfulSaveAdmitted } from '../graph-drafts/saveAdmission.js'
 import { WorkflowOrderService } from './order.js'
+import { WorkflowKanbanLayoutService } from './kanbanLayout.js'
 import { decodeWorkflowOrderCursor, encodeWorkflowOrderCursor } from './orderCursor.js'
 
 interface WorkflowRow { id: string; workspace_id: string; record: unknown; revision: string; current_version_id: string | null; archived_at: Date | null }
@@ -37,11 +38,13 @@ function managed(row: WorkflowRow): ManagedWorkflow {
 export class WorkflowManagementService {
   readonly current: CurrentWorkflowAuthoring
   readonly schedules: WorkflowScheduleService
+  readonly kanban: WorkflowKanbanLayoutService
   private readonly order: WorkflowOrderService
   constructor(private readonly pool: pg.Pool, private readonly commands: PostgresCommandCoordinator,
     private readonly options: WorkflowAuthoringOptions = {}) {
     this.current = new CurrentWorkflowAuthoring(pool, commands, options)
     this.schedules = new WorkflowScheduleService(pool, commands)
+    this.kanban = new WorkflowKanbanLayoutService(pool, commands)
     this.order = new WorkflowOrderService(commands)
   }
 

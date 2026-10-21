@@ -653,7 +653,7 @@ export const OperatorToolNameSchema = z.enum([
   "workspace_storage_folders_list", "workspace_storage_folder_delete",
   "workspace_list", "workspace_get", "workspace_create", "workspace_update", "workspace_archive", "workspace_batch_archive",
   "workspace_location_validate", "workspace_location_set",
-  "workflow_list", "workflow_get", "workflow_create", "workflow_update", "workflow_reorder", "workflow_archive", "workflow_batch_archive",
+  "workflow_list", "workflow_get", "workflow_create", "workflow_update", "workflow_reorder", "workflow_archive", "workflow_batch_archive", "workflow_kanban_layout_get", "workflow_kanban_layout_set",
   "agent_list", "agent_get", "graph_draft_open", "graph_draft_get", "graph_draft_apply",
   "graph_draft_layout", "graph_draft_revert_applied", "graph_validate", "graph_save", "graph_draft_discard", "run_list", "run_get", "run_current_get_v1", "run_history_get_v1",
   "run_events_list", "run_handoffs_get_v1", "run_activities_get_v1", "run_node_placement_get", "workflow_node_placement_choices", "run_start", "run_start_resolve", "run_stop",
