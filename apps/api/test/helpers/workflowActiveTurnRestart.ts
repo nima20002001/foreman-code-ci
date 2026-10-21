@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect } from 'vitest'
 import { SavedRunDetailsSchema } from '@foreman-code/contracts/wave25'
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
@@ -6,6 +8,15 @@ import { startWhenReady, runningTurn, completedRun }
   from './harnessInstallationUpdate.js'
 import { remoteReviewProduction, waitForRemoteReview } from './remoteReviewProduction.js'
 import { expectMcpAccessDenied } from './deniedMcpTool.js'
+
+// Started Runs use the coordination result protocol, so the fake Agent's final answer must be its JSON envelope.
+export const completedEnvelopeText = JSON.stringify({
+  data: 'Completed work', summary: 'Completed work.', board: { kind: 'none', reason: 'no_access' },
+})
+
+export async function answerWithCompletedEnvelope(fixture: { provider: { directory: string } }): Promise<void> {
+  await writeFile(join(fixture.provider.directory, 'workflow-answers.json'), JSON.stringify([completedEnvelopeText]))
+}
 
 export async function assertActiveTurnRestart(options: {
   executionHost: 'main' | 'worker'
@@ -18,6 +29,7 @@ export async function assertActiveTurnRestart(options: {
     includeNodeRuntimePayload: false })
   let blocked = false
   try {
+    await answerWithCompletedEnvelope(fixture)
     await fixture.provider.blockWorkflowTurns()
     blocked = true
     const started = (await startWhenReady(fixture))!
@@ -68,7 +80,7 @@ export async function assertActiveTurnRestart(options: {
     expect(finished.executions).toHaveLength(1)
     expect(finished.executions[0]).toMatchObject({ id: execution.id, attempt: execution.attempt,
       nativeSessionId: original.sessionId, state: 'completed',
-      result: { outcome: 'succeeded', output: { text: 'fixture complete' } } })
+      result: { outcome: 'succeeded', output: { text: completedEnvelopeText } } })
     const readback = SavedRunDetailsSchema.parse(decodeMcpToolResult(await fixture.call('run_get', {
       detail: 'full', workspaceId: started.run.workspaceId, runId: started.run.id,
     }, reader.token)))

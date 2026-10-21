@@ -4,6 +4,7 @@ import {
   installationUpdateFixture, profileReader, profiles, latestEvidence, runningTurn, pinnedPlacements, completedRun,
 }
   from './helpers/harnessInstallationUpdate.js'
+import { answerWithCompletedEnvelope, completedEnvelopeText } from './helpers/workflowActiveTurnRestart.js'
 
 describe('installed harness updates', () => {
   it('keeps a Main Codex Run and its pinned outputs valid when only Claude inventory changes', async () => {
@@ -15,6 +16,7 @@ describe('installed harness updates', () => {
       const proofs = await latestEvidence(fixture)
       const inventory = await fixture.inventory()
       const claudeFingerprint = inventory.installations.find(value => value.driverId === 'claude')!.installationFingerprint
+      await answerWithCompletedEnvelope(fixture)
       await fixture.provider.blockWorkflowTurns()
       blocked = true
       const started = await fixture.start()
@@ -42,7 +44,7 @@ describe('installed harness updates', () => {
       expect(calls).toContainEqual({ workflowCompleted: turn })
       const executions = await fixture.executions(started.run.id)
       expect(executions).toHaveLength(1)
-      expect(executions[0]!.result).toMatchObject({ outcome: 'succeeded', output: { text: 'fixture complete' } })
+      expect(executions[0]!.result).toMatchObject({ outcome: 'succeeded', output: { text: completedEnvelopeText } })
     } finally {
       if (blocked) await fixture.provider.releaseWorkflowTurns()
       await fixture.close()
