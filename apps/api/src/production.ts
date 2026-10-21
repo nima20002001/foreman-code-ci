@@ -1963,6 +1963,7 @@ function configureOperatorChat(composition: ProductionComposition) {
   resolveOperatorManager.modelOptions = async configuration =>
     configuration.harness === 'opencode' ? []
       : (await composition.nativeConfigurations.options(configuration.harness)).models
+  resolveOperatorManager.qualifiedSteer = qualifiedAgentChatSteer
   resolveOperatorManager.recoverCompaction = recoverChatCompaction
   composition.chat = new OperatorChatService(
     operatorConversations, operators,
