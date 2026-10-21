@@ -10,6 +10,7 @@ import { IntervalFields } from './IntervalFields'
 import { Button, Icon, IconButton, SegmentedControl, Select, Switch, TextField, type SelectOption } from '../../../shared/ui/nocturne'
 import { InfoHint } from '../../../shared/ui'
 import { useWorkflowBoard } from '../../workflow-board/context'
+import { attachHierarchyAgent } from '../../workflow-hierarchy/authoring'
 import { useCollaborationUISlots } from '../../../shared/ui/collaborationSlots'
 
 export type EditGraph = (update: (graph: WorkflowDefinitionV3) => WorkflowDefinitionV3) => void
@@ -62,6 +63,21 @@ export function ApprovalFields({ graph, context, change, report, agentEdits }: {
         }).map((node) => ({ value: node.agentId, label: nodeTitle(graph, node.id) })),
       ]} /> : null}
   </section>
+}
+
+/** The add-node panel: the Agents that can join this workflow, each with one Add action. */
+export function AvailableAgentList({ context, change, report, agentEdits }: { context: NextDraftContext; change: EditGraph; report: (error: unknown) => void; agentEdits?: DraftAgentEdits }) {
+  const available = context.agents.filter((record) => !record.archivedAt && record.agent.configurationVersionId
+    && record.agent.productRole)
+  if (!available.length) return <p className="board-agent-picker-empty">No existing Agents are available. Create one here to add it to this draft.</p>
+  return <ul className="board-agent-picker-list" aria-label="Available Agents">
+    {available.map((record) => <li key={record.agent.id}>
+      <span className="board-agent-picker-name">{record.agent.name}</span>
+      <span className="board-agent-picker-role">{record.agent.productRole === 'master' ? 'Master' : record.agent.productRole === 'orchestrator' ? 'Orchestrator' : 'Worker'}</span>
+      <Button size="sm" aria-label={`Add ${record.agent.name}`}
+        onClick={() => { try { change((value) => attachHierarchyAgent(value, context, record, `node-${crypto.randomUUID()}`, agentEdits)) } catch (error) { report(error) } }}>Add</Button>
+    </li>)}
+  </ul>
 }
 
 /** The node's place in this workflow: whether it starts it and where its result goes. */

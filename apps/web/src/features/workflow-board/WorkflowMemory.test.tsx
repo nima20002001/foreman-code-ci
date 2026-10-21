@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
-import { act, render, screen, within, waitFor } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { expect, it } from 'vitest'
@@ -15,8 +15,8 @@ it('opens live workflow memory only when requested and keeps the graph mounted o
     const page = { items: [], hasMore: false, nextCursor: null, revision: 0 }
     return HttpResponse.json({ board: { id: 'workflow-memory',
       scope: { kind: 'workflow', workspaceId: 'workspace-1', workflowId: 'workflow-1' }, revision: 0 },
-      openColumns: ['todo', 'doing', 'waiting_for_user', 'blocked'].map(status => ({ ...page, status })), notes: page,
-      counts: { todo: 0, doing: 0, waiting_for_user: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
+      openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
+      counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
   }))
   const root = createRootRoute({ component: Outlet })
   const board = createRoute({ getParentRoute: () => root, path: '/workspaces/$workspaceId',
@@ -34,9 +34,7 @@ it('opens live workflow memory only when requested and keeps the graph mounted o
     const user = userEvent.setup()
     const draft = await screen.findByRole('textbox', { name: 'Graph draft' })
     expect(reads).toBe(0)
-    expect(screen.queryByRole('button', { name: 'Memory board' })).not.toBeInTheDocument()
-    // The URL owns the memory dialog; the Board opens it from a Kanban card.
-    await act(async () => { router.history.push('/workspaces/workspace-1?workflowId=workflow-1&boardMemory=true') })
+    await user.click(screen.getByRole('button', { name: 'Memory board' }))
     const dialog = await screen.findByRole('dialog', { name: 'Memory board' })
     expect(await within(dialog).findByRole('button', { name: 'Add card' })).toBeVisible()
     expect(reads).toBe(2)

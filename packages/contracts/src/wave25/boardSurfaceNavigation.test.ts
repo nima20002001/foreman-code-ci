@@ -15,6 +15,7 @@ describe('shared Board surface URL state', () => {
     expect(boardSidePanelFromSearch(search)).toEqual({ kind: 'agent', nodeId: 'worker', tab: 'settings', executionId: 'execution' });
     expect(boardSidePanelFromSearch({ ...search, boardPanel: 'browser' })).toEqual({ kind: 'browser', nodeId: 'worker', executionId: 'execution' });
     expect(boardSidePanelFromSearch({ ...search, boardPanel: 'group_chat' })).toEqual({ kind: 'group_chat' });
+    expect(boardSidePanelFromSearch({ ...search, boardPanel: 'operator' })).toEqual({ kind: 'operator' });
     expect(search.boardMemory).toBe(true);
     expect(boardSidePanelFromSearch({ workflowId: 'workflow' })).toEqual({ kind: 'none' });
   });
@@ -40,7 +41,7 @@ describe('shared Board surface URL state', () => {
 
   it('retains drafts across rail, view, modal and Run changes while preserving departure guards', () => {
     const search = WorkspaceBoardSearchSchema.parse({ ...boardSearchForRun(selection, 'workflow', scope), boardExecutionId: 'execution' });
-    for (const boardPanel of ['group_chat', 'browser'] as const) {
+    for (const boardPanel of ['group_chat', 'browser', 'operator'] as const) {
       expect(staysOnWorkflowBoard(at(search), at({ ...search, boardPanel, boardView: 'overview', boardMemory: true }))).toBe(true);
     }
     expect(staysOnWorkflowBoard(at(search), at({ ...search, boardNodeId: 'other-node', boardAgentTab: 'chat' }))).toBe(true);

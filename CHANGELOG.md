@@ -7,6 +7,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.115] - 2026-10-21
+
+### Features
+- F1 Memory boards: a Todo/Doing/Blocked/Done board per workflow and per workspace; per-role Agent access; Agents report board updates in every node result; Operator MCP parity.
+- F2 Agent browser: node "Browser" setting loads the browser-use skill; live browser sidebar with Agent/User control hand-off; Settings › Browser profiles with sync across computers; per-Agent tab isolation.
+- F3 Workflow group chat: Agents post short start/blocked/finished updates; @mentions wake an Agent; real-time steering in Board Agent chat and Operator chat.
+- F4 Master agents: master → orchestrator → worker hierarchy with reporting and controls.
+- Coordination result protocol (f1-f4-v1): Agent deliverables are a JSON envelope (data, summary, board).
+
+### CI
+- CircleCI: only CircleCI's own credit refusal marks an organization exhausted; one probe per organization after a refusal; standby failover independent of usage reports; second CircleCI login supported as standby.
+- Cloud status pool fixes, starting-slot coalescing, second GitHub integration wave, multi-builder rebalance, 45-minute cloud part cap, dispatch budget with provider fallback, requester-lookup trigger fix.
+
+### Fixes
+- Retired-Worker readback, conversation browser replacement fencing, bounded browser authority cache, offline browser runtime updates, Worker settlement recovery.
+- Test reliability: MCP retry helper, cloud requeue, gate sibling cancellation, MCP readiness timing, device listener port probe, envelope fixtures.
+- Chat: Codex and Operator steering wired in production; follow-ups after saved settings or harness changes keep history and reach the Worker; first Worker message no longer hangs when its session is seen early; Operator capabilities no longer fail with the hierarchy tools.
+- Board: Run Board shows live node state (running, queued, waiting for CI or decision) and CI lights again; Workspace Memory route mounts; Run Activities reachable; deep-linked node selection kept; draft typed during load no longer goes stale.
+- Browser: managed tabs accept keyboard and IME input. Worker artifact publication shares authority reads (about 2x faster).
+- CI: a canceled part settles at once instead of holding its slot for up to 30 minutes.
+
 ## [0.0.114] - 2026-10-21
 
 ### Fixed

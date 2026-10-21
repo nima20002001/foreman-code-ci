@@ -12,7 +12,7 @@ export function OperatorChatHeader({ historyOpen, historyId, historyTriggerRef, 
   historyTriggerRef: RefObject<HTMLButtonElement | null>
   closeRef: RefObject<HTMLButtonElement | null>
   historyFailed: boolean
-  moveGrip: ReturnType<typeof useOperatorChatResize>['moveGrip']
+  moveGrip?: ReturnType<typeof useOperatorChatResize>['moveGrip']
   sessionControls?: ComposerSessionControls | undefined
   accountBinding?: AcceptedProviderAccountBinding | undefined
   onToggleHistory: () => void
@@ -23,7 +23,7 @@ export function OperatorChatHeader({ historyOpen, historyId, historyTriggerRef, 
       aria-expanded={historyOpen} aria-controls={historyId} onClick={onToggleHistory}
       title={historyFailed ? 'History refresh failed. Open history to retry.' : undefined}>
       <Icon name={historyFailed ? 'warning' : 'menu'} /></IconButton>
-    <button type="button" className="operator-chat-move" title="Drag to move Operator chat" {...moveGrip}><span aria-hidden="true" /></button>
+    {moveGrip ? <button type="button" className="operator-chat-move" title="Drag to move Operator chat" {...moveGrip}><span aria-hidden="true" /></button> : <strong>Operator chat</strong>}
     {accountBinding ? <ProviderAccountChip binding={accountBinding} /> : null}
     {sessionControls ? <SessionContext controls={sessionControls} /> : null}
     <IconButton ref={closeRef} label="Close Operator chat" variant="ghost" className="operator-chat-close" onClick={onClose}><Icon name="close" /></IconButton>

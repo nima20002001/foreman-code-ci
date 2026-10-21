@@ -1,7 +1,7 @@
 import { AgentFormSchema } from './agentForm'
 import { LocalWorkflowFormSchema } from './localGraph'
 import { z } from 'zod'
-import { AgentSchema } from '@foreman-code/contracts'
+import { AgentProductRoleSchema, AgentSchema } from '@foreman-code/contracts'
 import { ManagedAgentSchema } from '@foreman-code/contracts/management'
 import { GraphDraftV3Schema, GraphEditStageInputV3Schema, WorkflowDefinitionV3Schema, sameAuthoredWorkflow, sameWorkflowValue,
   type GraphEditIntentV3, type GraphEditStageInputV3 } from '@foreman-code/contracts/wave25'
@@ -18,6 +18,8 @@ const SnapshotSchema = z.object({
   workflowForms: z.object({
     hierarchy: z.object({ masterNodeId: z.string(), parents: z.record(z.string(), z.string()),
       previousMaster: z.enum(['keep', 'remove']).optional() }).strict().optional(),
+    createAgent: z.object({ role: AgentProductRoleSchema, name: z.string(), parentNodeId: z.string(),
+      agent: AgentSchema.optional(), settings: AgentFormSchema.optional() }).strict().optional(),
     workerParents: z.record(z.string(), z.string()).optional(),
     removeNode: z.object({ nodeId: z.string(), destinationParentId: z.string() }).strict().optional(),
   }).strict().optional(),
