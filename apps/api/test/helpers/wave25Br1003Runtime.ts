@@ -121,10 +121,6 @@ export async function checkpointRuntimeFixture(branches: 1 | 2 = 1, pendingPerEx
       const workflowCapture = createWorkflowNativeCaptureChannel()
       const reviewCapture = createReviewNativeCaptureChannel()
       const memoryBoards = createMemoryBoardService(db.pool, memoryBoardAuthority)
-      // A supplied board port stands in for the real board effects; every other service method stays real.
-      const boardPort = options.collaborationPorts?.memoryBoards
-      if (boardPort) Object.assign(memoryBoards, { readDigest: boardPort.readDigest.bind(boardPort),
-        applyResultLocked: boardPort.applyResultLocked.bind(boardPort), applyLifecycleLocked: boardPort.applyLifecycleLocked.bind(boardPort) })
       const repositoryServices = createWorkflowRepositoryServices(workflowCapture.verify, undefined, options.nativeSourcePersisted)
       const collaboration = options.collaborationPorts
         ? new WorkflowCollaborationIntegration(options.collaborationPorts, async () => 'fixture-main') : undefined

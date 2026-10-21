@@ -1,5 +1,7 @@
 import type { Edge, Node, ReactFlowProps } from '@xyflow/react'
 import type { RunBoardSnapshot, RunBoardNodeSnapshot, RunBoardEdgeSnapshot } from '@foreman-code/contracts/run-snapshots'
+import { GRAPH_NODE_DEFAULT_SIZE } from '../graph/mapper'
+import { layoutHierarchy } from '../graph/hierarchyLayout'
 import { agentProductRoleLabel, isHierarchyReportingRoute, type ActivitySnapshotV1, type CiActivity, type WorkRef,
   type WorkflowHierarchyReadResult } from '@foreman-code/contracts'
 
@@ -28,10 +30,13 @@ export function projectRunBoard(snapshot: AvailableRunBoardSnapshot, activity?: 
   const identities = new Map(saved?.agents.filter(agent => snapshot.nodes.some(node => node.kind !== 'job'
     && node.id === agent.workflowNodeId && node.agentId === agent.agentId && node.agentConfigurationVersionId === agent.configurationVersionId))
     .map(agent => [agent.workflowNodeId, agent]))
+  // Saved positions and sizes are not drawn: a Run lays itself out as the same hierarchy the Board does.
+  const size = { width: GRAPH_NODE_DEFAULT_SIZE, height: GRAPH_NODE_DEFAULT_SIZE }
+  const placed = layoutHierarchy(snapshot.nodes.map((node) => ({ id: node.id, ...size })), snapshot.edges)
   const nodes: SavedBoardNode[] = snapshot.nodes.map((node) => ({
-    id: node.id, type: 'savedBoardNode', position: { ...node.position }, origin: [0, 0],
-    initialWidth: node.size.width, initialHeight: node.size.height,
-    style: { ...node.size }, data: { snapshot: node,
+    id: node.id, type: 'savedBoardNode', position: { ...placed.get(node.id)! }, origin: [0, 0],
+    initialWidth: size.width, initialHeight: size.height,
+    style: { ...size }, data: { snapshot: node,
       ...(identities.has(node.id) ? { role: agentProductRoleLabel(identities.get(node.id)!.productRole) } : {}),
       ...(saved?.hierarchy ? { reportingParent: node.id === saved.hierarchy.masterNodeId ? 'None (Master)'
         : names.get(saved.hierarchy.parents.find(member => member.workflowNodeId === node.id)?.parentNodeId ?? '') ?? 'Unavailable' } : {}),
