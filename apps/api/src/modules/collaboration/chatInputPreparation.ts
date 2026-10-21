@@ -65,7 +65,7 @@ export function prepareAgentChatInput(database: SqlQuery): NonNullable<AgentChat
     const appMcpAccess = conversationChatTools(featureContext).length ? 'scoped' : 'none'
     const accountBinding = await readProviderAccountBinding(sql, 'agent-conversation', row.id)
       ?? legacyProviderAccountBinding(configuration.harness, configuration.harnessProfileSelection)
-    const bindingInput = {
+    const binding = WorkerConversationBindingSchema.parse({
       ...(row.record.workerGeneration ? { generation: row.record.workerGeneration } : {}),
       ...(!row.record.workerGeneration && retained?.sessionGeneration ? { sessionGeneration: retained.sessionGeneration } : {}),
       owner: { kind: 'agent', conversationId: row.id, workspaceId: row.workspace_id, workflowId: row.workflow_id,
@@ -77,10 +77,7 @@ export function prepareAgentChatInput(database: SqlQuery): NonNullable<AgentChat
       ...(row.record.sourceConfigurationVersionId ? { sourceConfigurationVersionId: row.record.sourceConfigurationVersionId } : {}),
       ...(row.record.systemPrompt ? { systemPrompt: row.record.systemPrompt } : {}),
       ...(row.record.directoryBinding ? { directoryBinding: row.record.directoryBinding } : {}),
-    }
-    const diag = WorkerConversationBindingSchema.safeParse(bindingInput)
-    if (!diag.success) throw new DomainError("DIAGZOD", `DIAGZOD ${JSON.stringify(diag.error.issues)} ${JSON.stringify({ src: sourceExecution?.placement?.payload, cfg: configuration.id, srcCfg: row.record.sourceConfigurationVersionId, profile: profile.instanceId })}`, 409)
-    const binding = diag.data
+    })
     return prepare({ binding, configuration, prompt: input.prompt,
       correlationId: agentChatCorrelation(row.id, request.requestId), settings: input.settings, intent: request.intent,
       ...(request.expectedNativeTurnId ? { expectedNativeTurnId: request.expectedNativeTurnId } : {}),
