@@ -91,11 +91,6 @@ interface RunStopAudit {
   runId: string
 }
 
-const CANCEL_RETRY_BASE_MS = 2_000
-const CANCEL_RETRY_MAX_MS = 60_000
-/** Obsolete tickets asked per cleanup sweep; the rest follow on later sweeps. */
-const CANCEL_SWEEP_LIMIT = 64
-
 /** Runs work over every item with at most `limit` in flight. */
 async function inBatches<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>) {
   let next = 0
@@ -111,8 +106,6 @@ export class HostCiService {
   private cleaningTickets: Promise<void> | undefined
   private readonly observingRuns = new Map<string, Promise<void>>()
   private readonly cancelingTickets = new Map<string, Promise<{ run: CiRunRecord }>>()
-  /** Background cancellation retries per ticket; an executor that has not confirmed is asked again with growing gaps. */
-  private readonly cancelRetries = new Map<string, { failures: number; nextAt: number }>()
   /** Observed runs whose execution is settled and whose logs and results are still being collected. */
   private readonly collectingRuns = new Set<string>()
   private observationOffset = 0
@@ -770,49 +763,23 @@ export class HostCiService {
     })
   }
 
-  private cancelRetryDue(ticketId: string) {
-    const retry = this.cancelRetries.get(ticketId)
-    return !retry || Date.now() >= retry.nextAt
-  }
-
-  /** Background cancellation: a ticket whose executor has not confirmed backs off instead of being asked on every pass. */
-  private async retryCancelTicket(workspaceId: string, ticketId: string, audit?: CiCancellation) {
-    try {
-      const result = await this.cancelTicket(workspaceId, ticketId, audit)
-      this.cancelRetries.delete(ticketId)
-      return result
-    } catch (error) {
-      const failures = (this.cancelRetries.get(ticketId)?.failures ?? 0) + 1
-      this.cancelRetries.set(ticketId, { failures,
-        nextAt: Date.now() + Math.min(CANCEL_RETRY_MAX_MS, CANCEL_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 6)) })
-      throw error
-    }
-  }
-
   private async cancelObsoleteTickets() {
     const rows = (await this.pool.query<{ record: unknown }>(`select record from ci_runs
       where state in ('queued','starting','running') and (record->>'supersededBy' is not null
         or record->>'gate'='true' and exists (
           select 1 from ci_runs failed where failed.workspace_id=ci_runs.workspace_id
             and failed.group_id=ci_runs.group_id and failed.state='failed' and failed.record->>'gate'='true'))`)).rows
-    const all = rows.map(row => CiRunRecordSchema.parse(row.record))
-    const tracked = new Set(all.map(run => run.id))
-    for (const [id, retry] of this.cancelRetries) {
-      if (!tracked.has(id) && Date.now() - retry.nextAt > CANCEL_RETRY_MAX_MS) this.cancelRetries.delete(id)
-    }
-    const runs = all.filter(run => this.cancelRetryDue(run.id)).slice(0, CANCEL_SWEEP_LIMIT)
+    const runs = rows.map(row => CiRunRecordSchema.parse(row.record))
     let canceled = false
     await inBatches(runs, 8, async run => {
       try {
         const audit: CiCancellation | undefined = run.supersededBy ? undefined : {
           principalId: run.initiator.principalId, source: 'mcp', commandId: randomUUID(), reason: 'gate_failed',
         }
-        const result = await this.retryCancelTicket(run.workspaceId, run.id, audit)
+        const result = await this.cancelTicket(run.workspaceId, run.id, audit)
         if (result.run.state === 'canceled') canceled = true
       } catch (error) {
-        const failures = this.cancelRetries.get(run.id)?.failures ?? 1
-        log[failures === 1 ? 'warn' : 'debug']({ err: error, runId: run.id, failures },
-          'CI ticket cleanup failed; retrying')
+        log.warn({ err: error, runId: run.id }, 'CI ticket cleanup failed; retrying')
       }
     })
     if (canceled) void this.dispatch()
@@ -1031,8 +998,6 @@ export class HostCiService {
       ...(state.transport ? { transport: state.transport } : {}),
       ...(state.selection ? { selection: state.selection } : {}),
       ...(executorCleanupPending !== undefined ? { executorCleanupPending } : {}),
-      // Start attempts belong to one assignment; a ticket requeued for another computer retries afresh.
-      ...(requeued ? { dispatchAttempts: undefined } : {}),
       ...(setupRequeue || options.retainExecutor ? { dispatchAttempts: undefined, collection: undefined,
         provenance: undefined, mirrorPublication: undefined } : {}),
       ...(options.retainExecutor ? { observation: undefined } : {}),
@@ -1164,7 +1129,7 @@ export class HostCiService {
       return
     }
     if (run.cancellation) {
-      if (this.cancelRetryDue(run.id)) await this.retryCancelTicket(run.workspaceId, run.id, run.cancellation)
+      await this.cancelTicket(run.workspaceId, run.id, run.cancellation)
       return
     }
     if (!options.observeOnly && computer.hostRef.kind !== 'cloud' && run.state === 'starting' && !run.startedAt) {

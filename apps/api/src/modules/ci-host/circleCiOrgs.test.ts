@@ -139,26 +139,6 @@ it('discovers explicitly bound standby projects without consulting primary GitHu
   expect(new Set(added.map(org => `${org.circleAccountId ?? 'default'}:${org.owner.toLowerCase()}`)).size).toBe(7)
 })
 
-it('applies a registered login role change to its already discovered orgs', async () => {
-  const primary = discoveryPorts(new Set())
-  const reserve: HostCiPorts = { ...primary.ports, run: async () => ({ code: 0, stdout: '{}', stderr: '' }) }
-  const added: CloudAccount[] = []
-  let role: 'primary' | 'standby' = 'standby'
-  const discovery = new CircleCiAccounts(primary.ports, async () => ['alpha/site-ci'], org => added.push(org), {
-    registry: { list: async () => [
-      { id: 'default', label: 'Primary', role: 'primary', organizations: ['alpha', 'beta', 'gamma'] },
-      { id: 'reserve', label: 'Reserve', role, organizations: ['delta', 'epsilon', 'zeta'] },
-    ] },
-    context: async id => ({ ports: id === 'reserve' ? reserve : primary.ports }),
-  })
-  await discovery.refresh()
-  expect(added.filter(org => org.circleAccountId === 'reserve').map(org => org.role)).toEqual(['standby', 'standby', 'standby'])
-  role = 'primary'
-  discovery.invalidate()
-  await discovery.refresh()
-  expect(added.filter(org => org.circleAccountId === 'reserve').map(org => org.role)).toEqual(['primary', 'primary', 'primary'])
-})
-
 it('retries constructing a configured executor after its account context becomes available', async () => {
   const { ports } = discoveryPorts(new Set(['gh/alpha/site-ci']))
   const added: CloudAccount[] = []

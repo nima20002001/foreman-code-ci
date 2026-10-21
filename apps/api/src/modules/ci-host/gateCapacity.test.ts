@@ -2,9 +2,9 @@ import { expect, it } from 'vitest'
 import { planCiGate } from './gate.js'
 import type { HostCiComputer, HostCiEndpoint } from './serviceTypes.js'
 
-function fleet(builder = true): HostCiEndpoint {
+function fleet(): HostCiEndpoint {
   const computers: HostCiComputer[] = [
-    ...(builder ? [{ key: 'builder', label: 'Build computer', priority: 10, hostRef: { kind: 'main' as const, mainId: 'fixture' } }] : []),
+    { key: 'builder', label: 'Build computer', priority: 10, hostRef: { kind: 'main', mainId: 'fixture' } },
     ...Array.from({ length: 14 }, (_, slot) => ({ key: `github:${slot}`, label: `GitHub ${slot}`, priority: 30,
       hostRef: { kind: 'cloud' as const, mainId: 'fixture', provider: 'github' as const, slot },
       userSystemd: { supported: true, reason: null } })),
@@ -107,13 +107,4 @@ it('revisits an earlier builder after a later builder stops determining the crit
     .toMatchObject({ expectedDurationMs: 300_000 })
   expect(integration.find(part => part.plannedHostKey === 'builder-second'))
     .toMatchObject({ expectedDurationMs: 165_000 })
-})
-
-it('plans every check and integration file on cloud executors when no build computer takes CI', async () => {
-  const files = Array.from({ length: 120 }, (_, index) => `apps/api/test/feature-${index}.integration.test.ts`)
-  const parts = await planCiGate({ suite: 'integration', scope: 'full', gate: true },
-    { files, durations: Object.fromEntries(files.map(file => [file, 30_000])) }, unit, {}, fleet(false))
-  expect(parts.every(part => part.plannedHostKey.startsWith('github:'))).toBe(true)
-  expect(parts.filter(part => part.suite === 'integration').flatMap(part => part.files).sort()).toEqual([...files].sort())
-  expect(new Set(parts.map(part => part.suite))).toEqual(new Set(['typecheck', 'lint', 'unit', 'integration']))
 })

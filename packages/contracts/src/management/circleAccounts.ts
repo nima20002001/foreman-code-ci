@@ -18,13 +18,13 @@ export const CircleAccountSchema = z.object({
   organizations: organizationOwners.max(3),
 }).strict().refine(account => account.id === DEFAULT_CIRCLE_ACCOUNT_ID
   ? account.role === 'primary' && (account.organizations.length === 0 || account.organizations.length === 3)
-  : account.organizations.length === 3,
-'The default identity is primary; each configured account binds three organizations.')
+  : account.role === 'standby' && account.organizations.length === 3,
+'The primary identity is default; each configured account binds three organizations.')
 export const CircleAccountsSchema = z.object({
   accounts: z.array(CircleAccountSchema).min(1).max(2),
 }).strict().refine(value => value.accounts.filter(account => account.id === DEFAULT_CIRCLE_ACCOUNT_ID).length === 1
   && new Set(value.accounts.map(account => account.id)).size === value.accounts.length,
-'Keep the default account and at most one second account.').refine(value => {
+'Keep one primary and at most one standby account.').refine(value => {
   const owners = value.accounts.flatMap(account => account.organizations.map(owner => owner.toLowerCase()))
   return new Set(owners).size === owners.length
 }, 'An organization can belong to only one CircleCI login.')
