@@ -289,7 +289,7 @@ it.each(['github', 'circleci'] as const)(
     } finally { await f.close() }
   })
 
-it.each([...Array.from({ length: 40 }, () => 'github' as const), 'circleci'] as const)(
+it.each(['github', 'circleci'] as const)(
   'retries an unstarted %s ticket twice across Main restarts and frees its slot through MCP', async provider => {
     const f = await fixture()
     const cloud = failingCloud(f, provider)
@@ -318,17 +318,8 @@ it.each([...Array.from({ length: 40 }, () => 'github' as const), 'circleci'] as 
       const replacement: HostCiComputer = { key: 'replacement', label: 'Replacement executor', priority: 0,
         hostRef: { kind: 'device', mainId: 'test-main', deviceId: 'replacement' } }
       f.computers.push(replacement)
-      const before = (await f.pool.query('select record from ci_runs where id=$1', [ticket.ticketId])).rows[0].record
       await settle(restarted.at(-1)!)
       const running = await f.read(ticket.ticketId)
-      if (running.state !== 'running') {
-        const dbNow = (await f.pool.query('select state,host_key,record from ci_runs where id=$1', [ticket.ticketId])).rows[0]
-        const claims = (await f.pool.query('select * from ci_dispatch_claims where ticket_id=$1', [ticket.ticketId])).rows
-        console.log('DIAG before', JSON.stringify(before))
-        console.log('DIAG after', JSON.stringify(dbNow), 'claims', JSON.stringify(claims), 'starts', JSON.stringify(f.starts.map(s => [s.computer.key, s.request.runId])), 'remote', JSON.stringify([...f.remote.entries()]))
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        console.log('DIAG later', JSON.stringify((await f.pool.query('select state,record from ci_runs where id=$1', [ticket.ticketId])).rows[0]))
-      }
       expect(running).toMatchObject({ id: ticket.ticketId, state: 'running',
         computer: { hostRef: replacement.hostRef }, executionRunId: expect.any(String) })
       expect(running.executionRunId).not.toBe(ticket.ticketId)
