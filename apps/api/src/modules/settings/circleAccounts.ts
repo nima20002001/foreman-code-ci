@@ -55,7 +55,7 @@ export class CircleAccountsManagementService implements CircleAccountRegistry {
         const parsed = CircleAccountsSchema.safeParse({ accounts })
         if (!parsed.success) {
           throw new DomainError('CIRCLE_ACCOUNT_INVALID',
-            'Keep one primary login and one standby login with distinct organization bindings.', 400)
+            'Keep the default login and at most one second login with distinct organization bindings.', 400)
         }
         const saved = await this.settings.updateCircleAccounts(parsed.data, input.expectedRevision, client)
         return saved
