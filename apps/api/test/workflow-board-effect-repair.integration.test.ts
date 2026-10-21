@@ -140,6 +140,7 @@ describe.skipIf(!postgresEnabled)('atomic board result correction through the pu
     const f = await boardRepairFixture()
     try {
       await f.engine.start(f.f.run.id)
+      console.log('DIAG', JSON.stringify({ trace: f.trace, turns: f.turns.length, results: (await f.runs.listRepeatExecutions(f.f.run.id)).map(item => item.execution.result) }))
       expect((await f.runs.get(f.f.run.id))?.outcome).toBe('succeeded')
       const executions = (await f.runs.listRepeatExecutions(f.f.run.id)).map(item => item.execution)
       expect(executions).toHaveLength(1)

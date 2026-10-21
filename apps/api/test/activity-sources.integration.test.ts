@@ -17,7 +17,7 @@ describe.skipIf(!connectionString)('activity source records in PostgreSQL', () =
     await pool.query(`create table operator_conversations (id text primary key,kind text,revision bigint not null default 0,workspace_id text,workflow_id text,
       workflow_node_id text,agent_id text,origin_run_id text,origin_execution_id text,native_session_id text,active_native_turn_id text,
       active_request_id text,deleted_at timestamptz,harness text,updated_at timestamptz);
-      create table operator_conversation_messages (id text primary key,conversation_id text,role text,content text,native_message_id text,record jsonb);
+      create table operator_conversation_messages (id text primary key,conversation_id text,sequence bigint generated always as identity,role text,content text,native_message_id text,record jsonb);
       create unique index source_messages_native on operator_conversation_messages(conversation_id,native_message_id) where native_message_id is not null;
       create table operator_conversation_activity (conversation_id text,request_id text,sequence bigint);
       create table management_command_receipts (principal_id text,operation text,command_id text,result jsonb);
