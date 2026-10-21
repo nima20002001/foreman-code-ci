@@ -1110,7 +1110,10 @@ export class WorkerConversationHost {
     }
     if (this.hasRunningOperation(id) || record.turns.some(turn => !['completed', 'rejected'].includes(turn.status))
       || record.compactions.some(control => compactionBlocksSend(control.state))) {
-      unavailable('Finish the active operation before releasing its native process.')
+      unavailable('Finish the active operation before releasing its native process. DEBUG ' + JSON.stringify({
+        running: [...this.running.keys()], compactions: [...this.runningCompactions.keys()],
+        turns: record.turns.map(turn => ({ c: turn.correlationId, s: turn.status })),
+        compact: record.compactions.map(control => control.state) }))
     }
     if (this.allocating.has(id)) unavailable('The native conversation is busy.')
     const closing = (async () => {

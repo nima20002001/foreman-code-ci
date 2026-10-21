@@ -13,7 +13,7 @@ import type { LangGraphWorkflowEngine } from '../src/modules/runs/engine.js'
 import { admitRepeatRun } from '../src/modules/runs/repeatStartAdmission.js'
 import { repeatStartPublication } from '../src/modules/run-graph/repeatStartPublication.js'
 import { createWorkflowNativeCaptureChannel } from '../src/modules/interactions/workflowNativeCapture.js'
-import { createWorkflowRepositoryServices } from '../src/modules/runs/workflowRepositoryServices.js'
+import { currentRepositoryServices } from './helpers/wave25CurrentRepository.js'
 import { RunOwnership } from '../src/modules/runs/ownership.js'
 import { agent3Database, seedAgent3, candidateFor, graphHead, postgresEnabled } from './helpers/wave25Agent3.js'
 import { rejectableDeferred } from './helpers/deferred.js'
@@ -53,7 +53,7 @@ describe.skipIf(!postgresEnabled)('Agent 3 atomic Run admission and live authori
     options?: Parameters<typeof admitRepeatRun>[6]) => admitRepeatRun(pool, locations, principal, source, input, repeatStartPublication, options)
   const repositoryFor = (locations: WorkspaceLocationService) => new PostgresRunRepository(db.pool,
     new PostgresWorkflowRepository(db.pool), locations, { runtimeRoot: db.directory,
-      ...createWorkflowRepositoryServices(createWorkflowNativeCaptureChannel().verify) })
+      ...currentRepositoryServices(db, createWorkflowNativeCaptureChannel().verify) })
   it.each(['runs', 'run_graph_batches', 'management_command_receipts'] as const)('rolls back the entire admission if %s fails', async (table) => {
     const { f, issued, locations, input } = await fixture()
     await db.pool.query(`create or replace function a3_admission_crash() returns trigger language plpgsql as $$
