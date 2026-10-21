@@ -106,7 +106,6 @@ export async function remoteReviewProduction(options: {
   installedMainService?: boolean
   sourceAccessMode?: 'read-only' | 'exclusive-write'
   artifactOutputKeys?: string[]
-  profilePostgres?: true
   reportPhase?: (phase: string, elapsedMs: number) => void
 } = {}) {
   const rootAccessMode = options.sourceAccessMode === 'exclusive-write' ? 'read-write' : 'read-only'
@@ -279,7 +278,6 @@ export async function remoteReviewProduction(options: {
       phase?: unknown; errorType?: unknown; errorLocation?: unknown; errorDetail?: string | undefined;
       role?: 'Main' | 'Worker'; message?: string | undefined; reason?: string | undefined; time?: unknown }> = []
     let failuresSeen = 0
-    let databaseProfile: unknown
     let origin = ''
     const stopMain = async (signal: NodeJS.Signals = 'SIGTERM') => {
       if (mainService) {
@@ -369,8 +367,6 @@ export async function remoteReviewProduction(options: {
       mainFailure = ''
       const started = spawn(process.execPath, [
         '--import', tsxLoader,
-        ...(options.profilePostgres
-          ? ['--import', fileURLToPath(new URL('../fixtures/postgres-profile.mjs', import.meta.url))] : []),
         fileURLToPath(new URL('../fixtures/remote-review-main.mjs', import.meta.url)), mainConfiguration], {
         cwd: workingDirectory,
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: logEnvironment,
@@ -379,7 +375,6 @@ export async function remoteReviewProduction(options: {
       collectFailures(started, 'Main')
       started.stderr!.on('data', chunk => { mainFailure = `${mainFailure}${String(chunk)}`.slice(-16384) })
       started.on('message', message => {
-        if (message && typeof message === 'object' && 'kind' in message && message.kind === 'pg-profile') databaseProfile = message
         if (message && typeof message === 'object' && 'kind' in message && message.kind === 'ready'
           && 'origin' in message && typeof message.origin === 'string') {
           origin = message.origin
@@ -805,7 +800,6 @@ export async function remoteReviewProduction(options: {
       start, call, value, details, reconcile, reconcileReviews, registry, close, origin: () => origin,
       subscribeNativeChanges: changes.subscribe,
       failures: () => structuredClone(failures),
-      databaseProfile: () => databaseProfile,
       async workerWorkflowStartup() {
         const journal = JSON.parse(await readFile(join(stateDirectory, 'workflow-operations.json'), 'utf8')) as {
           receipts: unknown[]

@@ -10,7 +10,6 @@ import {
   AGENT_CHAT_OPEN_TURN_LIMIT, agentChatInputHash, agentChatKey, PostgresAgentChatRepository, type AgentConversationRow,
 } from '../src/modules/conversations/agentChatRepository.js'
 import { AgentChatF5Native, approval, eventually } from './helpers/agentChatF5.js'
-import { chatWorkflowVersionRow, isCurrentVersionRead } from './helpers/chatWorkflowVersion.js'
 import { deferred } from './helpers/deferred.js'
 
 const context = { workspaceId: 'ws-f5', workflowId: 'wf-f5', workflowNodeId: 'node-f5', agentId: 'agent-f5' }
@@ -56,7 +55,6 @@ function approvalFixture() {
     turnContent: async () => 'Fixture turn',
     turnSessionMode: async () => undefined,
     turnPrincipalId: async () => principal.id,
-    turnPreparedInput: async () => undefined,
     abandon: async (_id: string, _requestId: string, message: string) => {
       if (current.active_request_id !== _requestId) return
       current.turn_state = 'uncertain'
@@ -75,9 +73,7 @@ function approvalFixture() {
     getAgentConfiguration: async () => configuration,
   }
   const controls = memorySessionControlPool()
-  const savedVersion = chatWorkflowVersionRow({ ...context, configurationId: configuration.id })
   const pool = { query: async (text: string, values: unknown[]) => {
-    if (isCurrentVersionRead(text)) return { rows: [savedVersion], rowCount: 1 }
     if (text.includes('conversation_session_') || text.includes('as compaction')) {
       return controls.query(text, values)
     }
@@ -103,8 +99,6 @@ function approvalFixture() {
     runtimes: Map<string, { manager: AgentChatF5Native; session: AgentChatF5Native['session']; configuration: typeof configuration }>
     runTurn(id: string, turn: AgentChatTurn): Promise<void>
   }
-  // The injected resident session carries no scoped tools, so an accepted feature scope never needs rebinding.
-  service.installFeatureContextBinder(async () => undefined)
   internals.runtimes.set(current.id, { manager: native, session: native.session, configuration })
   const respond = (id: string) => service.respond(principal, workspaceId, current.id,
     { requestId: `reply-${id}`, nativeRequestId: id, optionId: 'approve-once' })

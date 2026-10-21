@@ -6,7 +6,6 @@ import { PostgresAgentChatRepository } from '../src/modules/conversations/agentC
 import { PostgresOperatorActivityRepository } from '../src/modules/conversations/operatorActivityRepository.js'
 import { fixture } from './helpers/agentChatF1.js'
 import { agentActivitySnapshot } from '../src/modules/conversations/activitySnapshot.js'
-import { withTransaction } from '../src/infrastructure/transaction.js'
 import { activitySnapshotMigration } from '../src/infrastructure/activitySnapshotMigration.js'
 import { compactCommandActivityMigration } from '../src/infrastructure/compactCommandActivityMigration.js'
 
@@ -22,8 +21,7 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
       active_native_turn_id text, deleted_at timestamptz, revision bigint not null default 0,
       harness text not null default 'codex', kind text not null default 'agent', record jsonb not null default '{}', active_phase text, cancel_requested boolean not null default false,
       turn_state text not null default 'idle', last_error text, last_result jsonb, pending_interaction jsonb, updated_at timestamptz not null default now());
-      create table operator_conversation_turns (conversation_id text, request_id text, intent text, delivery text, input_hash text default 'fixture', updated_at timestamptz,
-        payload jsonb not null default '{}');
+      create table operator_conversation_turns (conversation_id text, request_id text, intent text, delivery text, input_hash text default 'fixture', updated_at timestamptz);
       create table operator_conversation_activity (conversation_id text, request_id text, activity_id text,
         record jsonb not null, sequence bigint generated always as identity, revision bigint not null default 0,
         unique(conversation_id,request_id,activity_id));`)
@@ -56,7 +54,8 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
   })
   it('parent cancellation retains unknown unresolved child outcome', async () => {
     await repository.append('conversation', 'A', value('running'), fence('1'))
-    await withTransaction(pool, client => repository.finish('conversation', 'A', true, client))
+    const client = await pool.connect()
+    try { await client.query('begin'); await repository.finish('conversation', 'A', true, client); await client.query('commit') } finally { client.release() }
     expect((await pool.query('select record from operator_conversation_activity')).rows[0].record.status).toBe('unknown')
   })
   it('rejects stale owner and exact native turn before insertion', async () => {
@@ -88,7 +87,7 @@ describe.skipIf(!connectionString)('activity transaction fencing in PostgreSQL',
       alter table operator_conversation_turns add column turn_sequence bigint generated always as identity,
       add column message_id text default 'message', add column native_turn_id text, add column target_native_turn_id text,
       add column delivery_error jsonb, add column result jsonb,
-      add column created_at timestamptz default now();
+      add column payload jsonb default '{}'::jsonb, add column created_at timestamptz default now();
       create table operator_conversation_messages (conversation_id text not null references operator_conversations(id),
         record jsonb not null, sequence bigint generated always as identity, activity_record_revision bigint not null default 0);
       create table management_command_receipts (principal_id text, operation text, command_id text, target_key text,
