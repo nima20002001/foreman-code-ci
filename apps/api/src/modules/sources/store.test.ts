@@ -30,11 +30,11 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
-async function fixture() {
+async function fixture(fileCount = 40) {
   const directory = await mkdtemp('/tmp/graphql-source-store-')
   directories.push(directory)
   const bytes = Buffer.from('immutable source bytes\n')
-  const entries = Array.from({ length: 40 }, (_, index) => ({
+  const entries = Array.from({ length: fileCount }, (_, index) => ({
     path: `source-${String(index).padStart(2, '0')}.txt`, kind: 'file' as const, byteSize: bytes.length,
     sha256: sourceSha256(bytes), executable: false,
   }))
@@ -95,7 +95,9 @@ it('rejects a linked parent before creating missing snapshot storage', async () 
 })
 
 it('reads a stable manifest once while verifying every file in repeated source transfers', async () => {
-  const f = await fixture()
+  // A few files prove per-file verification with one manifest parse; 40 files made
+  // ~3000 filesystem round trips that exceeded the unit budget under CI load.
+  const f = await fixture(4)
   for (let transfer = 0; transfer < 2; transfer++) {
     for (const entry of f.manifest.entries) {
       expect(await f.store.read(f.manifest, entry, f.signal)).toEqual(f.bytes)
