@@ -12,7 +12,6 @@ import { DomainError } from '../src/modules/errors.js'
 import type { NativeHistory } from '../src/modules/harnesses/port.js'
 import type { ExecutionCredentialProvider } from '../src/modules/harnesses/mcpDetection.js'
 import { nativeCompleted, nativeFixture, nativeStored, nativeAt } from './eng04-native-fixtures.js'
-import { idleWorkflowControls, idleWorkflowRepeat } from './helpers/idleWorkflowControls.js'
 
 /** Doubles only. These tests never start a provider, DB, native process or browser. */
 export function native2Fixture(completed = true,
@@ -100,16 +99,9 @@ export function native2Fixture(completed = true,
     consumeLaunch: (): boolean => false,
   } satisfies RepeatNativeObservationStore
   const runs = {
-    ...idleWorkflowControls,
-    repeat: async () => ({ ...idleWorkflowRepeat, ...store }),
     ensureExecution: forbidden('ensureExecution'),
     get: async () => run,
     getRepeatSnapshot: async () => ({ run, stopRequested: false, cleanupPending: false }),
-    // No workflow chat control, retained coordination terminal or output settlement exists in this model.
-    repeat: async () => ({ workflowControlDisposition: async () => ({ kind: 'ordinary' as const }),
-      claimWorkflowInput: async () => undefined }),
-    readOutputSettlement: async () => undefined,
-    readWorkflowTerminalSettlement: async () => undefined,
     getExecutionConfiguration: async () => configuration,
     getExecution: async () => execution,
     updateExecution: async (next: HarnessExecution) => { calls.push(`terminal:${next.result?.outcome ?? next.state}`); execution = next },

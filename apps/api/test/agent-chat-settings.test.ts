@@ -27,8 +27,7 @@ it('keeps the native message receipt when settings change during its acknowledgm
     })
     expect(f.store.sessionControls.get(f.store.row.id)).toMatchObject({
       desiredMode: 'regular', desired: { contextBudget: 100000 }, appliedMode: 'plan',
-      // The acknowledgment records the settings the native turn actually received (the accepted ones), not the concurrent edit.
-      applied: { contextBudget: null }, applicability: 'safe-resume',
+      applied: { contextBudget: 200000 }, applicability: 'safe-resume',
     })
     expect(f.manager.starts).toEqual(['planned-request'])
   } finally { await f.service.shutdown() }
