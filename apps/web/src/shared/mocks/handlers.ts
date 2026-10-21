@@ -235,13 +235,6 @@ export const handlers: RequestHandler[] = [
       openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
       counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
   }),
-  // Each workflow's Kanban starts off the Board; a save echoes the complete layout it stored.
-  http.get('*/api/management/workspaces/:workspaceId/workflows/:workflowId/kanban-layout', ({ params }) => HttpResponse.json({
-    workspaceId: String(params.workspaceId), workflowId: String(params.workflowId), layout: { visible: false, frame: null } })),
-  http.put('*/api/management/workspaces/:workspaceId/workflows/:workflowId/kanban-layout', async ({ params, request }) => {
-    const { layout } = await request.json() as { layout: unknown }
-    return HttpResponse.json({ workspaceId: String(params.workspaceId), workflowId: String(params.workflowId), layout })
-  }),
   http.get('/api/management/workspaces/:workspaceId/repository', ({ params, request }) => {
     const workspaceId = String(params.workspaceId)
     if (new URL(request.url).searchParams.has('commandId')) {

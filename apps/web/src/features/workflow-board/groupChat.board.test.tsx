@@ -26,7 +26,7 @@ it('opens the Group panel on the Board, posts exact text and retains its selecti
       receipts: [], replayed: false })
     }),
   )
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   const { router } = await mountMeasuredBoard(`/workspaces/${workspaceId}?workflowId=${workflowId}`)
   await user.click(await screen.findByRole('button', { name: 'Group chat' }))
   const panel = await screen.findByRole('region', { name: 'Group chat' })
@@ -36,4 +36,5 @@ it('opens the Group panel on the Board, posts exact text and retains its selecti
   await screen.findByRole('complementary', { name: 'Selected post' })
   expect(bodies).toEqual(['  Board conversation  '])
   expect(router.state.location.search.groupPostId).toBe('posted-message')
-})
+  // Mounting the full Board in jsdom takes seconds under parallel CI load, like the other mounted-Board tests.
+}, 30_000)

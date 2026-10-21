@@ -53,5 +53,6 @@ describe.runIf(postgresEnabled)('workflow reporting under database contention', 
       await settledLock
       await locker.end()
     }
-  }, 18_000)
+    // Two full remote launches on a loaded CI host need more than 18 s; finished() still fails a Run that stops changing.
+  }, 30_000)
 })

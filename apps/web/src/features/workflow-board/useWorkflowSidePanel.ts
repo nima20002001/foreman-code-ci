@@ -112,12 +112,11 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
     void navigate({ to: pathname, hash: true,
       search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardView: view }) })
   }, [navigate, pathname, workflowId, keepRun, generation, isCurrent])
-  const setMemoryOpen = useCallback((open: boolean, memoryCard?: string) => {
+  const setMemoryOpen = useCallback((open: boolean) => {
     if (!isCurrent(generation)) return
     if (open && panel.kind === 'browser' && search.boardMemory !== true) releaseBrowser()
     void navigate({ to: pathname, hash: true,
-      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous),
-        boardMemory: open ? true : undefined, ...(memoryCard ? { memoryCard } : {}) }) })
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardMemory: open ? true : undefined }) })
   }, [navigate, pathname, workflowId, keepRun, panel.kind, search.boardMemory, releaseBrowser, generation, isCurrent])
   const selectTeam = useCallback((nodeId?: string) => {
     void navigate({ to: pathname, hash: true,

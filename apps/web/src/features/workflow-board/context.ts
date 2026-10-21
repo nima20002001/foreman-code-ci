@@ -24,8 +24,6 @@ export const WorkflowBoardContext = createContext<{
   executionChatMounted?: boolean
   collaborationFields?: CollaborationFieldSlots
   memoryOpen?: boolean
-  /** Opens the workflow's memory board on one card, as the Kanban's cards do. */
-  openMemoryCard?(cardId: string): void
   canvasVisible?: boolean
   teamNodeId?: string
   selectTeam?(nodeId?: string): void
