@@ -147,14 +147,6 @@ build_contracts() {
   pnpm --filter @foreman-code/contracts build
 }
 
-# The deploy's "API full check" (scripts/local-production-runtime.mjs), so a commit that fails deploy fails typecheck.
-# Its build info lives in the API's tsc cache directory, which ci-typecheck-cache.mjs keeps between runs.
-api_build_check() {
-  echo "API production build check"
-  pnpm --filter @foreman-code/api exec tsc -p tsconfig.build.json --noEmit --isolatedModules \
-    --tsBuildInfoFile node_modules/.cache/tsc/production-check.tsbuildinfo
-}
-
 node_tests() {
   local report="$1"; shift
   pnpm exec node --test --test-reporter=spec --test-reporter-destination=stdout \
@@ -272,13 +264,12 @@ case "$SUITE" in
   lint-api) build_contracts && pnpm --filter @foreman-code/api lint ;;
   lint-other) build_contracts \
     && pnpm -r --no-bail --filter '!@foreman-code/api' --if-present lint ;;
-  typecheck-api) build_contracts && pnpm --filter @foreman-code/api typecheck && api_build_check ;;
+  typecheck-api) build_contracts && pnpm --filter @foreman-code/api typecheck ;;
   typecheck-other) build_contracts \
     && pnpm -r --filter '!@foreman-code/api' --if-present typecheck ;;
   build-api) build_contracts && pnpm --filter @foreman-code/api build ;;
   build-other) pnpm -r --filter '!@foreman-code/api' --if-present build ;;
-  typecheck) pnpm typecheck && api_build_check ;;
-  lint|build) pnpm "$SUITE" ;;
+  typecheck|lint|build) pnpm "$SUITE" ;;
   integration)
     export FOREMAN_CODE_INTEGRATION_COVERAGE=0
     if [ "$scope" = full ]; then
