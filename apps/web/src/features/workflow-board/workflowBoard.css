@@ -16,6 +16,10 @@
 .workflow-side-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: var(--space-3); }
 .workflow-side-panel-body > .agent-chat-panel { min-height: 0; flex: 1; }
 .workflow-panel-hint { margin: var(--space-2) var(--space-3); color: var(--text-muted); font: var(--type-caption); }
+.workflow-operator-launcher { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; padding: var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text); cursor: pointer; }
+.workflow-side-panel .operator-chat-root { display: flex; flex: 1; min-height: 0; }
+.workflow-side-panel .operator-chat { position: static; transform: none; width: 100% !important; height: 100% !important; max-width: none; max-height: none; box-shadow: none; border: 0; }
+.workflow-side-panel .operator-chat-resize, .workflow-side-panel .operator-chat-launcher { display: none; }
 .workflow-rail-size { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); color: var(--text-muted); font: var(--type-caption); }
 @container (max-width: 900px) {
   .workflow-collaboration-layout[data-panel-open='true'] > .workflow-collaboration-canvas,
@@ -103,6 +107,8 @@
 .board-notices .n-button { min-height: 24px; padding: 2px 6px; font-size: 11px; }
 .board-notices .n-icon-button.n-button--sm { width: 24px; height: 24px; min-width: 24px; padding: 3px; }
 .board-notices ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.board-empty { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.board-empty > * { pointer-events: auto; }
 .board-side-panel {
   position: absolute; top: 72px; right: var(--space-4); bottom: var(--space-4); width: min(24rem, calc(100% - 2rem));
   display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -144,6 +150,18 @@
 .agent-settings-panel-embedded .agent-settings-footer .n-button { white-space: nowrap; }
 
 .board-control-cluster { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.board-agent-picker { position: absolute; top: 72px; right: var(--space-4); width: min(340px, calc(100% - 2rem)); max-height: calc(100% - 88px); overflow: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-popover); }
+.board-agent-picker > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+.board-agent-picker h2 { flex: 1; margin: 0; font: var(--type-body-strong); }
+.board-agent-picker h2 button { width: 100%; padding: var(--space-2) 0; border: 0; color: var(--text-strong); background: transparent; font: inherit; text-align: left; cursor: grab; touch-action: none; user-select: none; }
+.board-agent-picker h2 button:active { cursor: grabbing; }
+.board-agent-picker-content > fieldset { display: grid; gap: var(--space-4); min-width: 0; margin: 0; padding: var(--space-4); border: 0; }
+.board-agent-picker .next-draft-hint { display: none; }
+.board-agent-picker-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.board-agent-picker-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; }
+.board-agent-picker-name { overflow: hidden; color: var(--text-strong); text-overflow: ellipsis; white-space: nowrap; }
+.board-agent-picker-role { color: var(--text-muted); font: var(--type-caption); }
+.board-agent-picker-empty { margin: 0; color: var(--text-muted); }
 .board-title .board-name { display: grid; min-width: 0; max-width: min(24rem, 40vw); }
 .board-name > * { grid-area: 1 / 1; min-width: 0; }
 .board-name-sizing { visibility: hidden; padding: 4px 0; }
@@ -196,8 +214,3 @@
 /* Loading shape of the Board: the editor's footprint with node-sized placeholders in the canvas. */
 .board-loading .board-loading-nodes { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-6); padding-top: 4rem; }
 .board-loading .board-control-cluster { display: flex; }
-/* Group chat: a modal the person resizes from its bottom-right corner. */
-.n-dialog.workflow-group-chat-dialog { width: min(760px, calc(100vw - 32px)); height: min(680px, calc(100dvh - 48px)); min-width: min(360px, calc(100vw - 32px)); min-height: 320px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); resize: both; }
-.workflow-group-chat-dialog .n-dialog-inner { height: 100%; max-height: 100%; }
-.workflow-group-chat-dialog .n-dialog-body { display: flex; flex: 1; flex-direction: column; }
-.workflow-group-chat-dialog .workflow-chat-panel > header > h2 { display: none; }

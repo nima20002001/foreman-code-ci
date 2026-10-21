@@ -1,3 +1,4 @@
+import { MemoryBoardSurface } from '../workflow-board/MemoryBoardSurface'
 import { InfoHint } from '../../shared/ui/InfoHint'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
@@ -45,12 +46,15 @@ export function WorkspaceDetailPage({ workspaceId, section, children }: {
         </>
   const content = (actions: { rename(): void; remove(): void; chooseLocation(): void }) => <div className="settings-editor-layout">
       <nav className="settings-editor-nav workspace-detail-nav" aria-label="Workspace sections">
+        <Link to="/workspaces/$workspaceId/memory" params={{ workspaceId }} aria-current={section === 'memory' ? 'page' : undefined}>Memory board<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/files" params={{ workspaceId }} aria-current={section === 'files' ? 'page' : undefined}>Project files<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/workflows" params={{ workspaceId }} aria-current={section === 'workflows' ? 'page' : undefined}>Workflows<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/settings" params={{ workspaceId }} aria-current={section === 'settings' ? 'page' : undefined}>Settings<span aria-hidden="true">›</span></Link>
       </nav>
       <div className={`settings-editor-content workspace-detail-content${section === 'settings' ? ' workspace-detail-content--settings' : ''}`}>
         {!current && workspace.isError ? unavailable : children ?? (current ? settings(actions) : unavailable)}
+        {section === 'workflows' && current && <MemoryBoardSurface
+          scope={{ kind: 'workspace', workspaceId }} scopeName={current.workspace.name} />}
       </div>
     </div>
   return <div className="settings-page settings-experience workspace-detail-page">

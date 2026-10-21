@@ -32,6 +32,8 @@ import './agentSettingsPanel.css'
 type EditableAgentSettingsFormProps = {
   /** Inside an agent popover: the popover owns the title and close button. */
   embedded?: boolean
+  /** Explicit new-Agent authoring uses the same fields before any graph node is staged. */
+  creationLabel?: string
   additionalDirty?: boolean
   additionalFields?: ReactNode
   nodePlacement?: SavedNodePlacement
@@ -193,7 +195,7 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
   nodePlacement, nodeWorktree, workflowWorktree, workflowWorktreeLabel, worktreeDisabled,
   placementOptions, placementHidden, placementOptionsState, placementStage,
   executionPolicy = { maxNodeExecutions: 1, maxParallelism: 1 }, workspaceId,
-  workflowApprovalHandler, designatedOrchestrator = false, embedded = false, additionalDirty, additionalFields,
+  workflowApprovalHandler, designatedOrchestrator = false, embedded = false, creationLabel, additionalDirty, additionalFields,
 }: EditableAgentSettingsFormProps) {
   const {
     error, issues, view, setView, root, setLocalPlacement, setLocalPrefix, name, prompt, editor, placement,
@@ -239,6 +241,9 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
         <HarnessBasicFields value={configuration} issues={issuesAt(issues, ['harness'])} onChange={updateConfiguration}
           accountHost={placement?.hostRef} />
       </div>
+      {creationLabel ? <Textarea label="Initial prompt" aria-label="Initial prompt" className="agent-settings-prompt" rows={3} value={prompt}
+        labelHint={<InfoHint label="Initial prompt">The task this node starts with.</InfoHint>}
+        onChange={event => { setPrompt(event.target.value); clearErrors() }} /> : null}
       <p>Native tools: {nativeToolsSummary(agent.nativeTools)}</p>
       {additionalFields}
       {Boolean(workspaceId || nodePlacement || placementOptions) && <section className="agent-worktree-fields" aria-label="Worktree">
@@ -285,9 +290,10 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
       {view === 'general' ? <Button size="sm" variant="ghost" className="agent-settings-advanced-link" onClick={() => setView('advanced')} trailing={<Icon name="chevron" size={13} />}>Advanced settings</Button> : null}
       {onRemove ? embedded ? <Button size="sm" variant="ghost" className="agent-settings-trash" aria-label={`Remove ${agent.name} from workflow`} onClick={() => void leave(onRemove)}>Remove from workflow</Button>
         : <IconButton size="sm" variant="ghost" className="agent-settings-trash" label={`Remove ${agent.name} from workflow`} onClick={() => void leave(onRemove)}><Icon name="minus" size={15} /></IconButton> : null}
-      {embedded ? <Button size="sm" variant="ghost" onClick={() => { onDiscardForm?.(); onClose() }}>Cancel</Button> : null}
-      {embedded ? <Button size="sm" variant="primary" className="agent-settings-save" aria-label="Apply agent settings to draft"
-        disabled={!isDirty} onClick={save}>Apply to draft</Button> : null}
+      {creationLabel ? <Button size="sm" variant="ghost" onClick={() => void leave(onClose)}>Cancel</Button>
+        : embedded ? <Button size="sm" variant="ghost" onClick={() => { onDiscardForm?.(); onClose() }}>Cancel</Button> : null}
+      {embedded ? <Button size="sm" variant="primary" className="agent-settings-save" aria-label={creationLabel ?? 'Apply agent settings to draft'}
+        disabled={!creationLabel && !isDirty} onClick={save}>{creationLabel ?? 'Apply to draft'}</Button> : null}
     </footer>
   </div>
 }

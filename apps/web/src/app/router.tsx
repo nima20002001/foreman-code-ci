@@ -71,6 +71,7 @@ const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workspaces/$workspaceId/workflows',
   component: WorkflowsRouteEntry,
+  validateSearch: MemoryBoardSearchSchema,
 })
 
 const jobsRedirectRoute = createRoute({
@@ -129,8 +130,7 @@ const tasksRoute = comingSoonRoute('/workspaces/$workspaceId/tasks', 'tasks', 'T
 const runsRoute = comingSoonRoute('/workspaces/$workspaceId/runs', 'runs', 'Runs')
 const terminalRoute = comingSoonRoute('/workspaces/$workspaceId/terminal', 'terminal', 'Terminal')
 const filesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/workspaces/$workspaceId/files', component: ProjectFilesRouteEntry })
-const memoryRoute = createRoute({ getParentRoute: () => rootRoute, path: '/workspaces/$workspaceId/memory',
-  validateSearch: MemoryBoardSearchSchema, component: WorkspaceMemoryRouteEntry })
+const memoryRoute = createRoute({ getParentRoute: () => rootRoute, path: '/workspaces/$workspaceId/memory', component: WorkspaceMemoryRouteEntry })
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workspaces/$workspaceId/settings',

@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import canvasStyles from './nextDraft.css?inline'
 import { GraphPresentationProvider } from '../GraphPresentation'
 import { applyGraphGeometry, type GraphGeometryChange } from '../geometry'
@@ -56,7 +55,7 @@ function FixtureCanvas() {
     }} pending={vi.fn()} report={vi.fn()} /><Zoom /></>
 }
 function mount() {
-  return render(<QueryClientProvider client={new QueryClient()}><GraphPresentationProvider><ReactFlowProvider><FixtureCanvas /></ReactFlowProvider></GraphPresentationProvider></QueryClientProvider>)
+  return render(<GraphPresentationProvider><ReactFlowProvider><FixtureCanvas /></ReactFlowProvider></GraphPresentationProvider>)
 }
 
 it('keeps the edge remove button mounted while crossing to its controls', async () => {

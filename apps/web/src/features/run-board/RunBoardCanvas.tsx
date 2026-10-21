@@ -9,8 +9,6 @@ import { CI_SERVER_NODE_ID, ciJobRefreshing, ciNodeActivities, runCiApi } from '
 import { useCiTransfers } from '../workflow-board/inspect/useCiTransfers'
 import { runInspectionQueryKey } from '../workflow-board/inspect/queries'
 import { useBoardCiServer } from '../workflow-board/inspect/useBoardCiServer'
-import { BoardKanbanNode, KanbanActivityEdge, KANBAN_NODE_ID, type KanbanActivityFlowEdge, type KanbanFlowNode } from '../workflow-board/kanban/BoardKanban'
-import { useBoardKanban } from '../workflow-board/kanban/useBoardKanban'
 import '../workflow-board/inspect/inspection.css'
 import { ciNodePresentation } from './ciPresentation'
 import { SignalEdgeShape } from '../graph/SignalEdgeShape'
@@ -62,8 +60,8 @@ const SavedConnection = memo(function SavedConnection(props: EdgeProps<SavedBoar
     <SignalEdgeShape id={props.id} curve={curve} kind={edge.kind} reportingParent={props.data?.reportingParent} />
   </g>
 })
-const nodeTypes = { savedBoardNode: SavedAgent, ciServer: CiServerNode, boardKanban: BoardKanbanNode }
-const edgeTypes = { savedBoardEdge: SavedConnection, ciTransfer: CiTransferEdge, kanbanActivity: KanbanActivityEdge }
+const nodeTypes = { savedBoardNode: SavedAgent, ciServer: CiServerNode }
+const edgeTypes = { savedBoardEdge: SavedConnection, ciTransfer: CiTransferEdge }
 const fitViewOptions = { padding: 0.2, minZoom: 0.02, maxZoom: 1 }
 const proOptions = { hideAttribution: true }
 
@@ -76,8 +74,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const board = useWorkflowBoard()
   const displayScope = JSON.stringify(['run', snapshot.workspaceId, snapshot.workflowId, snapshot.runId])
   const collapsed = useCollapsedWorkers(displayScope, hierarchy?.hierarchy)
-  const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode | KanbanFlowNode,
-    SavedBoardEdge | CiTransferFlowEdge | KanbanActivityFlowEdge>({
+  const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode, SavedBoardEdge | CiTransferFlowEdge>({
     fitViewOptions,
   })
   // Callers recreate their handler every render; reading it through a ref keeps unchanged nodes referentially stable.
@@ -117,12 +114,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const ci = useBoardCiServer({ nodes: towerNodes, names, scope, workflow: { workspaceId: scope.workspaceId, workflowId: scope.workflowId },
     jobs: !ciDenied && ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined,
     truncated: !ciDenied && (ciList.data?.truncated ?? false), error: Boolean(ciDenied) || ciList.isError, loading: ciList.isPending })
-  // The workflow's Kanban sits on its Board in every view, so Agents' card changes show live during the Run.
-  const shownIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes])
-  const kanban = useBoardKanban({ workspaceId: snapshot.workspaceId, workflowId: snapshot.workflowId, nodes: towerNodes,
-    nodeIds: shownIds, enabled: !!board })
-  const flowNodes = useMemo<(SavedBoardNode | CiServerFlowNode | KanbanFlowNode)[]>(() =>
-    [...visibleNodes, ci.node, ...(kanban.node ? [kanban.node] : [])], [visibleNodes, ci.node, kanban.node])
+  const flowNodes = useMemo(() => [...visibleNodes, ci.node], [visibleNodes, ci.node])
   const ciJobs = !ciDenied && !ciList.isError && ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined
   // A node waits on its newest unfinished CI from either the Run's Activity or the CI server's own list.
   const cis = useMemo(() => new Map([...runBoardCi(snapshot, activitySnapshot), ...ciNodeActivities(ciJobs ?? [])]),
@@ -131,13 +123,11 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const liveNodes = useRunLiveNodes(scope, names, cis, visible && !!board)
   // A light per Agent while its CI request or result travels; no lasting line to the server.
   const transfers = useCiTransfers(ciJobs, useReducedMotion())
-  const ciEdges = useMemo<(SavedBoardEdge | CiTransferFlowEdge)[]>(() => transfers.size ? [...visibleEdges,
+  const flowEdges = useMemo<(SavedBoardEdge | CiTransferFlowEdge)[]>(() => transfers.size ? [...visibleEdges,
     ...[...transfers].filter(([nodeId]) => visibleNodes.some(node => node.id === nodeId)).map(([nodeId, pulses]) => ({
       id: `ci-transfer:${nodeId}`, type: 'ciTransfer' as const, source: nodeId, target: CI_SERVER_NODE_ID,
       sourceHandle: 'right', targetHandle: 'left', selectable: false, focusable: false, deletable: false, data: { pulses } }))]
     : visibleEdges, [visibleEdges, visibleNodes, transfers])
-  const flowEdges = useMemo<(SavedBoardEdge | CiTransferFlowEdge | KanbanActivityFlowEdge)[]>(() => kanban.edges.length
-    ? [...ciEdges, ...kanban.edges] : ciEdges, [ciEdges, kanban.edges])
   return <div ref={containerRef} className="run-board-canvas" data-testid="run-board-canvas" onKeyDown={(event) => {
     // History keystrokes must not bubble into an ancestor's authoring shortcuts.
     event.stopPropagation()
@@ -146,9 +136,8 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
       || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's')) event.preventDefault()
   }}>
     <ReactFlowProvider><RunLiveNodes.Provider value={liveNodes}>
-      <ReactFlow<SavedBoardNode | CiServerFlowNode | KanbanFlowNode, SavedBoardEdge | CiTransferFlowEdge | KanbanActivityFlowEdge> nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
-        {...READ_ONLY_FLOW_PROPS} onNodesChange={kanban.applyChanges}
-        onNodeDragStop={(_event, node) => { if (node.id === KANBAN_NODE_ID) kanban.moved(node.position) }} fitView fitViewOptions={fitViewOptions} minZoom={0.02} maxZoom={2}
+      <ReactFlow<SavedBoardNode | CiServerFlowNode, SavedBoardEdge | CiTransferFlowEdge> nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+        {...READ_ONLY_FLOW_PROPS} fitView fitViewOptions={fitViewOptions} minZoom={0.02} maxZoom={2}
         onInit={onInit} onMove={onMove}
         proOptions={proOptions} preventScrolling={false} aria-label="Saved Run graph"
         ariaLabelConfig={{ 'node.a11yDescription.default': 'Saved agent, read only.', 'edge.a11yDescription.default': 'Saved connection, read only.' }}>

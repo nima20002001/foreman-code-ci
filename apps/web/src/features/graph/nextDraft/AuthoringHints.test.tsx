@@ -1,9 +1,29 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
-import { ChoiceFields, RelationshipFields } from './AuthoringFields'
+import { AvailableAgentList, ChoiceFields, RelationshipFields } from './AuthoringFields'
 import { WorkConnectionLimitEditor } from './WorkConnectionLimitEditor'
 import { fixture } from './core.cases'
+
+it('lists each available Agent with one Add action and explains nothing else', async () => {
+  const context = fixture()
+  const change = vi.fn()
+  render(<AvailableAgentList context={context} change={change} report={vi.fn()} />)
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^About / })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Add Agent 1' }))
+  expect(change).toHaveBeenCalledOnce()
+  const added = change.mock.calls[0]![0](context.draft.graph)
+  expect(added.nodes.at(-1)).toMatchObject({ agentId: 'agent-1', name: 'Agent 1' })
+})
+
+it('says there is nothing to add when no Agent is available', () => {
+  const context = fixture()
+  context.agents = context.agents.map((record) => ({ ...record, archivedAt: '2026-09-22T00:00:00Z' }))
+  render(<AvailableAgentList context={context} change={vi.fn()} report={vi.fn()} />)
+  expect(screen.getByText(/No existing Agents are available/)).toBeVisible()
+  expect(screen.queryByRole('button', { name: /^Add / })).not.toBeInTheDocument()
+})
 
 it('keeps routing format instructions visible and moves the routing explanation into a hint', async () => {
   const graph = fixture().draft.graph

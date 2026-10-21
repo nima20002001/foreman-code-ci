@@ -25,19 +25,19 @@ async function openAgent(name: string) {
   await userEvent.click(agentList().getByRole('button', { name }))
   await rail().findByRole('textbox', { name: 'Name' })
 }
-/** The plus adds a Worker from its Settings profile; its team, name and task are then edited in its settings. */
 async function createWorker(parent: string, name: string, prompt: string, { apply = true } = {}) {
-  await userEvent.click(authoring().getByRole('button', { name: 'Add agent' }))
-  const worker = within(screen.getByRole('menu', { name: 'Add agent' })).getByRole('menuitem', { name: 'Worker' })
-  await waitFor(() => expect(worker).not.toHaveAttribute('aria-disabled'))
-  await userEvent.click(worker)
-  await openAgent('Worker 2')
-  await userEvent.selectOptions(rail().getByLabelText('Reports to'), parent)
-  fireEvent.change(rail().getByRole('textbox', { name: 'Name' }), { target: { value: name } })
-  await userEvent.click(rail().getByRole('button', { name: 'Advanced settings' }))
-  fireEvent.change(rail().getByRole('textbox', { name: 'Initial prompt' }), { target: { value: prompt } })
-  if (apply) await userEvent.click(rail().getByRole('button', { name: 'Apply agent settings to draft' }))
-  await userEvent.click(rail().getByRole('button', { name: 'Details' }))
+  await userEvent.click(toolbar('Workflow controls').getByRole('button', { name: 'Add agent or job to graph' }))
+  const form = within(await waitFor(() => labelled('Create Agent in workflow')))
+  await form.findByRole('textbox', { name: 'Name' })
+  await userEvent.selectOptions(form.getByLabelText('Reports to'), parent)
+  fireEvent.change(form.getByRole('textbox', { name: 'Name' }), { target: { value: name } })
+  fireEvent.change(form.getByRole('textbox', { name: 'Initial prompt' }), { target: { value: prompt } })
+  if (apply) {
+    await userEvent.click(form.getByRole('button', { name: 'Add Worker to draft' }))
+    await waitFor(() => expect(queryLabelled('Create Agent in workflow')).not.toBeInTheDocument())
+    expect(rail().getByRole('textbox', { name: 'Name' })).toHaveValue(name)
+    await userEvent.click(rail().getByRole('button', { name: 'Details' }))
+  }
 }
 async function refresh(f: Fixture, view: Awaited<ReturnType<typeof mount>>) {
   const href = view.router.history.location.href

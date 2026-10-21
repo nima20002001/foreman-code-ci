@@ -17,7 +17,7 @@ import type { NextDraftEdit } from './state'
 import { draftFailure } from './writer'
 import { scheduleCommandOwner } from '../../schedules/queries'
 
-export type Panel = 'workflow' | 'repeat' | null
+export type Panel = 'workflow' | 'agents' | 'repeat' | null
 
 /** Panel, message and selection state plus the callbacks every editor concern shares. */
 export function useDraftEditorCore({ draftKey, edit, editIntent, board }: {
@@ -109,7 +109,9 @@ export function useDraftEditorCore({ draftKey, edit, editIntent, board }: {
     void (async () => {
       if (guard && !await guard.surfaces()) return
       if (!alive.current) return
-      canvas.current?.flush(); setPanel(null); action()
+      // The add-Agent panel is a container the person keeps open while working on the Board: selecting a node or
+      // clicking the canvas leaves it be, and only its own X, Escape or an explicit panel choice closes it.
+      canvas.current?.flush(); setPanel((current) => current === 'agents' ? current : null); action()
       const id = presentation.getState().focusedNodeId
       const selectedNode = useGraphDraftStore.getState().nextDrafts[draftKey]?.graph.nodes.find((node) => node.id === id)
       const agentId = selectedNode?.kind!=='job'?selectedNode?.agentId:undefined

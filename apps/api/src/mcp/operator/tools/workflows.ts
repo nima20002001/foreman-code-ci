@@ -9,7 +9,6 @@ import {
   WorkflowUpdateInputSchema,
 } from '@foreman-code/contracts/management'
 import { OperatorWorkflowListInputSchema, WorkflowSummaryPageSchema } from '@foreman-code/contracts/operator-mcp'
-import { WorkflowKanbanLayoutReadSchema, WorkflowKanbanLayoutSetInputSchema, WorkflowKanbanScopeSchema } from '@foreman-code/contracts'
 import { defineOperatorTool } from '../definition.js'
 
 export const workflowTools = [
@@ -94,29 +93,6 @@ export const workflowTools = [
     inputSchema: WorkflowReorderInputSchema, outputSchema: WorkflowReorderResultSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (context, input) => context.services.workflows.reorder(context.principal, 'mcp', input),
-  }),
-  defineOperatorTool({
-    name: 'workflow_kanban_layout_get',
-    requires: [['workflows:read', 'resource']],
-    enabled: s => !!s.workflows?.kanban,
-    description: 'Read where the workflow\'s Kanban (its workflow memory board) sits on the Board canvas: '
-      + 'visible, and frame {x, y, width, height} in canvas coordinates, or null when the Board places it beside the Agents. '
-      + 'Read cards with memory_board_get.',
-    inputSchema: WorkflowKanbanScopeSchema, outputSchema: WorkflowKanbanLayoutReadSchema,
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (context, input) => context.services.workflows.kanban.get(context.principal, input),
-  }),
-  defineOperatorTool({
-    name: 'workflow_kanban_layout_set',
-    requires: [['workflows:update', 'resource'], ['workflows:read', 'resource']],
-    enabled: s => !!s.workflows?.kanban,
-    description: 'Show, hide, move or resize the workflow\'s Kanban on the Board canvas, as the Board\'s Kanban button and the object\'s own '
-      + 'move, resize and remove controls do. Pass the complete layout {visible, frame}; frame null lets the Board place it. '
-      + 'Hiding never changes the memory board or its cards. Board layout: last write wins, no revision, workflow revision and versions stay unchanged. '
-      + 'Read back with workflow_kanban_layout_get.',
-    inputSchema: WorkflowKanbanLayoutSetInputSchema, outputSchema: WorkflowKanbanLayoutReadSchema,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (context, input) => context.services.workflows.kanban.set(context.principal, 'mcp', input),
   }),
   defineOperatorTool({
     name: 'workflow_batch_archive',

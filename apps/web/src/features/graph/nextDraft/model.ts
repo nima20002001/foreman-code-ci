@@ -166,6 +166,14 @@ export function changeApprovalHandler(graph: WorkflowDefinitionV3, handler: Work
   return { ...graph, approval: handler === 'orchestrator' && graph.approval?.handler === handler ? graph.approval : { handler } }
 }
 
+export function attachAgent(graph: WorkflowDefinitionV3, record: CatalogAgent, nodeId: string): WorkflowDefinitionV3 {
+  if (record.archivedAt || !record.agent.configurationVersionId || !['master', 'coder', 'orchestrator'].includes(record.agent.productRole ?? '')) throw new Error('A board Agent with an available product-role configuration pin is required.')
+  if (graph.nodes.some((node) => node.id === nodeId)) throw new Error('A node identity can occur only once in this workflow definition.')
+  // No position: the Board places a new node in the hierarchy until the person drags it.
+  const node: DraftNode = { id: nodeId, agentId: record.agent.id, name: record.agent.name }
+  return { ...graph, nodes: [...graph.nodes, node], entryNodeId: graph.nodes.length === 0 ? nodeId : graph.entryNodeId }
+}
+
 /** IDs/kinds/directions survive visual pair inspection; this does not coalesce records. */
 export function relationshipPairs(graph: WorkflowDefinitionV3): WorkflowRelationship[][] {
   const pairs = new Map<string, WorkflowRelationship[]>()

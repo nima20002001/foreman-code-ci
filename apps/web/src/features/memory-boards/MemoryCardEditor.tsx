@@ -49,13 +49,13 @@ export function MemoryCardEditor({ boardId, draft, nodes, disabled, pending, onC
       onChange={(event) => {
         const status = event.currentTarget.value as CardDraft['fields']['status']
         change({ status, completionKind: status === 'done' ? 'completed' : null,
-          reason: status === 'blocked' || status === 'waiting_for_user' || draft.original?.status === 'done' && status !== 'done' ? draft.fields.reason : null })
+          reason: status === 'blocked' || draft.original?.status === 'done' && status !== 'done' ? draft.fields.reason : null })
       }} />
     {draft.fields.status === 'done' && <Select label="Outcome" value={draft.fields.completionKind ?? 'completed'} disabled={disabled}
       options={[{ value: 'completed', label: 'Completed' }, { value: 'dropped', label: 'Dropped' }]}
       onChange={(event) => change({ completionKind: event.currentTarget.value as 'completed' | 'dropped', reason: event.currentTarget.value === 'completed' ? null : draft.fields.reason })} />}
-    <Textarea ref={reasonRef} label={draft.fields.status === 'blocked' ? 'What is blocking this?' : draft.fields.status === 'waiting_for_user' ? 'What does the user need to do?' : draft.fields.completionKind === 'dropped' ? 'Why is this no longer needed?' : 'Reason'}
-      hint={draft.original?.status === 'done' && draft.fields.status !== 'done' ? 'Explain why you are reopening this card.' : 'A reason is required for waiting, blocked, dropped, reopened or resolved work.'}
+    <Textarea ref={reasonRef} label={draft.fields.status === 'blocked' ? 'What is blocking this?' : draft.fields.completionKind === 'dropped' ? 'Why is this no longer needed?' : 'Reason'}
+      hint={draft.original?.status === 'done' && draft.fields.status !== 'done' ? 'Explain why you are reopening this card.' : 'A reason is required for blocked, dropped, reopened or resolved work.'}
       value={draft.fields.reason ?? ''} maxLength={1000} disabled={disabled}
       error={problem?.field === 'reason' ? problem.message : undefined}
       onChange={(event) => change({ reason: event.currentTarget.value || null })} />
