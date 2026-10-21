@@ -8,7 +8,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import {
-  boardSearchForInspection, boardSearchForRun, runInspectionKey,
+  boardSearchForInspection, boardSearchForRun, runInspectionKey, RepeatGraphCurrentV3Schema,
   type RepeatGraphScopeV3, type WorkspaceBoardInspection,
 } from '@foreman-code/contracts/wave25'
 import { routeTree } from '../../../app/router'
@@ -18,6 +18,7 @@ import { useGraphDraftStore } from '../../graph/store'
 import { nextDraftKey } from '../../graph/nextDraft/state'
 import { inspectionBoardFixture } from './inspectionFixtures'
 import { useInspectionPresentation } from './presentation'
+import { queryKeys } from '../../../shared/api/query'
 import { executionPagesKey, runInspectionQueryKey } from './queries'
 import { currentRunKey } from '../currentRunQuery'
 import { base as childRoute, child, detail, message, tool } from '../../run-subagents/testFixtures'
@@ -597,10 +598,20 @@ describe('Run inspection inside the one mounted Board', () => {
 })
 
 describe('Live Run status on the Board', () => {
-  it('shows an Agent node\u2019s CI on the saved Board and its CI server without a status strip', async () => {
+  it('shows turns, CI and pending decisions on saved Run Board nodes without a status strip', async () => {
     const { scope, version, run } = fixture.runs.after
-    const added = nativeNode(version.definition.nodes[1]!)
-    const nameOf = (node: typeof added) => node.name ?? node.label ?? node.id
+    const first = nativeNode(version.definition.nodes[0]!), added = nativeNode(version.definition.nodes[1]!)
+    const nameOf = (node: typeof first) => node.name ?? node.label ?? node.id
+    const execution = (node: typeof first, state: 'queued' | 'running' | 'completed') => ({
+      identity: { workflowNodeId: node.id, executionId: `exec-live-${node.id}`, agentId: node.agentId,
+        agentConfigurationVersionId: version.agentConfigurationVersionIds[node.agentId]!, attempt: 1, occurrence: null },
+      inputDigest: `sha256:${'a'.repeat(64)}`, previousExecutionId: null, state,
+      resultOutcome: state === 'completed' ? 'succeeded' : null })
+    const base = fixture.mock.currents.get(run.id)!
+    const cut = (sequence: string, executionState: 'running' | 'waiting', executions: unknown[]) => fixture.mock.currents.set(run.id,
+      RepeatGraphCurrentV3Schema.parse({ ...base, asOfSequence: sequence, state: { ...base.state, executions,
+        run: { ...base.state.run, executionState, outcome: 'pending', pendingInteractionCount: executionState === 'waiting' ? 1 : 0 } } }))
+    cut('1', 'running', [execution(first, 'running'), execution(added, 'queued')])
     const ticket = '00000000-0000-4000-8000-000000000011'
     let ciState: 'running' | 'passed' | undefined
     const ciActivity = () => ciState ? {
@@ -610,32 +621,57 @@ describe('Live Run status on the Board', () => {
       computer: { hostRef: { kind: 'cloud', mainId: 'main-1', provider: 'github', slot: 1 }, label: 'GitHub Actions 2' },
       step: 'build-api',
     } : undefined
+    let decision = false
+    const interaction = { kind: 'work_direction', id: `work-direction-${run.id}`, revision: 0, workspaceId: scope.workspaceId,
+      workflowId: scope.workflowId, runId: run.id, executionId: `exec-live-${added.id}`, requestingAgentId: added.agentId,
+      harness: 'codex', providerVersion: 'workflow', nativeSessionId: 'session-live', nativeRequestId: `work-direction-${run.id}`,
+      nativeRequestType: 'workflow/work_direction', graphThreadId: run.id, request: { message: 'Accept the remaining findings?' },
+      approval: { handler: 'user' }, responseOptions: [{ optionId: 'finish', semantic: 'approve_once', label: 'Finish Run',
+        persistence: 'request', affectsOtherPendingRequests: false, interruptsCurrentTurn: false, mutatesPersistentPolicy: false }],
+      status: 'pending', deliveryState: 'not_started', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' }
     server.use(
       http.get(`/api/management/workspaces/${scope.workspaceId}/ci`, () => {
         const ci = ciActivity()
         return HttpResponse.json({ runId: scope.runId, truncated: false, jobs: ci ? [{
           ticketId: ticket, scope: 'affected', placement: 'github', message: null, tests: null, ci,
-          requester: { executionId: 'ci-owner', agentId: added.agentId, nodeId: added.id, nodeName: nameOf(added) },
+          requester: { executionId: `exec-live-${added.id}`, agentId: added.agentId, nodeId: added.id, nodeName: nameOf(added) },
         }] : [] })
       }),
-      snapshotWithCi(scope, added, ciActivity),
+      http.get('/api/management/interactions', () => HttpResponse.json({ items: decision ? [interaction] : [], nextCursor: null })),
+      snapshotWithCi(scope, added, () => ciState === 'running' ? ciActivity() : undefined, `exec-live-${added.id}`),
     )
-    const { cache } = await mount(href(scope))
+    const { cache, router } = await mount(href(scope))
     const canvas = pinnedCanvas()
     expect(canvas).toBeVisible()
-    const agentButton = (node: typeof added) => within(canvas).getByLabelText(`Inspect ${nameOf(node)}`, { selector: 'button' })
-    expect(agentButton(added)).toBeVisible()
     expect(run.id).toBe(canvas.getAttribute('data-run-id'))
-    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
-
-    // The Agent runs CI on a cloud computer. CI lives on the CI server, not in a strip on top.
-    ciState = 'running'
-    await act(async () => {
+    const agentButton = (node: typeof first) => within(canvas).getByLabelText(`Inspect ${nameOf(node)}`, { selector: 'button' })
+    const agentNode = (node: typeof first) => agentButton(node).closest('.react-flow__node')!.querySelector<HTMLElement>('.n-agent')!
+    const expectAgentVisible = (node: typeof first) => expect(agentButton(node)).toBeVisible()
+    const nodeState = (node: typeof first) => agentNode(node).getAttribute('data-state')
+    const advance = async (next: () => void) => act(async () => {
+      next()
       await Promise.all([
+        cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true }),
         cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }),
         cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
+        cache.refetchQueries({
+          queryKey: queryKeys.interactions(scope.workspaceId, scope.workflowId, 'pending', undefined, 100),
+          exact: true,
+        }),
       ])
     })
+
+    // The first Agent's turn: it is visibly running, the next one is queued, not idle.
+    // Keep polling predicates cheap so DOM style calculations do not starve the HTTP polling timers.
+    await waitFor(() => expect(nodeState(first)).toBe('running'))
+    expect(nodeState(added)).toBe('queued')
+    expectAgentVisible(first)
+    expectAgentVisible(added)
+    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
+
+    // The turn passes; the second Agent runs CI on a cloud computer. CI lives on the CI server, not in a strip on top.
+    ciState = 'running'
+    await advance(() => cut('2', 'running', [execution(first, 'completed'), execution(added, 'running')]))
     const ciServerButton = await within(canvas).findByLabelText(/^CI server, 1 running/, { selector: 'button' })
     expect(ciServerButton).toBeVisible()
     expect((await within(canvas).findAllByText('CI build-api · running'))[0]).toBeVisible()
@@ -647,16 +683,23 @@ describe('Live Run status on the Board', () => {
       expect(ciRow).toHaveTextContent(text)
     }
     await userEvent.setup().click(within(ciDialog).getByRole('button', { name: 'Close CI server' }))
+    await waitFor(() => expect(nodeState(added)).toBe('waiting'))
+    expect(within(agentNode(added)).getByText('Waiting for CI build-api · running')).toBeVisible()
+    expect(nodeState(first)).toBe('completed')
+    expectAgentVisible(first)
+    expectAgentVisible(added)
     expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
 
-    ciState = 'passed'
-    await act(async () => {
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }),
-        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
-      ])
-    })
-    expect((await within(canvas).findAllByText('CI build-api · passed'))[0]).toBeVisible()
+    // CI finished and the second Agent's node now explains the pending decision.
+    ciState = 'passed'; decision = true
+    await advance(() => cut('3', 'waiting', [execution(first, 'completed'), execution(added, 'completed')]))
+    expect(router.state.location.search).toMatchObject({ workflowId: scope.workflowId, runId: scope.runId,
+      workflowVersionId: scope.workflowVersionId, executionSemanticsVersion: 3 })
+    const decisionLabel = await waitFor(() => within(agentNode(added)).getByText('Waiting for your decision'))
+    expect(decisionLabel).toBeVisible()
+    expect(nodeState(added)).toBe('waiting')
+    expectAgentVisible(added)
+    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
   }, 15_000)
 })
 
@@ -704,12 +747,22 @@ describe('CI server on the Board', () => {
     jobs = [job('running')]
     await refresh()
     expect((await serverNode(/^CI server, 1 running/)).getAttribute('data-state')).toBe('running')
+    const agentNode = within(pinnedCanvas()).getByRole('button', { name: `Inspect ${name}` })
+      .closest('.react-flow__node')!.querySelector<HTMLElement>('.n-agent')!
+    await waitFor(() => expect(agentNode).toHaveAttribute('data-state', 'waiting'))
+    expect(agentNode).toHaveTextContent('Waiting for CI unit-api · running')
     expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
 
+    // The request travels as a light from the Agent to the server, and the result travels back; no lasting line.
+    const light = () => pinnedCanvas().querySelector('.ci-transfer')
+    await waitFor(() => expect(light()).toHaveTextContent('CI request'))
     jobs = [job('failed')]
     await refresh()
     const failed = await serverNode(/^CI server, Last CI failed/)
     expect(failed.getAttribute('data-state')).toBe('failed')
+    await waitFor(() => expect(agentNode).toHaveTextContent('CI unit-api · failed'))
+    await waitFor(() => expect(light()).toHaveTextContent('CI failed'))
+    await waitFor(() => expect(light()).toBeNull(), { timeout: 8000 })
 
     // The server opens the shared dialog; a job row opens its tests.
     // A click on the canvas (jsdom has no pointer view for the canvas pan handler).
@@ -762,7 +815,7 @@ describe('CI server on the Board', () => {
     expect(logReads).toBe(reads)
   }, 20_000)
 
-  it('keeps the CI server state under reduced motion', async () => {
+  it('keeps the CI server state but sends no lights under reduced motion', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce'), media: query,
       addEventListener() {}, removeEventListener() {} }))
     const { scope, version } = fixture.runs.after
@@ -780,6 +833,7 @@ describe('CI server on the Board', () => {
     await act(async () => { await cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }) })
     const node = (await within(pinnedCanvas()).findByRole('button', { name: /^CI server, 1 running/ })).closest('.ci-server-node')
     expect(node).toHaveAttribute('data-state', 'running')
+    expect(pinnedCanvas().querySelector('.ci-transfer')).toBeNull()
   })
 })
 

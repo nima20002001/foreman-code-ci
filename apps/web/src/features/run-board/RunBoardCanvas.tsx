@@ -1,10 +1,12 @@
-import { memo, useMemo, useRef } from 'react'
+import { memo, useContext, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, type EdgeProps, type NodeProps } from '@xyflow/react'
 import { AgentNodeView } from '../../shared/ui/nocturne/Canvas'
+import { useReducedMotion } from '../../shared/ui/nocturne'
 import type { ActivitySnapshotV1, WorkflowHierarchyReadResult } from '@foreman-code/contracts'
-import { CiServerNode, type CiServerFlowNode } from '../workflow-board/inspect/CiServer'
-import { ciJobRefreshing, runCiApi } from '../workflow-board/inspect/ciServer'
+import { CiServerNode, CiTransferEdge, type CiServerFlowNode, type CiTransferFlowEdge } from '../workflow-board/inspect/CiServer'
+import { CI_SERVER_NODE_ID, ciJobRefreshing, ciNodeActivities, runCiApi } from '../workflow-board/inspect/ciServer'
+import { useCiTransfers } from '../workflow-board/inspect/useCiTransfers'
 import { runInspectionQueryKey } from '../workflow-board/inspect/queries'
 import { useBoardCiServer } from '../workflow-board/inspect/useBoardCiServer'
 import '../workflow-board/inspect/inspection.css'
@@ -15,7 +17,8 @@ import { useResponsiveGraphViewport } from '../graph/useResponsiveGraphViewport'
 import { isRunAccessError } from '../runs-selector/query'
 import { RunSubagentsOverlay } from '../run-subagents/RunSubagentsOverlay'
 import { savedEdgeCurve } from './curve'
-import { projectRunBoard, READ_ONLY_FLOW_PROPS, type AvailableRunBoardSnapshot, type SavedBoardEdge, type SavedBoardNode } from './model'
+import { RunLiveNodes, useRunLiveNodes } from './useRunLiveNodes'
+import { projectRunBoard, runBoardCi, READ_ONLY_FLOW_PROPS, type AvailableRunBoardSnapshot, type SavedBoardEdge, type SavedBoardNode } from './model'
 import '@xyflow/react/dist/style.css'
 import './runBoard.css'
 import { HierarchyCanvasControls } from '../workflow-hierarchy/HierarchyCanvasControls'
@@ -24,18 +27,20 @@ import { useWorkflowBoard } from '../workflow-board/context'
 import { useProtectedAccessError } from '../../shared/api/useProtectedAccessError'
 
 const sides = [Position.Top, Position.Right, Position.Bottom, Position.Left] as const
-const SavedAgent = memo(function SavedAgent({ data }: NodeProps<SavedBoardNode>) {
+const SavedAgent = memo(function SavedAgent({ id, data }: NodeProps<SavedBoardNode>) {
   const ci = data.ci
-  const presentation = ci ? ciNodePresentation(ci) : { label: 'Saved', state: 'idle' as const }
+  // A live Run shows each node's turn, queue, CI wait or pending decision; otherwise the saved presentation.
+  const live = useContext(RunLiveNodes)?.get(id)
+  const presentation = live ?? (ci ? ciNodePresentation(ci) : { label: 'Saved', state: 'idle' as const })
   return <>
     {/* Keep the authoring button inert; inspection has its own accessible action. */}
     <div className="run-board-node-visual" aria-hidden="true" inert>
       <AgentNodeView className="run-board-agent" name={data.snapshot.name} harnessLabel=""
-        statusLabel={presentation.label} state={presentation.state} />
+        statusLabel={presentation.label} state={presentation.state} transition={live?.transition} transitionKey={live?.transitionKey} />
     </div>
     {data.inspect ? <button type="button" className="run-board-inspect nodrag nopan"
       aria-label={`Inspect ${data.snapshot.name}`} onClick={data.inspect}>Inspect</button> : null}
-    {ci ? <span role="status">{presentation.label}</span> : null}
+    {ci ? <span role="status">{ciNodePresentation(ci).label}</span> : null}
     {data.snapshot.kind !== 'job' ? <p>{data.role ?? 'Role unavailable'}{data.reportingParent ? ` · Reports to ${data.reportingParent}` : ''}</p> : null}
     {/* Unlike the authoring AgentHandles, every saved target side must resolve. */}
     {sides.flatMap((side) => (['source', 'target'] as const).map((type) =>
@@ -55,7 +60,8 @@ const SavedConnection = memo(function SavedConnection(props: EdgeProps<SavedBoar
     <SignalEdgeShape id={props.id} curve={curve} kind={edge.kind} reportingParent={props.data?.reportingParent} />
   </g>
 })
-const nodeTypes = { savedBoardNode: SavedAgent, ciServer: CiServerNode }, edgeTypes = { savedBoardEdge: SavedConnection }
+const nodeTypes = { savedBoardNode: SavedAgent, ciServer: CiServerNode }
+const edgeTypes = { savedBoardEdge: SavedConnection, ciTransfer: CiTransferEdge }
 const fitViewOptions = { padding: 0.2, minZoom: 0.02, maxZoom: 1 }
 const proOptions = { hideAttribution: true }
 
@@ -68,7 +74,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const board = useWorkflowBoard()
   const displayScope = JSON.stringify(['run', snapshot.workspaceId, snapshot.workflowId, snapshot.runId])
   const collapsed = useCollapsedWorkers(displayScope, hierarchy?.hierarchy)
-  const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode, SavedBoardEdge>({
+  const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode, SavedBoardEdge | CiTransferFlowEdge>({
     fitViewOptions,
   })
   // Callers recreate their handler every render; reading it through a ref keeps unchanged nodes referentially stable.
@@ -109,6 +115,19 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
     jobs: !ciDenied && ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined,
     truncated: !ciDenied && (ciList.data?.truncated ?? false), error: Boolean(ciDenied) || ciList.isError, loading: ciList.isPending })
   const flowNodes = useMemo(() => [...visibleNodes, ci.node], [visibleNodes, ci.node])
+  const ciJobs = !ciDenied && !ciList.isError && ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined
+  // A node waits on its newest unfinished CI from either the Run's Activity or the CI server's own list.
+  const cis = useMemo(() => new Map([...runBoardCi(snapshot, activitySnapshot), ...ciNodeActivities(ciJobs ?? [])]),
+    [snapshot, activitySnapshot, ciJobs])
+  // Live node words belong to the mounted Board; a standalone saved Run Board reads only its saved Run.
+  const liveNodes = useRunLiveNodes(scope, names, cis, visible && !!board)
+  // A light per Agent while its CI request or result travels; no lasting line to the server.
+  const transfers = useCiTransfers(ciJobs, useReducedMotion())
+  const flowEdges = useMemo<(SavedBoardEdge | CiTransferFlowEdge)[]>(() => transfers.size ? [...visibleEdges,
+    ...[...transfers].filter(([nodeId]) => visibleNodes.some(node => node.id === nodeId)).map(([nodeId, pulses]) => ({
+      id: `ci-transfer:${nodeId}`, type: 'ciTransfer' as const, source: nodeId, target: CI_SERVER_NODE_ID,
+      sourceHandle: 'right', targetHandle: 'left', selectable: false, focusable: false, deletable: false, data: { pulses } }))]
+    : visibleEdges, [visibleEdges, visibleNodes, transfers])
   return <div ref={containerRef} className="run-board-canvas" data-testid="run-board-canvas" onKeyDown={(event) => {
     // History keystrokes must not bubble into an ancestor's authoring shortcuts.
     event.stopPropagation()
@@ -116,8 +135,8 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
     if ((!editing && (event.key === 'Delete' || event.key === 'Backspace'))
       || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's')) event.preventDefault()
   }}>
-    <ReactFlowProvider>
-      <ReactFlow<SavedBoardNode | CiServerFlowNode, SavedBoardEdge> nodes={flowNodes} edges={visibleEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+    <ReactFlowProvider><RunLiveNodes.Provider value={liveNodes}>
+      <ReactFlow<SavedBoardNode | CiServerFlowNode, SavedBoardEdge | CiTransferFlowEdge> nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         {...READ_ONLY_FLOW_PROPS} fitView fitViewOptions={fitViewOptions} minZoom={0.02} maxZoom={2}
         onInit={onInit} onMove={onMove}
         proOptions={proOptions} preventScrolling={false} aria-label="Saved Run graph"
@@ -127,7 +146,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
         <Controls showInteractive={false} fitViewOptions={fitViewOptions} aria-label="Run view controls"
           onZoomIn={onManualMove} onZoomOut={onManualMove} />
       </ReactFlow>
-    </ReactFlowProvider>
+    </RunLiveNodes.Provider></ReactFlowProvider>
     <HierarchyCanvasControls scope={displayScope} hierarchy={hierarchy?.hierarchy}
       name={nodeId => names.get(nodeId) ?? nodeId} onTeam={board?.selectTeam} />
     {visible ? ci.dialog : null}
