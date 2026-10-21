@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Background, Controls, Handle, Position, ReactFlow, ReactFlowProvider, type EdgeProps, type NodeProps } from '@xyflow/react'
 import { AgentNodeView } from '../../shared/ui/nocturne/Canvas'
@@ -21,6 +21,7 @@ import './runBoard.css'
 import { HierarchyCanvasControls } from '../workflow-hierarchy/HierarchyCanvasControls'
 import { useCollapsedWorkers } from '../workflow-hierarchy/useCollapsedWorkers'
 import { useWorkflowBoard } from '../workflow-board/context'
+import { useProtectedAccessError } from '../../shared/api/useProtectedAccessError'
 
 const sides = [Position.Top, Position.Right, Position.Bottom, Position.Left] as const
 const SavedAgent = memo(function SavedAgent({ data }: NodeProps<SavedBoardNode>) {
@@ -70,16 +71,23 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
   const { containerRef, onInit, onMove, onManualMove } = useResponsiveGraphViewport<SavedBoardNode | CiServerFlowNode, SavedBoardEdge>({
     fitViewOptions,
   })
+  // Callers recreate their handler every render; reading it through a ref keeps unchanged nodes referentially stable.
+  const inspectNode = useRef(onInspectNode)
+  inspectNode.current = onInspectNode
+  const inspectable = Boolean(onInspectNode)
   const { nodes, edges } = useMemo(() => {
     const projected = projectRunBoard(snapshot, activitySnapshot, hierarchy)
-    if (onInspectNode) for (const node of projected.nodes) {
-      node.data = { ...node.data, inspect: () => onInspectNode(node.id) }
+    if (inspectable) for (const node of projected.nodes) {
+      node.data = { ...node.data, inspect: () => inspectNode.current?.(node.id) }
     }
     return projected
-  }, [snapshot, activitySnapshot, onInspectNode, hierarchy])
-  const visibleNodes = nodes.filter(node => !collapsed.has(node.id)).map(node => ({ ...node,
-    selected: board?.teamNodeId === node.id }))
-  const visibleEdges = edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target))
+  }, [snapshot, activitySnapshot, inspectable, hierarchy])
+  // React Flow reconciles every node it is given; keep these arrays referentially stable between unrelated renders.
+  const teamNodeId = board?.teamNodeId
+  const visibleNodes = useMemo(() => nodes.filter(node => !collapsed.has(node.id)).map(node => ({ ...node,
+    selected: teamNodeId === node.id })), [nodes, collapsed, teamNodeId])
+  const visibleEdges = useMemo(() => edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target)), [edges, collapsed])
+  const visibleSnapshotNodes = useMemo(() => snapshot.nodes.filter(node => !collapsed.has(node.id)), [snapshot.nodes, collapsed])
   const scope = useMemo(() => ({ workspaceId: snapshot.workspaceId, workflowId: snapshot.workflowId,
     runId: snapshot.runId, workflowVersionId: snapshot.workflowVersionId, executionSemanticsVersion: 3 as const }), [snapshot])
   const active = !activitySnapshot || activitySnapshot.active.length > 0
@@ -93,12 +101,14 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
       return active || query.state.data?.jobs.some(ciJobRefreshing) ? 1500 : false
     },
   })
+  // A denied read must not leave authorized-looking jobs behind; any other failure keeps the last jobs read.
+  const ciDenied = useProtectedAccessError(ciList)
   const names = useMemo(() => new Map(snapshot.nodes.map((node) => [node.id, node.name])), [snapshot.nodes])
   const towerNodes = useMemo(() => nodes.map((node) => ({ position: node.position, width: node.initialWidth, height: node.initialHeight })), [nodes])
   const ci = useBoardCiServer({ nodes: towerNodes, names, scope, workflow: { workspaceId: scope.workspaceId, workflowId: scope.workflowId },
-    jobs: ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined,
-    truncated: ciList.data?.truncated ?? false, error: ciList.isError, loading: ciList.isPending })
-  const flowNodes = [...visibleNodes, ci.node]
+    jobs: !ciDenied && ciList.data?.runId === scope.runId ? ciList.data.jobs : undefined,
+    truncated: !ciDenied && (ciList.data?.truncated ?? false), error: Boolean(ciDenied) || ciList.isError, loading: ciList.isPending })
+  const flowNodes = useMemo(() => [...visibleNodes, ci.node], [visibleNodes, ci.node])
   return <div ref={containerRef} className="run-board-canvas" data-testid="run-board-canvas" onKeyDown={(event) => {
     // History keystrokes must not bubble into an ancestor's authoring shortcuts.
     event.stopPropagation()
@@ -112,7 +122,7 @@ export function RunBoardCanvas({ snapshot, activitySnapshot, onInspectNode, hier
         onInit={onInit} onMove={onMove}
         proOptions={proOptions} preventScrolling={false} aria-label="Saved Run graph"
         ariaLabelConfig={{ 'node.a11yDescription.default': 'Saved agent, read only.', 'edge.a11yDescription.default': 'Saved connection, read only.' }}>
-        <RunSubagentsOverlay scope={snapshot} nodes={snapshot.nodes.filter(node => !collapsed.has(node.id))} visible={visible} />
+        <RunSubagentsOverlay scope={snapshot} nodes={visibleSnapshotNodes} visible={visible} />
         <Background color="var(--border)" gap={24} size={1} />
         <Controls showInteractive={false} fitViewOptions={fitViewOptions} aria-label="Run view controls"
           onZoomIn={onManualMove} onZoomOut={onManualMove} />

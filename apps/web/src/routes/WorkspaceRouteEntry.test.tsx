@@ -132,7 +132,7 @@ describe('WorkspaceRouteEntry integration', () => {
   })
 
   it('renders the saved workflow and keeps a valid agent selection in the URL', async () => {
-    const { router } = await renderWorkspace('/workspaces/workspace-1')
+    const { router } = await renderWorkspace('/workspaces/workspace-1?workflowId=workflow-content-pipeline')
 
     expect(await researcherButton()).toBeVisible()
     expect(document.querySelector('.shell-header')).not.toBeInTheDocument()
@@ -149,7 +149,7 @@ describe('WorkspaceRouteEntry integration', () => {
   })
 
   it('keeps an URL-selected agent in the graph without mounting a context panel', async () => {
-    const { router } = await renderWorkspace('/workspaces/workspace-1?agentId=agent-researcher')
+    const { router } = await renderWorkspace('/workspaces/workspace-1?workflowId=workflow-content-pipeline&agentId=agent-researcher')
 
     const node = await researcherButton()
     await waitFor(() => expect(node).toHaveAttribute('aria-pressed', 'true'))
@@ -160,7 +160,7 @@ describe('WorkspaceRouteEntry integration', () => {
   })
 
   it('keeps a stale URL selection in the graph without exposing an operator surface', async () => {
-    await renderWorkspace('/workspaces/workspace-1?agentId=agent-old')
+    await renderWorkspace('/workspaces/workspace-1?workflowId=workflow-content-pipeline&agentId=agent-old')
 
     expect(await workflowBoard('Research to review')).toBeVisible()
     expect(screen.queryByTestId('agent-context-stale')).not.toBeInTheDocument()
@@ -273,16 +273,18 @@ describe('WorkspaceRouteEntry integration', () => {
 
   it('renders error, 404 and empty workspace states', async () => {
     setMockScenario('error')
-    const error = await renderWorkspace('/workspaces/workspace-1')
+    const error = await renderWorkspace('/workspaces/workspace-1?workflowId=workflow-content-pipeline')
     expect(await screen.findByTestId('workspace-error')).toBeVisible()
     error.unmount()
 
+    // A workspace without workflows has no Board to open: its address shows the workspace Memory board.
     setMockScenario('empty')
     const empty = await renderWorkspace('/workspaces/workspace-1')
-    expect(await screen.findByTestId('workspace-empty')).toBeVisible()
+    expect(await screen.findByRole('region', { name: 'Workspace Memory board' })).toBeVisible()
+    expect(screen.queryByTestId('workspace-empty')).not.toBeInTheDocument()
     empty.unmount()
 
-    const missing = await renderWorkspace('/workspaces/missing')
+    const missing = await renderWorkspace('/workspaces/missing?workflowId=workflow-content-pipeline')
     expect(await screen.findByTestId('workspace-not-found')).toBeVisible()
     missing.unmount()
   })
@@ -300,7 +302,7 @@ describe('WorkspaceRouteEntry integration', () => {
       }, { status })
     }))
 
-    const stale = await renderWorkspace('/workspaces/stale-workspace')
+    const stale = await renderWorkspace('/workspaces/stale-workspace?workflowId=workflow-content-pipeline')
     const retry = await screen.findByRole('button', { name: 'Retry workspace request' })
     expect(requests).toBe(1)
 

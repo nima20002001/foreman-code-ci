@@ -1,24 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { logger, readOperationalFailures, serializeError } from '../src/modules/diagnostics/logger.js'
 import { expect, it, vi } from 'vitest'
 import { AgentChatStateSchema, SendAgentChatMessageResponseSchema } from '@foreman-code/contracts/agent-chat'
 import { AgentMutationResultSchema } from '@foreman-code/contracts/management'
 import { workerConversationFixture } from '../src/modules/conversations/workerFixtures.test-support.js'
 import { remoteAgentConversation } from './helpers/remoteAgentConversation.js'
 import { graphHeaders } from './eng04-graph-composition-fixture.js'
-
-const captured: string[] = []
-const realChild = logger.child.bind(logger)
-logger.child = ((...args: Parameters<typeof logger.child>) => {
-  const child = realChild(...args)
-  const error = child.error.bind(child)
-  child.error = ((...a: unknown[]) => {
-    const fields = a[0] as { err?: unknown; error?: unknown } | undefined
-    captured.push(`${String(a[1])} ${fields?.err ?? fields?.error ? JSON.stringify(serializeError(fields?.err ?? fields?.error)).slice(0, 900) : JSON.stringify(a[0]).slice(0, 900)}`)
-    return Reflect.apply(error, child, a)
-  }) as typeof child.error
-  return child
-}) as typeof logger.child
 
 it.each(['main', 'worker'] as const)('steers an active Codex turn on %s through authenticated MCP', async location => {
   const f = await remoteAgentConversation('codex', location)
@@ -57,34 +43,18 @@ it.each(['main', 'worker'] as const)('steers an active Codex turn on %s through 
 
 it.each((['codex', 'claude'] as const).flatMap(harness => [false, true].map(existing => ({ harness, existing }))))(
   'delivers attachment-only messages to Worker $harness through MCP (existing session: $existing)', async ({ harness, existing }) => {
-  let stage = 'setup'
-  let fixture: Awaited<ReturnType<typeof remoteAgentConversation>> | undefined
-  const watchdog = new Promise<never>((_, reject) => setTimeout(async () => {
-    const bounded = <T,>(work: Promise<T> | undefined) => Promise.race([work, new Promise(r => setTimeout(() => r('hung'), 1500))]).catch(e => String(e))
-    const detail = { captured, failures: readOperationalFailures().map(f => `${f.operation}:${f.lastError}:${f.failureCount}`), snapshot: await bounded(fixture?.snapshot()),
-      turns: await bounded(fixture?.value('agent_chat_read', { query: fixture.context }).then(v => AgentChatStateSchema.parse(v).turns.map(t => [t.requestId.slice(0, 4), t.intent, t.delivery]))),
-      row: await bounded(fixture?.repository.get(fixture.conversation.id).then(r => r && { active: r.active_request_id, native: r.active_native_turn_id, state: r.turn_state, phase: r.active_phase, err: r.last_error })) }
-    reject(new Error(`DIAG stuck at stage ${stage}: ${JSON.stringify(detail)}`))
-  }, 22_000))
-  watchdog.catch(() => undefined)
-  await Promise.race([watchdog, (async () => {
-  const f = fixture = await remoteAgentConversation(harness)
+  const f = await remoteAgentConversation(harness)
   try {
-    stage = 'establish'
     if (existing) await f.send('Establish the session')
-    stage = 'upload'
     const text = 'The attachment is the complete follow-up request.'
     const attachment = await f.upload(Buffer.from(text))
     const requestId = randomUUID()
-    stage = 'send'
     await f.value('agent_chat_send', { request: { requestId, content: '', intent: 'next_turn',
       expectedConversationId: f.conversation.id, context: f.context, attachments: [attachment] } })
-    stage = 'wait-completed'
     await vi.waitFor(async () => {
       const state = AgentChatStateSchema.parse(await f.value('agent_chat_read', { query: f.context }))
       expect(state.turns.find(turn => turn.requestId === requestId)?.delivery).toBe('completed')
     }, { timeout: 5000 })
-    stage = 'assert'
     expect(f.receivedAttachments).toEqual([text])
     const read = AgentChatStateSchema.parse(await f.value('agent_chat_read', { query: f.context }))
     expect(read.messages.find(message => message.requestId === requestId && message.role === 'user'))
@@ -95,8 +65,7 @@ it.each((['codex', 'claude'] as const).flatMap(harness => [false, true].map(exis
             byteSize: Buffer.byteLength(text), sha256: createHash('sha256').update(text).digest('hex') },
         }] })
     expect(read.turns.find(turn => turn.requestId === requestId)?.delivery).toBe('completed')
-  } finally { stage = 'close'; await f.close() }
-  })()])
+  } finally { await f.close() }
 }, 30_000)
 
 it('delivers an admitted large Worker message within the complete serialized RPC limit', async () => {
