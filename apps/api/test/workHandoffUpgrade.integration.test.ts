@@ -11,7 +11,7 @@ import { workflowNativeReservation } from '../src/modules/runs/workflowNativeEnt
 import { buildHarnessPrompt } from '../src/modules/harnesses/prompt.js'
 import { currentInitialPrompt } from '../src/modules/runs/currentRouting.js'
 import { currentDatabase, postgresEnabled } from './helpers/eng04CurrentDatabase.js'
-import { finished, workHandoffFixture } from './helpers/workHandoffFixture.js'
+import { dropStagedControlContinuationReads, finished, stageControlContinuationReads, workHandoffFixture } from './helpers/workHandoffFixture.js'
 import { digest, text, transaction } from './eng04-migration-fixtures.js'
 
 async function databaseBeforeContinuationUpgrade() {
@@ -24,6 +24,7 @@ async function databaseBeforeContinuationUpgrade() {
       await sql.query(checkpointOwnerMigration.sql)
       await sql.query('insert into application_migrations(version) values($1)', [checkpointOwnerMigration.version])
     })
+    await stageControlContinuationReads(db.pool)
     return db
   } catch (error) {
     await db.close()
@@ -119,6 +120,7 @@ describe.skipIf(!postgresEnabled)('saved continuation inputs across an upgrade',
           values($1,'input.bind',$2,$3,'historical-fixture','1')`,
         [t.run.id, execution.id, digest({ execution, inputDigest })])
       })
+      await dropStagedControlContinuationReads(db.pool)
       await applyApplicationMigrations(db.pool)
       await t.restart()
       const replay = await t.queue(activationId)

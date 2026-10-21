@@ -38,8 +38,17 @@ export async function approvalDatabase(options: {
     capture.mockRestore(); reconcile.mockRestore(); issuance.mockRestore()
     await runtime.close()
   }
+  let phase = 'start'
+  const hang = new Promise<never>((_, reject) => { setTimeout(async () => {
+    const q = async (sql: string) => JSON.stringify((await runtime.db.pool.query(sql)).rows).slice(0, 2500)
+    reject(new Error('HANGDUMP ' + phase + '\n' + await q("select id,record->>'state' st,record->>'agentId' ag,record->'result' res from harness_executions")
+      + '\n' + await q('select * from review_jobs') + '\n' + await q('select source,kind,payload from run_activity order by 1 limit 20')
+      + '\n' + await q("select execution_state from runs")))
+  }, 25000) })
+  hang.catch(() => undefined)
   try {
-    await runtime.engine.start(runtime.f.run.id)
+    await Promise.race([hang, runtime.engine.start(runtime.f.run.id)])
+    phase = 'started'
     const [interaction] = await runtime.pending()
     if (!interaction?.approval.designatedOrchestratorAgentId) throw new Error('Expected original routed approval')
     const queued = await runtime.repository.coordination.findReviewJob(interaction.id, interaction.approval.designatedOrchestratorAgentId)
@@ -48,7 +57,8 @@ export async function approvalDatabase(options: {
     void dispatch.catch(() => {
       // ignore: the startup race, settle method and close method observe this task's outcome.
     })
-    await Promise.race([live.promise, dispatch.then(() => { throw new Error('Review ended before acknowledgement') })])
+    phase = 'dispatched'
+    await Promise.race([hang, live.promise, dispatch.then(() => { throw new Error('Review ended before acknowledgement') })])
     const executions = (await runtime.runs.listRepeatExecutions(runtime.f.run.id)).map((row) => row.execution)
     const reviewer = executions.find((e) => e.agentId === queued.reviewerAgentId)!
     const requester = executions.find((e) => e.id === interaction.executionId)!
