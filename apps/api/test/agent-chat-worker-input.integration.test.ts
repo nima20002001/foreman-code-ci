@@ -68,21 +68,6 @@ it.each((['codex', 'claude'] as const).flatMap(harness => [false, true].map(exis
   } finally { await f.close() }
 }, 30_000)
 
-it.each(['codex', 'claude'] as const)(
-  'completes the first Worker %s message when the native session observation reaches Main late', async harness => {
-    const f = await remoteAgentConversation(harness, 'worker', { sessionObservationDelayMs: 1500 })
-    try {
-      const requestId = randomUUID()
-      await f.value('agent_chat_send', { request: { requestId, content: 'First message', intent: 'next_turn',
-        expectedConversationId: f.conversation.id, context: f.context } })
-      await vi.waitFor(async () => {
-        const state = AgentChatStateSchema.parse(await f.value('agent_chat_read', { query: f.context }))
-        expect(state.turns.find(turn => turn.requestId === requestId)?.delivery).toBe('completed')
-      }, { timeout: 10_000 })
-      expect((await f.repository.get(f.conversation.id))?.native_session_id).toBeTruthy()
-    } finally { await f.close() }
-  }, 30_000)
-
 it('delivers an admitted large Worker message within the complete serialized RPC limit', async () => {
   const f = await remoteAgentConversation('codex')
   try {

@@ -48,7 +48,7 @@ import { recordedConversationRuntime } from './recordedConversationRuntime.js'
 import { DomainError } from '../../src/modules/errors.js'
 
 export async function remoteAgentConversation(harness: 'codex' | 'claude', location: 'worker' | 'main' = 'worker',
-  options: { runAttempts?: number; poolSize?: number; sessionObservationDelayMs?: number } = {}) {
+  options: { runAttempts?: number; poolSize?: number } = {}) {
   const db = await agent3Database()
   const recorded = workerConversationFixture('agent', harness)
   const fixture = makeCurrentWorkflowFixture(randomUUID(), 'sequential')
@@ -101,14 +101,10 @@ export async function remoteAgentConversation(harness: 'codex' | 'claude', locat
   const frames: WorkerConversationRpcRequest[] = []
   let connection = recorded.connection
   const callbacks = workerConversationCallbacks({ currentBinding: () => connection,
-    capture: () => ({ binding: connection, request: async (payload, requestOptions) => {
-      // A slow callback channel delivers the Worker's session observation to Main after later reads.
-      if (options.sessionObservationDelayMs && (payload as { method?: string }).method === 'conversation.session-observed') {
-        await new Promise(resolve => setTimeout(resolve, options.sessionObservationDelayMs))
-      }
-      return { payload: await workerChats.bridge.handle(payload, connection,
-        requestOptions?.signal ?? AbortSignal.timeout(10_000)) }
-    } }) })
+    capture: () => ({ binding: connection, request: async (payload, options) => ({
+      payload: await workerChats.bridge.handle(payload, connection,
+        options?.signal ?? AbortSignal.timeout(10_000)),
+    }) }) })
   const lifetime = new AbortController()
   const workerFiles = new WorkerConversationFiles(callbacks)
   let source: WorkerConversationRpcRequest

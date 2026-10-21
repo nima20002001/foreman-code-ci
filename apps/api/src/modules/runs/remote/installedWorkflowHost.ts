@@ -680,7 +680,7 @@ class InstalledWorkflowHostRuntime {
       || outputPorts.artifacts.binding.root.rootId !== outputContext.materialization.receipt.binding.rootId
       || outputPorts.artifacts.binding.root.rootBindingRevision !== outputContext.materialization.receipt.binding.bindingRevision)) unavailable('original_native_output_binding_conflict')
     const nativeOutputs = outputPorts && createInstalledNativeOutputs({ ...outputPorts,
-      assertCurrent: async effectSignal => { await outputContext.assertCurrent(undefined, effectSignal); await outputPorts.assertCurrent(effectSignal) },
+      assertCurrent: async effectSignal => { await Promise.all([outputContext.assertCurrent(undefined, effectSignal), outputPorts.assertCurrent(effectSignal)]) },
       storage: (prepared, pin) => {
         const storage = outputPorts.storage(prepared, pin)
         if (!('binding' in storage.owner)
