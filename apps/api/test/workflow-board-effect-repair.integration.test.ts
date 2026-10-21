@@ -51,10 +51,8 @@ async function boardRepairFixture(options: { alwaysConflict?: boolean; settlemen
       // rejects the supplied revision. This is the fake F1 store, not engine SQL.
       const inserted = await sql.query(`insert into result_effect_test_applications(source_key,revision)
         values($1,$2) on conflict(source_key) do nothing`, [input.sourceEventKey, revision])
-      // Like the real service, a rejected revision reports the current board facts.
       if (options.alwaysConflict || revision !== 7) throw new DomainError(
-        'REVISION_CONFLICT', 'The board changed before its structured batch could commit.', 409,
-        { current: 'board-one: revision 7; the note has not been applied.' })
+        'REVISION_CONFLICT', 'The board changed before its structured batch could commit.', 409)
       return applicationReceipt(input.sourceEventKey, inserted.rowCount === 0)
     },
   }
@@ -125,7 +123,7 @@ describe.skipIf(!postgresEnabled)('atomic board result correction through the pu
       await expect(f.engine.start(f.f.run.id)).rejects.toMatchObject({ code: 'WORK_SELECTED_EXECUTION_FAILED' })
       const executions = (await f.runs.listRepeatExecutions(f.f.run.id)).map(item => item.execution)
       expect(executions).toHaveLength(1)
-      expect(executions[0]!.result).toMatchObject({ outcome: 'failed', error: { code: 'OUTPUT_SCHEMA_MISMATCH', retryable: false } })
+      expect(executions[0]!.result).toMatchObject({ outcome: 'failed', error: { code: 'WORK_RESULT_INVALID', retryable: false } })
       expect(f.turns).toHaveLength(2)
       expect(f.attempts).toEqual([])
       expect(f.settled).toEqual([{ correlationId: f.turns[1]!.correlationId,
@@ -150,29 +148,28 @@ describe.skipIf(!postgresEnabled)('atomic board result correction through the pu
       expect(f.turns).toHaveLength(1)
       expect(f.turns[0]!.sessionId).toBe(executions[0]!.nativeSessionId)
       expect(f.turns[0]!.prompt).toContain('board-one: revision 7')
-      // The same board port validates each result before acceptance, then applies the accepted one.
-      expect(f.trace).toEqual(['board:6', 'repair:1', 'board:7', 'board:7', 'settle:succeeded'])
+      expect(f.trace).toEqual(['board:6', 'repair:1', 'board:7', 'settle:succeeded'])
       expect(f.settled).toEqual([{ correlationId: f.turns[0]!.correlationId,
         result: resultFor(7), committedApplications: 1 }])
       expect((await f.db.pool.query('select revision from result_effect_test_applications')).rows).toEqual([{ revision: 7 }])
     } finally { await f.close() }
   }, 120000)
 
-  it('spends at most two corrective turns, then fails the execution with the board rejection and commits nothing', async () => {
+  it('spends at most two corrective turns and retains original success evidence for an exhausted failed result', async () => {
     const f = await boardRepairFixture({ alwaysConflict: true })
     try {
-      await f.engine.start(f.f.run.id)
+      await expect(f.engine.start(f.f.run.id)).rejects.toMatchObject({ code: 'WORK_SELECTED_EXECUTION_FAILED' })
       const executions = (await f.runs.listRepeatExecutions(f.f.run.id)).map(item => item.execution)
       expect(executions).toHaveLength(1)
       expect(executions[0]!.result).toMatchObject({ outcome: 'failed', error: {
-        code: 'MEMORY_RESULT_INVALID', retryable: false,
+        code: 'WORKFLOW_BOARD_EFFECT_CONFLICT', retryable: false,
       } })
       expect((await f.runs.get(f.f.run.id))?.outcome).toBe('failed')
       expect(f.turns).toHaveLength(2)
       expect(new Set(f.turns.map(turn => turn.sessionId))).toEqual(new Set([executions[0]!.nativeSessionId]))
       expect(f.attempts).toEqual([6, 7, 7])
-      expect(f.trace).toEqual(['board:6', 'repair:1', 'board:7', 'repair:2', 'board:7'])
-      expect(executions[0]!.result!.error!.message).toContain('The board changed')
+      expect(f.settled).toEqual([{ correlationId: f.turns[1]!.correlationId,
+        result: resultFor(7), committedApplications: 0 }])
       expect(f.provider.counts).toMatchObject({ sessions: 1, starts: 1, attaches: 0 })
       expect((await f.db.pool.query('select source_key from result_effect_test_applications')).rows).toEqual([])
     } finally { await f.close() }
@@ -183,7 +180,7 @@ describe.skipIf(!postgresEnabled)('atomic board result correction through the pu
     try {
       await f.engine.start(f.f.run.id)
       expect((await f.runs.get(f.f.run.id))?.outcome).toBe('succeeded')
-      expect(f.attempts).toEqual([7, 7])
+      expect(f.attempts).toEqual([7])
       expect(f.turns).toEqual([])
       expect(f.settled).toHaveLength(2)
       expect(f.settled[0]).toEqual(f.settled[1])
@@ -191,7 +188,7 @@ describe.skipIf(!postgresEnabled)('atomic board result correction through the pu
       expect(f.provider.counts).toMatchObject({ sessions: 1, starts: 1, attaches: 0 })
       expect(await f.runs.listRepeatExecutions(f.f.run.id)).toHaveLength(1)
       await f.engine.start(f.f.run.id)
-      expect(f.attempts).toEqual([7, 7])
+      expect(f.attempts).toEqual([7])
       expect(f.settled).toHaveLength(2)
       expect(f.provider.counts.sessions).toBe(1)
     } finally { await f.close() }

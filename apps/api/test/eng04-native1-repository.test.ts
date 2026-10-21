@@ -55,7 +55,7 @@ function fixture() {
         execution_occurrence_id: f.occurrence.identity.occurrenceId, identity_occurrence_id: f.occurrence.identity.occurrenceId }])
     }
     if (q.startsWith('select e.record,c.record as configuration from harness_executions e')) {
-      expect(values).toEqual([execution.runId, execution.workflowNodeId, execution.id, null])
+      expect(values).toEqual([execution.runId, execution.workflowNodeId, execution.id])
       return rows([])
     }
     if (q.startsWith('select record,input_json,input_digest from run_repeat_occurrences')) return rows([{
@@ -66,9 +66,6 @@ function fixture() {
       const reservation = workflowNativeReservation(f.scope, f.ref, execution, repeatDigest(input))
       return rows([{ reservation, reservation_digest: repeatDigest(reservation), phase: 'reserved', transition: null }])
     }
-    // No hierarchy Direction wait or workflow control continuation exists in this launch model.
-    if (q.startsWith('select state from run_hierarchy_direction_waits')
-      || q.startsWith('select record,previous_execution_id from run_control_continuations')) return rows([])
     if (q.startsWith('select effect_digest from run_graph_effects')) return rows(launchDigest ? [{ effect_digest: launchDigest }] : [])
     if (q.includes('from application_settings')) return rows([{ record: systemPrompt.value,
       revision: String(systemPrompt.revision), current_version_id: systemPrompt.versionId }])

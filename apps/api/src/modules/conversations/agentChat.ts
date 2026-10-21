@@ -1156,19 +1156,13 @@ export class AgentChatService {
     return { input, configurationVersionId: configuration.id }
   }
 
-  /** The accepted input is prepared before dispatch applies the saved configuration, so it uses the record dispatch
-   * will apply: the moved directory binding, the Run's original configuration and, when the native session is
-   * replaced, restarted startup delivery with the prior conversation as handoff. */
+  /** The accepted prompt is composed before dispatch applies the saved configuration. A change that replaces
+   * the native session restarts startup delivery with the prior conversation as handoff, exactly as dispatch records it. */
   private async acceptedRecord(row: AgentConversationRow, configuration: AgentConfigurationVersion, sql?: TransactionSql) {
     if (configuration.id === row.agent_configuration_version_id) return row.record
     const previous = await this.conversationConfiguration(row)
-    if (!previous) return row.record
-    const record = { ...row.record }
-    const directoryBinding = await agentConfigurationDirectory(sql ?? this.pool, row, configuration)
-    if (directoryBinding) record.directoryBinding = directoryBinding
-    if (row.origin_run_id) record.sourceConfigurationVersionId ??= row.agent_configuration_version_id
-    if (!agentConfigurationTransition(row, previous, configuration).replaceSession) return record
-    return { ...record, handoffContext: await agentConfigurationHandoff(sql ?? this.pool, row.id), startupDelivered: false }
+    if (!previous || !agentConfigurationTransition(row, previous, configuration).replaceSession) return row.record
+    return { ...row.record, handoffContext: await agentConfigurationHandoff(sql ?? this.pool, row.id), startupDelivered: false }
   }
 
   private async steer(principal: ManagementPrincipal, context: AgentChatContext, key: string, input: SendAgentChatMessageRequest, resolution: Resolution, selectedRun: boolean, assertCurrent: RunChatAuthorityCheck,

@@ -7,7 +7,6 @@ import type { RunOwnership } from '../runs/ownership.js'
 import { ApprovalExecutionCoordinator } from './execution.js'
 import { coordinateSessionManager } from './sessionWriter.js'
 import { nativeLanes } from '../../../test/helpers/nativeLanes.js'
-import { idleWorkflowRepeat } from '../../../test/helpers/idleWorkflowControls.js'
 import type { NativeHarnessSessionManager } from '../harnesses/port.js'
 
 vi.mock('../placement/persistence.js', async importOriginal => ({
@@ -145,7 +144,7 @@ function recoveryFixture(terminal: boolean, durationMs: number) {
     signal.throwIfAborted()
     return false
   })
-  const store = { ...idleWorkflowRepeat, readExecution: async () => ({ execution }), settleNegativeExecution: vi.fn(async () => {}) }
+  const store = { readExecution: async () => ({ execution }), settleNegativeExecution: vi.fn(async () => {}) }
   type Args = ConstructorParameters<typeof ApprovalExecutionCoordinator>
   const coordinator = new ApprovalExecutionCoordinator({
     ...f.runs, repeat: async () => store, recordExecutionFailure: async () => { failed = true },
