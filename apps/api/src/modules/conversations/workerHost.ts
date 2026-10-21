@@ -622,10 +622,7 @@ export class WorkerConversationHost {
   private async *continuedInput(resident: Resident, request: Extract<WorkerConversationRpcRequest,
     { method: 'conversation.initial-turn' | 'conversation.start-turn' }>, connection: Readonly<DeviceSessionBinding>, session: NativeSessionReference) {
     const manager = resident.allocation.manager
-    if (request.preferences) {
-      await manager.configureSessionPreferences?.(request.preferences)
-      await this.ports.journal.preferences(request.binding, request.preferences, null)
-    }
+    // The session is already open: settings travel with this turn's input (see callbacks), never as creation settings.
     if (request.method === 'conversation.initial-turn' && request.applicationAccess) {
       const refresh = request.binding.harness === 'claude'
         ? resident.allocation.deliverClaudeCredential : resident.allocation.refreshApplicationAccess
