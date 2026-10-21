@@ -261,7 +261,7 @@ describe('WorkspaceShell', () => {
     const entry = await screen.findByRole('button', { name: 'Website' })
     const toggle = screen.getByRole('button', { name: 'Collapse Website' })
     expect(entry).toHaveAttribute('data-testid', 'workspace-entry-workspace-1')
-    expectNewTab(entry, '/workspaces/workspace-1')
+    expectNewTab(entry, '/workspaces/workspace-1/settings')
     expect(screen.queryByRole('button', { name: 'Workspace settings' })).not.toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button', { name: 'Collapse workflows in Website' })).toBeVisible()
@@ -318,7 +318,7 @@ describe('WorkspaceShell', () => {
     const docs = await screen.findByTestId('workspace-entry-workspace-2')
     const docsToggle = screen.getByRole('button', { name: 'Expand Docs' })
     expect(docs).toHaveAccessibleName('Docs')
-    expectNewTab(docs, '/workspaces/workspace-2')
+    expectNewTab(docs, '/workspaces/workspace-2/settings')
     expect(docsToggle).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(docsToggle)

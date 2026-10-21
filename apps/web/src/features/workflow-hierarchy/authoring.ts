@@ -1,8 +1,7 @@
 import type { Agent } from '@foreman-code/contracts'
 import type { WorkflowDefinitionV3 } from '@foreman-code/contracts/wave25'
 import { changeDraftAgents, editorAgents } from '../graph/nextDraft/agentEdits'
-import { attachAgent, nodeTitle, removeNode, roleEvidence, type CatalogAgent, type NextDraftContext } from '../graph/nextDraft/model'
-import type { DraftAgentEdits } from '../graph/nextDraft/agentEdits'
+import { nodeTitle, removeNode, roleEvidence } from '../graph/nextDraft/model'
 import type { NextDraftEdit } from '../graph/nextDraft/state'
 
 export function hierarchyNodes(edit: NextDraftEdit, masterNodeId = edit.graph.hierarchy?.masterNodeId) {
@@ -82,30 +81,6 @@ export function reparentHierarchyWorker(graph: WorkflowDefinitionV3, nodeId: str
     parents: [...graph.hierarchy.parents.filter(member => member.workflowNodeId !== nodeId),
       ...(parentNodeId ? [{ workflowNodeId: nodeId, parentNodeId }] : [])],
   } })
-}
-
-/** Reusing a saved Agent changes only graph membership; its role and configuration stay untouched. */
-export function attachHierarchyAgent(graph: WorkflowDefinitionV3, context: NextDraftContext, record: CatalogAgent,
-  nodeId: string, agentEdits?: DraftAgentEdits): WorkflowDefinitionV3 {
-  const role = roleEvidence(context, record.agent.id, agentEdits).role
-  if (role === 'master') {
-    if (graph.hierarchy || graph.nodes.some(node => node.kind !== 'job'
-      && roleEvidence(context, node.agentId, agentEdits).role === 'master')) {
-      throw new Error('This workflow already has a Master. Replace it explicitly in Workflow settings.')
-    }
-    assertHierarchySupported(graph)
-  }
-  let next = attachAgent(graph, record, nodeId)
-  if (role === 'master') {
-    next = { ...next, entryNodeId: nodeId, handoffs: next.handoffs ?? { contractVersion: 1 },
-      hierarchy: { version: 1, masterNodeId: nodeId, parents: graph.nodes.filter(node => node.kind !== 'job')
-        .filter(node => roleEvidence(context, node.agentId, agentEdits).role === 'orchestrator')
-        .map(node => ({ workflowNodeId: node.id, parentNodeId: nodeId })) } }
-  } else if (role === 'orchestrator' && next.hierarchy) {
-    next = { ...next, hierarchy: { ...next.hierarchy,
-      parents: [...next.hierarchy.parents, { workflowNodeId: nodeId, parentNodeId: next.hierarchy.masterNodeId }] } }
-  }
-  return withHierarchyRoutes(next)
 }
 
 /** Explicitly adopt or replace the Master; all reused Agent role edits use the normal Save journal. */

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { WorkflowDefinitionV3 } from '@foreman-code/contracts/wave25'
 import { installFlowLayout } from '../../run-board/testFlowLayout'
 import { useChatWindowsStore } from '../../conversations/agentChat/agentChatWindows'
@@ -26,10 +27,10 @@ afterEach(() => {
 
 function mount() {
   const change = vi.fn(), geometry = vi.fn()
-  render(<GraphPresentationProvider><ReactFlowProvider><DraftCanvas draftKey={key} graph={context.draft.graph}
+  render(<QueryClientProvider client={new QueryClient()}><GraphPresentationProvider><ReactFlowProvider><DraftCanvas draftKey={key} graph={context.draft.graph}
     agents={context.agents.map((item) => item.agent)} kind="execution" change={change} geometry={geometry}
     pending={vi.fn()} report={vi.fn()}
-    panels={(nodeId) => ({ chat: <p>{`Chat of ${nodeId}`}</p>, chatHasHeader: false, settings: null, info: null })} /></ReactFlowProvider></GraphPresentationProvider>)
+    panels={(nodeId) => ({ chat: <p>{`Chat of ${nodeId}`}</p>, chatHasHeader: false, settings: null, info: null })} /></ReactFlowProvider></GraphPresentationProvider></QueryClientProvider>)
   return { change, geometry }
 }
 const connected = (change: ReturnType<typeof vi.fn>): WorkflowDefinitionV3['edges'] =>

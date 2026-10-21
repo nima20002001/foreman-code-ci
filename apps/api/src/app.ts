@@ -32,6 +32,7 @@ import { registerWorkflowChatRoutes } from './routes/workflowChat.js'
 import { registerMemoryBoardRoutes } from './routes/memoryBoards.js'
 import { registerAgentChatRoutes } from './routes/agentChat.js'
 import { registerWorkflowScheduleRoutes } from './routes/workflowSchedules.js'
+import { registerWorkflowKanbanRoutes } from './routes/workflowKanban.js'
 import { registerWorkflowHierarchyRoutes } from './routes/workflowHierarchy.js'
 import { registerWorkflowExecutionChatRoutes } from './routes/workflowExecutionChat.js'
 import { registerProviderAccountRoutes } from './routes/providerAccounts.js'
@@ -213,6 +214,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   if (options.operator?.services.runPlacements) registerRunPlacementRoutes(app, options.operator.services.runPlacements)
   if (options.operator?.services.placementChoices) registerNodePlacementChoicesRoutes(app, options.operator.services.placementChoices)
   if (options.operator?.services.workflows?.schedules) registerWorkflowScheduleRoutes(app, options.operator.services.workflows.schedules)
+  if (options.operator?.services.workflows?.kanban) registerWorkflowKanbanRoutes(app, options.operator.services.workflows.kanban)
   if (options.operator?.services.workflowHierarchy) registerWorkflowHierarchyRoutes(app, options.operator.services.workflowHierarchy)
   if (options.operator?.services.executionChat) registerWorkflowExecutionChatRoutes(app, options.operator.services.executionChat)
   if (options.operator?.services.runGraph) registerRunGraphRoutes(app, options.operator.services.runGraph,

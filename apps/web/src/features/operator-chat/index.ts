@@ -1,3 +1,3 @@
-export { OperatorChat, OperatorChatPanel } from './OperatorChat'
+export { OperatorChat } from './OperatorChat'
 export { OperatorChatVisibilityProvider } from './visibility'
 export { useOperatorChatVisibility } from './useOperatorChatVisibility'

@@ -1,5 +1,4 @@
 import type { AgentForm } from './agentForm'
-import type { Agent, WorkflowAgentProductRole } from '@foreman-code/contracts'
 import type { GraphDraftOperationV3, GraphEditIntentV3, WorkflowDefinitionV3 } from '@foreman-code/contracts/wave25'
 import { hasAgentEdits, rebaseAgentEdits, referencedAgentEdits, snapshotAgentEdits, type DraftAgentEdits } from './agentEdits'
 import { hasLocalChanges, sameValue, type AuthoringIssue, type NextDraftContext } from './model'
@@ -34,7 +33,6 @@ export type NextDraftEdit = {
   /** Unapplied contextual forms stay local and are never silently submitted. */
   workflowForms?: {
     hierarchy?: { masterNodeId: string; parents: Record<string, string>; previousMaster?: 'keep' | 'remove' }
-    createAgent?: { role: WorkflowAgentProductRole; name: string; parentNodeId: string; agent?: Agent; settings?: AgentForm }
     workerParents?: Record<string, string>
     removeNode?: { nodeId: string; destinationParentId: string }
   }
