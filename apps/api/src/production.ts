@@ -452,6 +452,7 @@ interface ProductionComposition {
   conversationNativeAccess: ConversationNativeAccess
   workflowChat: ReturnType<typeof createProductionWorkflowChat>
   stopWorkflowChat?: () => void
+  cloudCis?: ReturnType<typeof cloudCis>
   workerChats: ReturnType<typeof createProductionWorkerConversations>
   agentChatProfileSelection: (
     configuration: import('@foreman-code/contracts').AgentConfigurationVersion,
@@ -2472,6 +2473,7 @@ function configureRuntimeLifecycle(composition: ProductionComposition) {
       { name: 'Agent chat', run: () => agentChat.shutdown() },
       { name: 'automatic reviews', run: () => reviews.shutdown() },
       { name: 'workflow engine', run: () => engine.shutdown() },
+      { name: 'cloud CI starts', run: () => { for (const cloud of composition.cloudCis ?? []) cloud.stop() } },
     ],
     drain: [
       { name: 'startup schema preparation', run: () => composition.schemaPreparation?.then(() => undefined, () => undefined) },
@@ -3094,6 +3096,8 @@ async function initializeCiServices(
   },
 ) {
   const { clouds, discoverClouds, readAgentFiles, workspaceRoots, circleCredits, circleStandby } = computerServices
+  // Stopped with the runtime so a start our shutdown interrupts is resumed, not failed.
+  composition.cloudCis = clouds
   const {
     workerExecution,
     deviceRuntime,
