@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { expect } from 'vitest'
-import type { HarnessExecution, HarnessExecutionRequest, NativeSessionReference } from '@foreman-code/contracts'
+import type { HarnessExecution, NativeSessionReference } from '@foreman-code/contracts'
 import {
   AgentChatHistoryPageSchema, AgentChatTurnPageSchema, SendAgentChatMessageResponseSchema,
 } from '@foreman-code/contracts/agent-chat'
@@ -43,18 +43,11 @@ export async function historicalFixture(form: 'sequential' | 'repeat' = 'sequent
   x.name = 'Agent X'; x.position = { x: -48.5, y: 120 }; x.width = 256; x.height = 144
   y.name = 'Agent Y'; y.position = { x: 415, y: 276.25 }; y.width = 312; y.height = 160
 
-  // Runs started through the product pin the coordination protocol, so their
-  // result must be the protocol envelope; the inserted original Run has none.
-  const envelope = (request: HarnessExecutionRequest) => ({ summary: 'Completed the assigned work.',
-    board: { kind: 'none', reason: request.configuration.graphqlTools?.some((tool) => tool.startsWith('memory_'))
-      ? 'no_changes' : 'no_access' } })
-  const f = await currentOperatorIntegration({ fixture, approvalNodeIds: [], outputFor: (nodeId, request) => {
-    const output = form === 'repeat' && nodeId === y.id
+  const f = await currentOperatorIntegration({ fixture, approvalNodeIds: [], outputFor: (nodeId) =>
+    form === 'repeat' && nodeId === y.id
       ? { routing: { outcome: 'issues' }, data: { latestDeliverable: 'SCH-12 retained Run output', remainingFindings: ['repeat'] } }
-      : { node: nodeId, resultMarker: 'SCH-12 original Run result' }
-    if (!request.resultProtocol) return output
-    return 'routing' in output ? { ...output, ...envelope(request) } : { data: output, ...envelope(request) }
-  } })
+      : { node: nodeId, resultMarker: 'SCH-12 original Run result' },
+  })
   try {
     // Tests drive the real dispatcher explicitly with an injected clock; avoid
     // racing the fixture app's wall-clock timer against those controlled scans.
