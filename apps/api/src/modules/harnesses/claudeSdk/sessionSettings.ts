@@ -1,6 +1,7 @@
 /** Native settings inspection, session preferences and compaction. */
 import { recoveredClaudeCompaction } from './compactionHistory.js'
 import { z } from 'zod'
+import { isDeepStrictEqual } from 'node:util'
 import { SessionPreferencesSchema, type CompactionState, type SessionPreferences, type NativeSessionReference,
   type SessionControlCapabilities } from '@foreman-code/contracts'
 import { claudeSessionEnvironment, claudeContextProfiles, ClaudePreferenceError } from './sessionControls.js'
@@ -36,7 +37,8 @@ export async function inspectSettings(ctx: ClaudeManagerContext, runtime: Runtim
 }
 
 export async function applyPreferences(ctx: ClaudeManagerContext, runtime: Runtime, preferences: SessionPreferences, signal?: AbortSignal) {
-  if (JSON.stringify(runtime.appliedPreferences) === JSON.stringify(preferences)) return
+  // Retained input round-trips through JSONB, which reorders keys; equal settings never restart the query.
+  if (isDeepStrictEqual(runtime.appliedPreferences, preferences)) return
   if (runtime.active || runtime.controlPending || runtime.compaction
     || runtime.session && ctx.options.pendingInteractions?.(runtime.session).length) {
     throw new HarnessExecutionError('CLAUDE_SETTINGS_BUSY', 'Wait for the turn and its approvals before resuming settings.')

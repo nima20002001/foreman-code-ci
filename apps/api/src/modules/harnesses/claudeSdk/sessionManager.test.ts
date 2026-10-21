@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { SessionPreferencesSchema } from '@foreman-code/contracts'
+import { SessionPreferencesSchema, type SessionPreferences } from '@foreman-code/contracts'
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { NativeSessionStart } from '../port.js'
@@ -158,6 +158,27 @@ describe('Claude native session manager admission', () => {
       expect(f.offers).toHaveBeenCalledTimes(1)
       await f.manager.dispose?.()
     })
+
+  it('keeps the warm SDK query when equal accepted preferences arrive in stored key order', async () => {
+    const f = fixture()
+    const session = await f.manager.attachSession({ harness: 'claude', providerVersion: '2.1.284',
+      nativeSessionId: 'native-session' }, start)
+    // Accepted chat input is read back from PostgreSQL JSONB, which orders object keys by length.
+    const stored: SessionPreferences = { autoCompact: 'default', contextBudget: null, contextProfile: null, autoCompactTokens: null }
+    expect(stored).toEqual(SessionPreferencesSchema.parse({}))
+    expect(Object.keys(stored)).not.toEqual(Object.keys(SessionPreferencesSchema.parse({})))
+    const output = drain(f.manager.startTurn(session, { prompt: 'warm task', clientCorrelationId: 'warm-offer',
+      sessionPreferences: stored }))
+    const message = await f.nextMessage()
+    await f.frames.offer({ type: 'assistant', session_id: session.nativeSessionId, uuid: 'warm-reply', user_message_uuid: message.uuid })
+    await f.frames.offer({ type: 'result', session_id: session.nativeSessionId, uuid: 'warm-result', user_message_uuid: message.uuid,
+      subtype: 'success', is_error: false, result: 'done' })
+    await output
+    expect(f.queries).toHaveBeenCalledTimes(1)
+    expect(f.close).not.toHaveBeenCalled()
+    expect(f.offers).toHaveBeenCalledTimes(1)
+    await f.manager.dispose?.()
+  })
 
   it('recovers safe-resume failure before offer and accepts the next task on the saved session', async () => {
     const f = fixture()

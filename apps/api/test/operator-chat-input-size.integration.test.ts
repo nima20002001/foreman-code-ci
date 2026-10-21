@@ -1,7 +1,7 @@
 import { OperatorConversationStateSchema } from '@foreman-code/contracts'
 import { randomUUID } from 'node:crypto'
 import { operatorChatSettings, SendOperatorMessageResponseSchema,
-  type NativeSessionReference, type SendOperatorMessageRequest } from '@foreman-code/contracts'
+  type NativeSessionReference, type OperatorConfigurationVersion, type SendOperatorMessageRequest } from '@foreman-code/contracts'
 import type { HarnessProfileSelection } from '@foreman-code/contracts/harness-registry'
 import { describe, expect, it } from 'vitest'
 import { buildApp } from '../src/app.js'
@@ -9,6 +9,8 @@ import { withTransaction } from '../src/infrastructure/transaction.js'
 import type { OperatorServices } from '../src/mcp/operator/types.js'
 import { PostgresCommandCoordinator } from '../src/modules/commands/postgres.js'
 import { OperatorChatService } from '../src/modules/conversations/operatorChat.js'
+import type { AcceptedChatInput } from '../src/modules/conversations/nativeChatInput.js'
+import { prepareOperatorChatInput } from '../src/modules/collaboration/chatInputPreparation.js'
 import { PostgresFoundationSettingsRepository } from '../src/modules/settings/foundation.js'
 import { FoundationSettingsManagementService } from '../src/modules/settings/management.js'
 import { registerOperatorChatRoutes } from '../src/routes/operatorChat.js'
@@ -40,8 +42,12 @@ function workerProfile(): HarnessProfileSelection {
 }
 
 class WorkerChatManager extends ChatManager {
+  restored: AcceptedChatInput[] = []
   async closeForResume(session: NativeSessionReference) {
     await this.close(session)
+  }
+  restorePreparedInput(_correlationId: string, accepted: AcceptedChatInput) {
+    this.restored.push(structuredClone(accepted))
   }
 }
 
@@ -110,8 +116,11 @@ describe.skipIf(!connectionString)('Operator input size admission', () => {
   it.each(['http', 'mcp'] as const)('admits a small first Worker handoff through %s with saved defaults', async transport => {
     const profile = workerProfile()
     const claude = new WorkerChatManager('claude')
+    // A Worker-hosted admission requires the exact prepared Worker input, exactly as production composes it.
     chat = new OperatorChatService(repository, operators,
-      configuration => configuration.harness.harness === 'claude' ? claude : manager,
+      Object.assign((configuration: OperatorConfigurationVersion) =>
+        configuration.harness.harness === 'claude' ? claude : manager,
+      { prepareInput: prepareOperatorChatInput(pool, async () => runtimeDirectory) }),
       runtimeDirectory, authority, async () => profile)
     const f = await apiFixture()
     try {
@@ -147,6 +156,7 @@ describe.skipIf(!connectionString)('Operator input size admission', () => {
       expect(claude.closes).toBe(1)
       expect(claude.prompts[0]).toContain('Keep these prior details.')
       expect(claude.prompts[0]).toContain(input.content)
+      expect(claude.restored.map(accepted => accepted.prompt)).toEqual([claude.prompts[0]])
     } finally { await f.app.close() }
   })
 
