@@ -194,6 +194,8 @@ function fixture(harness: AgentHarness = 'codex', options: { remote?: boolean; i
         detached: false, detached_reference: null, closed_without_session: false, prior_unclosed: false,
         record: executions.get(candidate.id), reference: closed.session }])
     }
+    // Run Stop also looks for captured coordinator consultations; this Run has none.
+    if (q.startsWith('select c.command_id,c.binding,q.target,m.source_execution->>')) return result()
     throw new Error(`Unscripted approval execution recovery SQL: ${q}`)
   } } as unknown as pg.ClientBase, () => owner.assertOwned())
   connections.push(connection)
@@ -210,9 +212,13 @@ function fixture(harness: AgentHarness = 'codex', options: { remote?: boolean; i
       assert.ok(executions.has(id))
       failures.set(id, structuredClone(failure))
     },
+    async readOutputSettlement() { return undefined },
+    async readWorkflowTerminalSettlement() { return undefined },
     async repeat() {
       return {
         readExecution: (id: string) => store.readExecution(id),
+        async workflowControlDisposition() { return { kind: 'ordinary' as const } },
+        async claimWorkflowInput() { return undefined },
         async settleNegativeExecution(id: string, canceled: boolean) {
           const failure = failures.get(id)
           if (failure) {
