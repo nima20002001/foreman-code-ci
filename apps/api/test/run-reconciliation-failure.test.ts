@@ -16,7 +16,7 @@ async function sweep(failure: unknown, passes: number, precedingFailures: readon
     reconciliationCandidates: vi.fn(async (after: string) => after === '' ? [{ id: 'run-stuck' }] : []),
     acquireOwnership: vi.fn(async () => owner),
     requestCleanup: vi.fn(async () => {}) }
-  const engine = new LangGraphWorkflowEngine(runs as never, {} as never, { reconcileReviews: async () => {} } as never,
+  const engine = new LangGraphWorkflowEngine(runs as never, {} as never, { reconcileReviews: async () => {}, reconcileWorkflowControls: async () => {} } as never,
     new MemorySaver(), '/workspace/reconcile-failure', {} as never, {} as never, {} as never)
   const start = vi.spyOn(engine, 'start').mockRejectedValue(failure)
   for (const preceding of precedingFailures) start.mockRejectedValueOnce(preceding)

@@ -177,6 +177,9 @@ async function fixture() {
       if (sql.startsWith('update runs set stop_requested_at')) { transaction.stopped = true; return rows([{}]) }
       if (sql.startsWith('insert into run_cleanup_intents')) { transaction.cleanup = true; return rows([{}]) }
       if (sql.startsWith('insert into run_activity') && sql.includes("'run_stop_requested'")) return rows([{}])
+      // Stop also fences hierarchy waits and workflow controls; this Run has none of them.
+      if (/^update run_(hierarchy_direction_waits|hierarchy_groups|coordinator_consultations|coordinator_mailboxes) /.test(sql)
+        || /^select .+ from run_(control_continuations|coordinator_mailboxes|coordinator_consultations|chat_commands) /.test(sql)) return rows()
       throw new Error(`Unimplemented fixture SQL: ${sql}`)
     }
   }
