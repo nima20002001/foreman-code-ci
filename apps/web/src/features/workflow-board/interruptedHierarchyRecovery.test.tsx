@@ -46,6 +46,8 @@ async function interruptedConflict({ unappliedForms }: { unappliedForms: boolean
     parents: { 'node-1': 'node-2', 'node-0': 'node-2', 'node-3': 'node-1', 'private-worker-node': 'node-1' } }
   const rawWorker = before.agentForms?.['node-3']
   const forms = unappliedForms && rawWorker ? {
+    createAgent: { role: 'coder' as const, name: 'Unapplied creation', parentNodeId: 'node-2',
+      settings: { ...rawWorker, name: 'Unapplied creation', prompt: 'Keep creation text' } },
     removeNode: { nodeId: 'node-1', destinationParentId: 'node-2' },
   } : {}
   if (unappliedForms) expect(rawWorker).toBeDefined()
@@ -66,7 +68,8 @@ it('recovers an interrupted combined hierarchy, staged Agent and raw forms into 
   await userEvent.click(screen.getByRole('button', { name: 'View unsaved draft' }))
   const comparison = screen.getByRole('region', { name: 'Read-only recovered draft' })
   await userEvent.click(within(comparison).getByText('All recovered fields'))
-  for (const text of ['private-worker', 'Staged Worker', 'Unapplied Worker direction', '"workerParents"', '"removeNode"', '"destinationParentId": "node-2"', '"previousMaster": "keep"']) {
+  for (const text of ['private-worker', 'Staged Worker', 'Unapplied Worker direction', 'Unapplied creation',
+    'Keep creation text', '"workerParents"', '"removeNode"', '"destinationParentId": "node-2"', '"previousMaster": "keep"']) {
     expect(comparison).toHaveTextContent(text)
   }
   expect(draft(f).graph.hierarchy).toBeUndefined()

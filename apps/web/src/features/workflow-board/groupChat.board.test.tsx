@@ -9,7 +9,7 @@ import { inspectionBoardFixture } from './inspect/inspectionFixtures'
 
 installBoardTestLifecycle()
 
-it('opens Group chat from the Board toolbar in a dialog, posts exact text and retains its selection in navigation', async () => {
+it('opens the Group panel on the Board, posts exact text and retains its selection in navigation', async () => {
   const fixture = await inspectionBoardFixture('group-panel')
   const { workspaceId, workflowId } = fixture.runs.before.scope
   const root = `/api/workspaces/${workspaceId}/workflows/${workflowId}/chat`
@@ -29,9 +29,7 @@ it('opens Group chat from the Board toolbar in a dialog, posts exact text and re
   const user = userEvent.setup()
   const { router } = await mountMeasuredBoard(`/workspaces/${workspaceId}?workflowId=${workflowId}`)
   await user.click(await screen.findByRole('button', { name: 'Group chat' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Group chat' })
-  expect(screen.queryByRole('complementary', { name: 'Workflow side panel' })).not.toBeInTheDocument()
-  const panel = within(dialog).getByRole('region', { name: 'Group chat' })
+  const panel = await screen.findByRole('region', { name: 'Group chat' })
   const composer = within(panel).getByRole('combobox', { name: 'Message this workflow' })
   await user.type(composer, '  Board conversation  ')
   await user.click(within(panel).getByRole('button', { name: 'Post' }))
