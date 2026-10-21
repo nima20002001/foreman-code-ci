@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { RemoteOperationReceiptSchema } from '@foreman-code/contracts/remote-execution'
@@ -18,9 +18,6 @@ it('publishes a declared Worker artifact and reads its persisted size and hash',
     const started = (await startWhenReady(f))!
     runId = started.run.id
     const finished = await completedRun(f, started.run.id)
-    const counts = JSON.parse(await readFile(join(f.stateDirectory, 'diag-assert.json'), 'utf8')) as Record<string, number>
-    const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
-    throw new Error(`DIAG-ASSERT total=${total} ${JSON.stringify(Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 14))}`)
     expect(finished.executions).toHaveLength(1)
     const execution = finished.executions[0]!
     expect(execution).toMatchObject({ state: 'completed', attempt: 1, result: { outcome: 'succeeded' } })

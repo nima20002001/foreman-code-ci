@@ -4,7 +4,7 @@ import { workflowPreparationExtension } from './preparationExtension.js'
 import type { ProviderAccountResolver, ResolvedProviderAccount } from '../../provider-accounts/service.js'
 import { assertWorkerProviderAccountBinding } from '../../provider-accounts/workerOperations.js'
 import { managedProviderEnvironment, resolveRuntimeProviderAccount } from '../../harnesses/providerAccountRuntime.js'
-import { constants, writeFileSync } from 'node:fs'
+import { constants } from 'node:fs'
 import { componentLogger } from '../../diagnostics/logger.js'
 import { appLauncherPath } from '../../harnesses/appMcpLauncher.js'
 import { open, realpath } from 'node:fs/promises'
@@ -642,15 +642,6 @@ class InstalledWorkflowHostRuntime {
         actual.publications.set(publication.commandId, structuredClone(result.value))
       },
       assertCurrent: async (pin, effectSignal) => {
-        { // TEMPORARY diagnostic
-          Error.stackTraceLimit = 30
-          const g = globalThis as { __ac?: Record<string, number> }
-          const counts = g.__ac ??= {}
-          const key = `${pin ? 'pin' : 'nopin'} ` + (new Error().stack ?? '').split('\n').slice(2, 16)
-            .map(line => /at (?:async )?([^ ]+)/.exec(line.trim())?.[1] ?? '?').join(' < ')
-          counts[key] = (counts[key] ?? 0) + 1
-          writeFileSync(join(this.input.stateDirectory, 'diag-assert.json'), JSON.stringify(counts))
-        }
         effectSignal?.throwIfAborted(); this.current(actual.context.binding)
         if (actual.native) {
           await workerExecutionAuthorizer(this.forBinding(actual.context.binding))(actual.intent,actual.placement,'read')
@@ -689,7 +680,7 @@ class InstalledWorkflowHostRuntime {
       || outputPorts.artifacts.binding.root.rootId !== outputContext.materialization.receipt.binding.rootId
       || outputPorts.artifacts.binding.root.rootBindingRevision !== outputContext.materialization.receipt.binding.bindingRevision)) unavailable('original_native_output_binding_conflict')
     const nativeOutputs = outputPorts && createInstalledNativeOutputs({ ...outputPorts,
-      assertCurrent: async effectSignal => { await Promise.all([outputContext.assertCurrent(undefined, effectSignal), outputPorts.assertCurrent(effectSignal)]) },
+      assertCurrent: async effectSignal => { await outputContext.assertCurrent(undefined, effectSignal); await outputPorts.assertCurrent(effectSignal) },
       storage: (prepared, pin) => {
         const storage = outputPorts.storage(prepared, pin)
         if (!('binding' in storage.owner)
