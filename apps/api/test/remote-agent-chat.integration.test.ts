@@ -178,8 +178,9 @@ it.each(['codex', 'claude'] as const)(
     const f = await remoteAgentConversation(harness)
     try {
       await assertAgentNewConversation(f)
-      const openMethod = harness === 'codex' ? 'conversation.open' : 'conversation.initial-turn'
-      expect(f.frames.filter(frame => frame.method === openMethod)).toHaveLength(2)
+      // Both harnesses create each conversation's native session with its accepted initial Worker turn.
+      expect(f.frames.filter(frame => frame.method === 'conversation.initial-turn')).toHaveLength(2)
+      expect(f.frames.filter(frame => frame.method === 'conversation.open')).toEqual([])
       expect(f.frames.some(frame => frame.method === 'conversation.release-runtime')).toBe(true)
     } finally { await f.close() }
   }, 30_000)

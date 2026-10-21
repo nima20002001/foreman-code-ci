@@ -8,7 +8,7 @@ import { WorkerConversationBindingSchema, type WorkerConversationBinding,
   WorkerConversationRpcRequestSchema } from '@foreman-code/contracts/remote-execution-rpc'
 import { commandInputHash } from '@foreman-code/contracts/command-identity-node'
 import { legacyProviderAccountBinding, readProviderAccountBinding } from '../provider-accounts/acceptedBindings.js'
-import { readExecutionPlacement, readNativePlacement } from '../placement/persistence.js'
+import { readAcceptedPlacement, readExecutionPlacement, readNativePlacement } from '../placement/persistence.js'
 import { conversationChatTools } from '../access/conversationCredentials.js'
 import { workerOperatorDirectory } from '../conversations/workerOperatorDirectory.js'
 import { DomainError } from '../errors.js'
@@ -52,8 +52,11 @@ export function prepareAgentChatInput(database: SqlQuery): NonNullable<AgentChat
     const retained = row.worker_conversation_binding ? WorkerConversationBindingSchema.parse(row.worker_conversation_binding) : undefined
     const origin = row.record.origin
     let sourceExecution = retained?.sourceExecution
-    if (origin.kind === 'run_execution' && !sourceExecution) {
-      const placement = await readExecutionPlacement(sql, origin.executionId)
+    const placement = origin.kind === 'run_execution' && !sourceExecution
+      ? await readExecutionPlacement(sql, origin.executionId) : undefined
+    // As the chat manager selects its source: a Run accepted without placement has no Worker working tree to bind.
+    if (origin.kind === 'run_execution' && !sourceExecution && (placement || row.record.sourceConfigurationVersionId
+      || await readAcceptedPlacement(sql, origin.runId, row.workflow_node_id))) {
       const native = await readNativePlacement(sql, origin.executionId)
       if (!placement || !native?.workingTree) throw new DomainError('CHAT_PREFLIGHT_UNAVAILABLE',
         'The original Run working tree is unavailable for Worker preparation.', 409)
