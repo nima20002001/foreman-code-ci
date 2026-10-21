@@ -48,7 +48,17 @@ export async function approvalDatabase(options: {
     void dispatch.catch(() => {
       // ignore: the startup race, settle method and close method observe this task's outcome.
     })
-    await Promise.race([live.promise, dispatch.then(() => { throw new Error('Review ended before acknowledgement') })])
+    let settled = 'pending'
+    dispatch.then(() => { settled = 'resolved' }, (e) => { settled = 'rejected ' + String(e) })
+    const watchdog = setTimeout(async () => {
+      const q = async (sql: string) => JSON.stringify((await runtime.db.pool.query(sql)).rows).slice(0, 3000)
+      console.error('DEBUGHANG', settled)
+      console.error('DEBUGHANG executions', await q("select id,record->>'state' st,record->>'agentId' ag,record->'result' res from harness_executions"))
+      console.error('DEBUGHANG jobs', await q('select * from review_jobs'))
+      console.error('DEBUGHANG activity', await q('select source,kind,payload from run_activity order by 1 limit 30'))
+      console.error('DEBUGHANG run', await q("select execution_state, record->>'outcome' o from runs"))
+    }, 20000)
+    await Promise.race([live.promise, dispatch.then(() => { throw new Error('Review ended before acknowledgement') })]).finally(() => clearTimeout(watchdog))
     const executions = (await runtime.runs.listRepeatExecutions(runtime.f.run.id)).map((row) => row.execution)
     const reviewer = executions.find((e) => e.agentId === queued.reviewerAgentId)!
     const requester = executions.find((e) => e.id === interaction.executionId)!

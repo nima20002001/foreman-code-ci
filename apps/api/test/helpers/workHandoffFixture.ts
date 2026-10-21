@@ -11,6 +11,17 @@ import { repeatId } from '../../src/modules/runs/repeatResolution.js'
 import { markWorkNoticeDeliveredLocked } from '../../src/modules/runs/workHandoffNotice.js'
 import { digest, text, transaction } from '../eng04-migration-fixtures.js'
 
+/** Pre-upgrade fixtures stage history through the current repository, whose execution
+ * budget counts reserved control continuations. The real table arrives with its migration,
+ * so staging reads an empty stand-in that the fixture drops before upgrading. */
+export async function stageControlContinuationReads(pool: pg.Pool) {
+  await pool.query(`create table run_control_continuations (id text primary key, run_id text not null,
+    state text not null, reserved_successor_execution_id text)`)
+}
+export async function dropStagedControlContinuationReads(pool: pg.Pool) {
+  await pool.query('drop table run_control_continuations')
+}
+
 export async function workHandoffFixture(pool: pg.Pool, suffix: string,
   configure: (version: ReturnType<typeof makeCurrentWorkflowFixture>['version']) => WorkflowVersionV3) {
   const fixture = makeCurrentWorkflowFixture(suffix, 'parallel')

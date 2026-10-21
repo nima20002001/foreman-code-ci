@@ -7,10 +7,11 @@ import { workReturnGroupMigration } from '../src/infrastructure/workReturnGroupM
 import { repeatId } from '../src/modules/runs/repeatResolution.js'
 import { digest, text, transaction } from './eng04-migration-fixtures.js'
 import { currentDatabase, postgresEnabled } from './helpers/eng04CurrentDatabase.js'
-import { finished, workHandoffFixture } from './helpers/workHandoffFixture.js'
+import { dropStagedControlContinuationReads, finished, stageControlContinuationReads, workHandoffFixture } from './helpers/workHandoffFixture.js'
 
 async function queuedReturnsBeforeUpgrade(count: number) {
   const db = await currentDatabase({ beforeMigration: workReturnGroupMigration.version })
+  await stageControlContinuationReads(db.pool)
   let t: Awaited<ReturnType<typeof workHandoffFixture>> | undefined
   try {
     t = await workHandoffFixture(db.pool, randomUUID(), version => ({ ...version,
@@ -65,6 +66,7 @@ async function queuedReturnsBeforeUpgrade(count: number) {
       })
       saved.push({ activation, returned, review })
     }
+    await dropStagedControlContinuationReads(db.pool)
     await applyApplicationMigrations(db.pool)
     await t.restart()
     return { db, t, saved, close: async () => { await t!.close(); await db.close() } }
