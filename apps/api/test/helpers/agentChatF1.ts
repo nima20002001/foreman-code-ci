@@ -10,8 +10,6 @@ import type { PostgresOperatorConversationRepository } from '../../src/modules/c
 import { NativeTurnNotActiveError } from '../../src/modules/harnesses/errors.js'
 import type { NativeHarnessSessionManager, NativeHistory, NativeSteerInput, NativeTurnInput } from '../../src/modules/harnesses/port.js'
 import type { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
-import { createHash } from 'node:crypto'
-import { WorkflowVersionV3Schema, canonicalGraphJson, makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import { deferred } from './deferred.js'
 
 export async function eventually(check: () => boolean | Promise<boolean>) {
@@ -34,18 +32,6 @@ const principal: ManagementPrincipal = {
   grants: [{ scope: { workspaceIds: [context.workspaceId], workflowIds: [context.workflowId] },
     actions: ['agent_chat:read', 'agent_chat:write', 'agent_chat:cancel'] }],
 }
-/** The saved current Workflow version row for the one fixture Agent node, schema-valid and hash-pinned. */
-function currentWorkflowVersionRow() {
-  const source = makeCurrentWorkflowFixture('f1', 'single').version
-  const renamed = JSON.parse(JSON.stringify(source).replaceAll('ws-f1', context.workspaceId).replaceAll('wf-f1', context.workflowId)
-    .replaceAll('node-f1-0', context.workflowNodeId).replaceAll('agent-f1-0', context.agentId).replaceAll('cfg-f1-0', configuration.id)) as typeof source
-  const contentHash = `sha256:${createHash('sha256').update(canonicalGraphJson({ definition: renamed.definition,
-    configurations: renamed.agentConfigurationVersionIds, entryNodeId: renamed.entryNodeId })).digest('hex')}`
-  const record = WorkflowVersionV3Schema.parse({ ...renamed, contentHash })
-  return { id: record.id, workspace_id: record.workspaceId, workflow_id: record.workflowId, version: record.version,
-    entry_node_id: record.entryNodeId, execution_semantics_version: 3, record }
-}
-
 interface Receipt {
   request_id: string; turn_sequence: string; intent: AgentChatTurn['intent']; delivery: AgentChatTurn['delivery']
   message_id: string; native_turn_id: string | null; target_native_turn_id: string | null
@@ -90,10 +76,6 @@ export class F1Store {
     const result = (rows: unknown[] = [], rowCount = rows.length) => ({ rows: structuredClone(rows), rowCount })
     if (sql === 'select current_configuration_version_id from agents where workspace_id=$1 and id=$2 and archived_at is null') {
       return result([{ current_configuration_version_id: configuration.id }])
-    }
-    if (sql.startsWith('select version.id,version.workspace_id,version.workflow_id,version.version,version.entry_node_id,')
-      && sql.includes('from workflows workflow join workflow_versions version on version.id = workflow.current_version_id')) {
-      return result(values[0] === context.workspaceId && values[1] === context.workflowId ? [currentWorkflowVersionRow()] : [])
     }
     const id = String(values[1])
     const receipt = this.turns.get(id)

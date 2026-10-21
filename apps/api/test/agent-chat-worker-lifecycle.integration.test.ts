@@ -26,6 +26,9 @@ import { HarnessCatalogService } from '../src/modules/harnesses/catalog.js'
 import { PostgresSettingsRepository } from '../src/modules/settings/postgres.js'
 import { readSystemPromptSetting } from '../src/modules/settings/foundation.js'
 import type { NativeInitialTurnInput, NativeSessionStart } from '../src/modules/harnesses/port.js'
+import { conversationChatTools } from '../src/modules/access/conversationCredentials.js'
+import { prepareAgentChatInput } from '../src/modules/collaboration/chatInputPreparation.js'
+import { prepareWorkerInput } from './helpers/workerChatPreparation.js'
 import { ChatManager, waitFor } from './helpers/operatorChatFixture.js'
 import { agent3Database, seedAgent3 } from './helpers/wave25Agent3.js'
 import { graphHeaders, graphRpc, graphRpcValue } from './eng04-graph-composition-fixture.js'
@@ -78,7 +81,9 @@ async function fixture() {
         getForWorkspace: async () => { throw new Error('This chat has no Run.') },
         getExecution: async () => { throw new Error('This chat has no execution.') },
         executionPages: () => { throw new Error('This chat has no execution pages.') },
-      }, () => worker!.createManager(), db.directory)
+      }, Object.assign(() => worker!.createManager(),
+        { prepareInput: async (input: Parameters<NonNullable<AgentChatManagerFactory['prepareInput']>>[0]) =>
+          prepareWorkerInput(worker!.manager)(input) }), db.directory)
     app = buildApp({ logger: false,
       readiness: { database: { ping: async () => {} }, checkpoints: { ping: async () => {} } },
       operator: { access, services: { agentChat: chat, commands: new PostgresCommandCoordinator(db.pool) } as never } })
@@ -297,8 +302,11 @@ async function replacementFixture() {
       close: async () => native.dispose() }
     },
   })
-  const managers: AgentChatManagerFactory = (id, selected, directory) => production.create({ conversationId: id,
-    configuration: selected, workingDirectory: directory, appMcpAccess: 'none' })
+  // Production composes Worker owners and input preparation the same way.
+  const managers: AgentChatManagerFactory = (id, selected, directory, _accountSource, featureContext) => production.create({
+    conversationId: id, configuration: selected, workingDirectory: directory, fileInputs: true,
+    appMcpAccess: featureContext && conversationChatTools(featureContext).length ? 'scoped' : 'none' })
+  managers.prepareInput = prepareAgentChatInput(db.pool)
   managers.closeRecoveredSession = (id, signal) => production.closeConversation(id, signal)
   const createChat = (factory = managers) => new AgentChatService(db.pool, repository, messages,
     new PostgresWorkflowRepository(db.pool), { getForWorkspace: async () => { throw new Error('No Run selection') },
