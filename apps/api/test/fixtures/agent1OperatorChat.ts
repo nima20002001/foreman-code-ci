@@ -31,6 +31,8 @@ export function memoryConversation(configuration: OperatorConfigurationVersion, 
     active_phase: null, turn_state: 'idle', cancel_requested: false, last_error: null, revision: 0,
     pending_interaction: null, response_delivery: null, last_result: null, updated_at: now }
   const receipts = new Set<string>()
+  const offeredInitialInputs = new Set<string>()
+  let nativeSubmissionSeen = false
   const finishResults: ExecutionResult[] = []
   const terminals = new Map<string, OperatorTerminal>()
   const change = () => { row.revision = Number(row.revision) + 1 }
@@ -50,6 +52,10 @@ export function memoryConversation(configuration: OperatorConfigurationVersion, 
     appendAssistantTextOperation: async (id: string, request: string, operation: ActivityTextOperation) => { void id; void request; void operation; return { status: 'committed' as const, revision: String(row.revision), messageRevision: String(row.revision) } },
     configuration: async () => configuration,
     hasTurn: async (_id: string, requestId: string) => receipts.has(requestId),
+    markInitialInputOffered: async (_id: string, requestId: string) => { offeredInitialInputs.add(requestId) },
+    initialInputOffered: async (_id: string, requestId: string) => offeredInitialInputs.has(requestId),
+    preparedInput: async () => undefined,
+    hasNativeSubmission: async () => nativeSubmissionSeen,
     hasMessages: async () => false,
     harnessForMessage: async () => configuration.harness,
     unfinished: async () => row.active_request_id ? [structuredClone(row)] : [],
@@ -69,6 +75,7 @@ export function memoryConversation(configuration: OperatorConfigurationVersion, 
     },
     submitted: async (_id: string, requestId: string, nativeTurnId: string) => {
       if (row.active_request_id !== requestId || (row.active_native_turn_id && row.active_native_turn_id !== nativeTurnId)) return false
+      nativeSubmissionSeen = true
       row.active_native_turn_id = nativeTurnId; row.active_phase = 'submitted'; row.turn_state = row.cancel_requested ? 'canceling' : 'active'; change(); return true
     },
     requestCancel: async () => { row.cancel_requested = true; row.turn_state = 'canceling'; change(); return true },

@@ -4,7 +4,7 @@ import { DEFAULT_WORKER_CREDENTIAL_TTL_MS } from '../src/modules/access/workerCr
 import { DomainError } from '../src/modules/errors.js'
 import { native2Fixture } from './eng04-native2-fixtures.js'
 
-it('stops workflow credential maintenance before terminal publication and native closure', async () => {
+it('stops workflow credential maintenance once terminal publication commits, before native closure', async () => {
   vi.useFakeTimers()
   let terminalPublished = false
   let terminalChecks = 0
@@ -30,8 +30,18 @@ it('stops workflow credential maintenance before terminal publication and native
     fixture.runs.updateExecution = async execution => {
       await updateExecution(execution)
       terminalPublished = execution.state === 'completed'
-      // Let the scheduled heartbeat run while the committed result awaits disposal.
-      await vi.advanceTimersByTimeAsync(20_000)
+    }
+    // Renewal stays available until the terminal commits so a rolled-back result can be corrected.
+    // Let the scheduled heartbeat run once the committed result is read back and awaits disposal.
+    const readExecution = fixture.store.readExecution
+    let heartbeatWindow = false
+    fixture.store.readExecution = async id => {
+      const stored = await readExecution(id)
+      if (terminalPublished && !heartbeatWindow) {
+        heartbeatWindow = true
+        await vi.advanceTimersByTimeAsync(20_000)
+      }
+      return stored
     }
     const request = HarnessExecutionRequestSchema.parse({
       executionId: fixture.get().id, runId: fixture.run.id, workspaceId: fixture.run.workspaceId,

@@ -13,6 +13,7 @@ import type { RunOwnership } from '../runs/ownership.js'
 import { openWorkflowLifecycleLocked } from '../runs/repeatLifecycle.js'
 import { repeatDigest, repeatExecutionIdentity } from '../runs/repeatResolution.js'
 import { nativeLanes } from '../../../test/helpers/nativeLanes.js'
+import { idleWorkflowControls } from '../../../test/helpers/idleWorkflowControls.js'
 import { ApprovalExecutionCoordinator } from './execution.js'
 import { createWorkflowNativeCaptureChannel } from './workflowNativeCapture.js'
 import type { RepeatNativeObservationStore } from './repeatObservation.js'
@@ -124,6 +125,7 @@ async function recoverRequester(detached: boolean, state: 'waiting' | 'running' 
   const beginWait = vi.fn(async () => {})
   let resident = false
   const coordinator = new ApprovalExecutionCoordinator({
+    ...idleWorkflowControls,
     getExecution: async () => execution, getExecutionConfiguration: async () => configuration,
     getRepeatVersion: async () => base.version, get: async () => base.run,
     getRepeatSnapshot: async () => ({ run: base.run, stopRequested: false, cleanupPending: false }),

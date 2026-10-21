@@ -19,12 +19,12 @@ import { WorkerConversationHost } from '../src/modules/conversations/workerHost.
 import { WorkerConversationJournal } from '../src/modules/conversations/workerJournal.js'
 import { WorkerConversationManager } from '../src/modules/conversations/workerManager.js'
 import { workerConversationFixture } from '../src/modules/conversations/workerFixtures.test-support.js'
-import { createAdmittedNativeManager } from '../src/modules/harnesses/admittedManager.js'
 import type { NativeHarnessSessionManager, NativeHistory } from '../src/modules/harnesses/port.js'
 import { readSystemPromptSetting } from '../src/modules/settings/foundation.js'
 import { PostgresWorkflowRepository } from '../src/modules/workflows/postgres.js'
 import { agent3Database, seedAgent3 } from './helpers/wave25Agent3.js'
 import { graphRpc, graphRpcValue } from './eng04-graph-composition-fixture.js'
+import { admittedWorkerManager, prepareWorkerInput } from './helpers/workerChatPreparation.js'
 import { deferred } from './helpers/deferred.js'
 
 it('reconciles uncertain compaction during shutdown without an active message or another native dispatch', async () => {
@@ -110,15 +110,15 @@ it('reconciles uncertain compaction during shutdown without an active message or
           conversationId: conversation.id, correlationId, workflowId: context.workflowId,
           workflowNodeId: node.id, workingDirectory: db.directory }),
         nativeOwner: async () => f.nativeOwner, close: async () => { closes++ } }) })
+    const managerOptions = { binding, configuration, bridge, current: async () => {}, channel: { binding: f.connection,
+      request: async (raw, options) => ({ payload: await host!.handle(raw, f.connection, options?.signal) }) } } satisfies ConstructorParameters<typeof WorkerConversationManager>[0]
     const chat = new AgentChatService(db.pool, repository, new PostgresOperatorConversationRepository(db.pool),
       new PostgresWorkflowRepository(db.pool), {
         getForWorkspace: async () => { throw new Error('Chat has no Run') },
         getExecution: async () => { throw new Error('Chat has no execution') },
         executionPages: () => { throw new Error('Chat has no execution pages') },
-      }, () => createAdmittedNativeManager('codex', async () => ({ manager: new WorkerConversationManager({
-        binding, configuration, bridge, current: async () => {}, channel: { binding: f.connection,
-          request: async (raw, options) => ({ payload: await host!.handle(raw, f.connection, options?.signal) }) },
-      }) })).manager, db.directory)
+      }, Object.assign(() => admittedWorkerManager(managerOptions),
+        { prepareInput: prepareWorkerInput(new WorkerConversationManager(managerOptions)) }), db.directory)
     const access = new PostgresAccessService(db.pool)
     const writer = await access.issue({ name: 'Chat writer', audience: 'operator',
       expiresAt: new Date(Date.now() + 600_000), grants: [{ actions: ['agent_chat:read', 'agent_chat:write'], scope: {} }] })
@@ -136,7 +136,7 @@ it('reconciles uncertain compaction during shutdown without an active message or
     try {
       const sent = await call(writer.token, 'agent_chat_send', { request: { requestId: 'seed-input',
         content: 'Seed this session', intent: 'next_turn', expectedConversationId: conversation.id, context: query } })
-      expect(sent.result?.isError).not.toBe(true)
+      expect(sent.result?.isError, JSON.stringify(sent)).not.toBe(true)
       await settled.promise
     } finally { unsubscribe() }
     const controls = await call(writer.token, 'agent_chat_controls_get', { conversationId: conversation.id })

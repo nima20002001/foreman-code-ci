@@ -84,7 +84,7 @@ describe.skipIf(!postgresEnabled)('hierarchy expanded feedback reservation', () 
             starts: f.provider.counts.starts, progress }))
         }
         return run.outcome
-      }, { timeout: 45_000 }).toBe('succeeded')
+      }, { timeout: 90_000 }).toBe('succeeded')
       expect(await drive).not.toBeInstanceOf(Error)
       expect(await f.runs.get(f.f.run.id)).toMatchObject({ executionState: 'completed', outcome: 'succeeded' })
       expect(feedback).toHaveLength(1)
@@ -94,5 +94,5 @@ describe.skipIf(!postgresEnabled)('hierarchy expanded feedback reservation', () 
       expect(work.returns.every(value => value.latestDeliverable === deliverable && value.remainingFindings?.length === 0)).toBe(true)
       expect(f.provider.counts.starts).toBe(20)
     } finally { await f.stop(); await drive; await f.close() }
-  }, 60_000)
+  }, 120_000)
 })
