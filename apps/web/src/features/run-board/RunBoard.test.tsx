@@ -95,6 +95,12 @@ beforeEach(() => {
   editorMounted.mockClear(); editorUnmounted.mockClear(); authoringShortcut.mockClear()
   installFlowLayout()
   server.use(
+    http.get('*/api/management/workspaces/:workspaceId/workflows/:workflowId/hierarchy', ({ request, params }) => {
+      const runId = new URL(request.url).searchParams.get('runId')!
+      return HttpResponse.json({ workspaceId: String(params.workspaceId), workflowId: String(params.workflowId),
+        workflowVersionId: runId === 'run-b' ? runB.workflowVersionId : runA.workflowVersionId,
+        hierarchy: null, agents: [], revision: 1, run: { runId, state: 'running' } })
+    }),
     http.get('*/api/management/workspaces/:workspaceId/ci', ({ request }) =>
       HttpResponse.json({ runId: new URL(request.url).searchParams.get('runId'), jobs: [], truncated: false })),
     http.get('*/api/management/workspaces/:workspaceId/runs/:runId/subagents', () =>
@@ -155,12 +161,12 @@ async function inspectorApi(kind: 'agent' | 'job' = 'agent') {
 }
 
 describe('selected saved Run board (real Router, Query, HTTP/MSW and canvas)', () => {
-  it('shows removed agent Y, the old name, a hierarchy layout (not the saved coordinates) and every saved edge in A; B has no Y', async () => {
+  it('shows removed agent Y, its old name, exact saved coordinates and sizes and every saved edge in A; B has no Y', async () => {
     const { container } = await mount()
     const y = await savedNode('Y')
-    expect(y).toHaveStyle({ transform: 'translate(0px,260px)', width: '156px', height: '156px' })
+    expect(y).toHaveStyle({ transform: 'translate(500px,230px)', width: '260px', height: '160px' })
     const x = await savedNode('X before rename')
-    expect(x).toHaveStyle({ transform: 'translate(0px,0px)' })
+    expect(x).toHaveStyle({ transform: 'translate(-80px,40px)', width: '180px', height: '120px' })
     expect(x).toHaveAttribute('title', expect.stringContaining('config-x-old'))
     await waitFor(() => expect(container.querySelectorAll('.react-flow__edge')).toHaveLength(3))
     const handoff = container.querySelector('.react-flow__edge[data-id="edge-xy"]')!
@@ -171,7 +177,7 @@ describe('selected saved Run board (real Router, Query, HTTP/MSW and canvas)', (
       .not.toBe(approval.querySelector('path.n-signal-edge-base')?.getAttribute('d'))
 
     await select('run-b')
-    expect(await savedNode('X in B')).toHaveStyle({ transform: 'translate(0px,0px)' })
+    expect(await savedNode('X in B')).toHaveStyle({ transform: 'translate(100px,300px)' })
     expect(screen.queryByRole('group', { name: 'Y, saved agent, read only' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'X before rename, saved agent, read only' })).not.toBeInTheDocument()
     await waitFor(() => expect(container.querySelectorAll('.react-flow__edge')).toHaveLength(1))
@@ -304,6 +310,8 @@ describe('selected saved Run board (real Router, Query, HTTP/MSW and canvas)', (
   it('has only view controls at 320px; keyboard/drag cannot edit, delete, save or Start', async () => {
     const frozenBefore = JSON.stringify(runA)
     const { container } = await mount(); const y = await savedNode('Y')
+    const savedPosition = { transform: 'translate(500px,230px)' }
+    expect(y).toHaveStyle(savedPosition)
     const canvas = screen.getByTestId('run-board-canvas')
     expect(canvas.getBoundingClientRect().width).toBe(320)
     expect(screen.queryByRole('button', { name: /Start|Save|Settings|Chat|interactive/i })).not.toBeInTheDocument()
@@ -321,7 +329,7 @@ describe('selected saved Run board (real Router, Query, HTTP/MSW and canvas)', (
     const up = new MouseEvent('mouseup', { bubbles: true })
     Object.defineProperty(up, 'view', { value: y.ownerDocument.defaultView })
     fireEvent(window, up)
-    expect(y).toHaveStyle({ transform: 'translate(0px,260px)' })
+    expect(y).toHaveStyle(savedPosition)
     expect(authoringShortcut).not.toHaveBeenCalled()
     expect(JSON.stringify(runA)).toBe(frozenBefore)
     await userEvent.click(within(controls as HTMLElement).getAllByRole('button')[2]!)

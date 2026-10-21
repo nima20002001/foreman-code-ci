@@ -1,4 +1,6 @@
 import { InfoHint } from '../../../shared/ui/InfoHint'
+import { flushSync } from 'react-dom'
+import { useGraphDraftStore } from '../store'
 import { WorkflowSettings } from './WorkflowSettings'
 import { BoardNotice } from './BoardNotice'
 import { Inbox, Redo2, Save, Undo2 } from 'lucide-react'
@@ -7,6 +9,9 @@ import { nodeTitle, removeRelationship } from './model'
 import { nextDraftDirty, type NextDraftEdit } from './state'
 import { WorkflowSaveError } from './WorkflowSaveError'
 import { EditIntentStatus } from './EditIntentStatus'
+import { ConflictRecoveryPanel } from './ConflictRecoveryPanel'
+import { CreateBoardAgent } from '../../workflow-hierarchy/CreateBoardAgent'
+import { RemoveHierarchyNodeDialog } from '../../workflow-hierarchy/RemoveHierarchyNodeDialog'
 import { AvailableAgentList } from './AuthoringFields'
 import { DraftCanvas } from './DraftCanvas'
 import { AgentPickerPanel } from '../../workflow-board/AgentPickerPanel'
@@ -29,10 +34,10 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
   controller: ReturnType<typeof useDraftEditorController>
 }) {
   const { graph, context, board, editIntent, undoScope, core, preflight, pendingStart,
-    reloading, stopAndSave, discardChanges, reload, startMutation, starting, start, recoverStart,
+    reloading, stopAndSave, discardChanges, reload, inspectLatest, startMutation, starting, start, recoverStart,
     workspace, managedWorkflow, pendingApprovals, agents, hints, requestSave, historyAction, openAgent, panels,
     scheduleWrite, historyPending } = controller
-  const { panel, settingsPanel, workflowName, openSaveField, openNode, setOpenNode, confirm, setConfirm, runAfterSave,
+  const { panel, setPanel, settingsPanel, workflowName, openSaveField, openNode, setOpenNode, confirm, setConfirm, runAfterSave,
     message, setGeometryPending, canvas, presentation, change, geometry, report, inspect, openPanel, prepare } = core
   const { dirty, needsSave, canUndo, canRedo, startReloadRequired, startDisabled, startReason, saveBusy,
     affectedRuns, affectedWorkflows, stopBlocked, errorText, locationMessage, panelTitle } = controller.status
@@ -47,7 +52,15 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
         removalDisabled={edit.busy || reloading || editIntent.locked}
         open={openNode} setOpen={setOpenNode} panels={panels} />
       {!graph.nodes.length ? <div className="board-empty"><EmptyState icon="bot" title="Add your first agent"
-        action={<><InfoHint label="Add your first agent">Start with an orchestrator that plans the work, or a worker that does it.</InfoHint><Button variant="primary" leading={<Icon name="plus" size={15} />} onClick={() => openPanel('agents')}>Add node</Button></>} /></div> : null}
+        action={<><InfoHint label="Add your first agent">Start with a Master that coordinates teams, an Orchestrator, or a Worker.</InfoHint>
+          <Button variant="primary" leading={<Icon name="plus" size={15} />} onClick={() => openPanel('agents')}>Add node</Button>
+          <Button onClick={() => void prepare(() => {
+            useGraphDraftStore.getState().updateNextDraft(draftKey, current => current.workflowForms?.createAgent ? current : {
+              ...current, workflowForms: { ...current.workflowForms, createAgent: { role: 'master', name: '', parentNodeId: '' } },
+            })
+            setPanel('agents')
+          }).catch(report)}>{edit.workflowForms?.createAgent ? 'Continue Agent draft' : 'Add Master'}</Button>
+        </>} /></div> : null}
       <header className="board-topbar">
         <div className="board-title">
           <WorkflowName ref={workflowName} name={graph.name} disabled={saveBusy || starting || editIntent.locked}
@@ -139,19 +152,24 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
       </aside>
       {panel === 'agents' ? <AgentPickerPanel close={() => openPanel(null)}>
         <fieldset disabled={edit.busy || reloading || editIntent.locked || starting}>
-          <AvailableAgentList context={context} change={change} report={report} />
+          <CreateBoardAgent draftKey={draftKey} edit={edit} report={report} close={() => setPanel(null)}
+            openSettings={nodeId => { flushSync(() => setPanel(null)); openAgent(nodeId) }} />
+          <AvailableAgentList context={context} change={change} report={report} agentEdits={edit.agentEdits} />
         </fieldset>
       </AgentPickerPanel> : null}
       {settingsOpen ? <aside ref={settingsPanel} className="board-side-panel" aria-label={panelTitle || 'Board controls'} style={{ zIndex: settingsZ }}
         onPointerDownCapture={() => raiseFloating('board-settings')} onFocusCapture={() => raiseFloating('board-settings')}>
         <header><h2>{panelTitle}</h2><IconButton variant="ghost" label="Close panel" onClick={() => openPanel(null)}><Icon name="close" size={16} /></IconButton></header>
         <fieldset disabled={edit.busy || reloading || editIntent.locked}>
-          {panel === 'workflow' ? <WorkflowSettings edit={edit} change={change} report={report}
+          {panel === 'workflow' ? <WorkflowSettings draftKey={draftKey} edit={edit} change={change} report={report}
             defaultMs={preflight.data?.capabilities.agentActiveTimeBudget.defaultMs}
             locationReady={workspace.data?.locationValidation.status === 'ready'} locationMessage={locationMessage}
             onChangeFolder={board?.openLocation} onReload={() => {
               if (nextDraftDirty(edit)) setConfirm('reload'); else void reload()
             }} /> : null}
+          {panel === 'workflow' ? <ConflictRecoveryPanel draftKey={draftKey} edit={edit}
+            pending={reloading || edit.busy || !!edit.pending || editIntent.locked || starting}
+            inspectLatest={inspectLatest} report={report} /> : null}
         </fieldset>
       </aside> : null}
       <nav className="board-keyboard-list" aria-label="Agents and connections">
@@ -169,8 +187,10 @@ export function DraftEditorView({ draftKey, edit, updateFailures, controller }: 
     <ConfirmDialog open={confirm === 'discard'} onOpenChange={(open) => { if (!open) setConfirm(undefined) }} title="Discard your changes?"
       description="Your unsaved edits are removed. Agent positions on the board are kept. Running work isn’t affected."
       confirmLabel="Discard changes" onConfirm={() => { setConfirm(undefined); void prepare(discardChanges).catch(report) }} />
-    <ConfirmDialog open={confirm === 'reload'} onOpenChange={(open) => { if (!open) setConfirm(undefined) }} title="Reload the saved draft?"
-      description="Your unsaved edits are replaced by the latest saved draft."
-      confirmLabel="Reload saved draft" onConfirm={() => { setConfirm(undefined); void reload(true) }} />
+    <ConfirmDialog open={confirm === 'reload'} onOpenChange={(open) => { if (!open) setConfirm(undefined) }} title="Inspect the latest saved workflow?"
+      description="Your unsaved draft is kept separately for comparison. A fresh editor opens the latest saved workflow."
+      confirmLabel="Inspect latest" onConfirm={() => { setConfirm(undefined); void inspectLatest() }} />
+    <RemoveHierarchyNodeDialog draftKey={draftKey} edit={edit} pending={reloading || saveBusy || starting || editIntent.locked}
+      report={report} inspectLatest={inspectLatest} />
   </section>
 }

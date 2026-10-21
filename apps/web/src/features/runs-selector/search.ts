@@ -27,6 +27,8 @@ export function resolveRunsSelectorBoardLocation(pathname: string, rawSearch: un
   delete baseSearch.runNodeId
   delete baseSearch.runRelationshipId
   delete baseSearch.runExchangeKey
+  delete baseSearch.boardExecutionId
+  delete baseSearch.boardWaitingActivationId
   const board = resolveWorkflowBoardLocation(pathname, baseSearch)
   return { ...board, search: boardSearch }
 }
@@ -65,7 +67,7 @@ export function searchForSelectedRun(
   const next: Record<string, unknown> = { ...previous, workflowId: scope.workflowId }
   // Never leave another Run's graph/inspector pins beneath a new history selection.
   for (const key of ['runId', 'workflowVersionId', 'executionSemanticsVersion', 'runNodeId',
-    'runRelationshipId', 'runExchangeKey', 'activityKind', 'activityAgentId', 'boardExecutionId', SELECTED_RUN_PARAM]) delete next[key]
+    'runRelationshipId', 'runExchangeKey', 'activityKind', 'activityAgentId', 'boardExecutionId', 'boardWaitingActivationId', SELECTED_RUN_PARAM]) delete next[key]
   if (runId !== null) next[SELECTED_RUN_PARAM] = runIdSchema.parse(runId)
   return next
 }

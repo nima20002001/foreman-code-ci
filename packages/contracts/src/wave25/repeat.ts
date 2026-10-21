@@ -1,4 +1,5 @@
-import { RepeatExitDataV1Schema } from '../coordinationResult.js'
+import { RepeatExitDataV1Schema, parseCoordinationResult, type CoordinationResultContext,
+  type ResultProtocol } from '../coordinationResult.js'
 import { z } from 'zod'
 import { AgentConfigurationVersionSchema, TimestampSchema } from '../index.js'
 import type { WorkflowArtifactOutputsV1 } from '../workflowArtifactDeclarations.js'
@@ -113,10 +114,18 @@ export { RepeatExitDataV1Schema, type RepeatExitDataV1 } from '../coordinationRe
  * and bound the ORIGINAL result first; acceptance, digests, carries and history
  * retain that original value. Mixed carriers, prose and Markdown stay invalid.
  */
-export function parseRepeatExitResultV1(result: unknown, choice: WorkflowChoice, artifactOutputs?: WorkflowArtifactOutputsV1) {
+export function parseRepeatExitResultV1(result: unknown, choice: WorkflowChoice, artifactOutputs?: WorkflowArtifactOutputsV1,
+  coordination?: CoordinationResultContext) {
   canonicalGraphJson(result, 64 * 1024)
   const accepted = AcceptedCurrentNodeResultSchema.parse(result)
   const output = accepted.outcome === 'succeeded' ? accepted.output : undefined
+  if (coordination) {
+    const envelope = parseCoordinationResult(output, coordination)
+    if (!('routing' in envelope) || !('outcome' in envelope.routing) || typeof envelope.routing.outcome !== 'string') {
+      throw new Error('REPEAT_EXIT_OUTCOME_REQUIRED')
+    }
+    return { ...envelope, routing: { outcome: envelope.routing.outcome }, data: RepeatExitDataV1Schema.parse(envelope.data) }
+  }
   const textCarrier = output !== null && typeof output === 'object' && !Array.isArray(output)
     && Object.keys(output).length === 1 && 'text' in output && typeof output.text === 'string'
   const envelope = parseChoiceResultEnvelope(!artifactOutputs && textCarrier ? { ...accepted, output: output.text } : accepted, choice, artifactOutputs)
@@ -183,7 +192,8 @@ export type RepeatDecisionV1 = z.infer<typeof RepeatDecisionV1Schema>
  * No launch/admission/Stop/native/ownership proof is supplied by this pure validator.
  * Caller must authenticate the source execution, recompute its digest, and load durable inputs.
  */
-export function validateRepeatDecisionV1(versionValue: unknown, decisionValue: unknown, acceptedResult: unknown): RepeatDecisionV1 {
+export function validateRepeatDecisionV1(versionValue: unknown, decisionValue: unknown, acceptedResult: unknown,
+  resultProtocol?: ResultProtocol): RepeatDecisionV1 {
   const version = RepeatWorkflowVersionV1Schema.parse(versionValue)
   const decision = RepeatDecisionV1Schema.parse(decisionValue)
   const { scope, blockId, occurrenceIndex } = decision.occurrence.identity
@@ -195,7 +205,8 @@ export function validateRepeatDecisionV1(versionValue: unknown, decisionValue: u
       ? exit.kind!=='job'||decision.exitExecution.jobDefinitionId!==exit.jobDefinitionId||decision.exitExecution.jobDefinitionVersionId!==exit.jobDefinitionVersionId
       : exit.kind==='job'||decision.exitExecution.agentId!==exit.agentId||decision.exitExecution.agentConfigurationVersionId!==version.agentConfigurationVersionIds[exit.agentId])
 ) throw new Error('REPEAT_EXIT_EXECUTION_PIN_INVALID')
-  const envelope = parseRepeatExitResultV1(acceptedResult, exit.choice!, exit.kind === 'job' ? undefined : exit.artifactOutputs)
+  const envelope = parseRepeatExitResultV1(acceptedResult, exit.choice!, exit.kind === 'job' ? undefined : exit.artifactOutputs,
+    resultProtocol && exit.kind !== 'job' ? { resultProtocol, definition: version.definition, workflowNodeId: exit.id } : undefined)
   if (decision.outcome !== envelope.routing.outcome || canonicalGraphJson(decision.resultData) !== canonicalGraphJson(envelope.data)) throw new Error('REPEAT_ACCEPTED_RESULT_MISMATCH')
   const early = decision.outcome === block.earlyExitOutcome
   const reason = early ? 'early_exit' : occurrenceIndex === block.maxOccurrences ? 'limit_exit' : 'repeat'
@@ -209,8 +220,9 @@ export function validateRepeatDecisionV1(versionValue: unknown, decisionValue: u
 /** Adjacent immutable-link validation only; previous must come from authoritative storage.
  * A recorded repeat decision is NOT permission to launch after Stop or uncertain cleanup.
  */
-export function validateRepeatSuccessorV1(versionValue: unknown, previousValue: unknown, nextValue: unknown, acceptedResult: unknown): RepeatOccurrenceV1 {
-  const previous = validateRepeatDecisionV1(versionValue, previousValue, acceptedResult)
+export function validateRepeatSuccessorV1(versionValue: unknown, previousValue: unknown, nextValue: unknown, acceptedResult: unknown,
+  resultProtocol?: ResultProtocol): RepeatOccurrenceV1 {
+  const previous = validateRepeatDecisionV1(versionValue, previousValue, acceptedResult, resultProtocol)
   const next = RepeatOccurrenceV1Schema.parse(nextValue)
   const before = previous.occurrence.identity, after = next.identity, source = next.input.previous
   if (previous.reason !== 'repeat' || previous.target.kind !== 'next_occurrence'

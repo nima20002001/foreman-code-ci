@@ -6,6 +6,7 @@ import type { InteractionSummary, OperatorConversationState } from '@foreman-cod
 import { getOperatorConversation, respondOperatorInteraction, sendOperatorMessage } from '../../shared/api/client'
 import { listOperatorConversationSummaries } from '../../shared/api/operatorChatSummaries'
 import { OperatorChat } from './OperatorChat'
+import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { operatorState } from './pr17-test-fixtures'
@@ -18,6 +19,7 @@ vi.mock('../../shared/api/operatorChatSummaries', () => ({ listOperatorConversat
 vi.mock('../../shared/api/operatorChatStream', () => ({ subscribeOperatorChat: vi.fn((_id, listeners) => {
   listeners.connection?.('connected'); return () => {}
 }) }))
+beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => { vi.clearAllMocks(); useOperatorChatStore.setState({ open: true, historyOpen: false, selectedConversationId: 'conversation-one' }) })
 afterEach(cleanup)
 function mounted(delivery: InteractionSummary['delivery'], acknowledged = false) {

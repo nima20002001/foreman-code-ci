@@ -1,3 +1,5 @@
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { readDeviceTlsMaterials } from './tlsMaterials.js'
 import { createServer, type Server } from 'node:https'
 import type { Socket } from 'node:net'
@@ -22,7 +24,8 @@ export class ProductionDeviceListener {
   private serverClosed = false
   private websocketClosed = false
   constructor(private readonly config: DeviceListenerConfig, private readonly endpoint: DeviceEndpoint,
-    private readonly http: Parameters<typeof deviceHttpHandler>[0]) {}
+    private readonly http: Parameters<typeof deviceHttpHandler>[0],
+    private readonly browserMedia?: (request: IncomingMessage, socket: Duplex, head: Buffer) => boolean) {}
 
   start(): Promise<void> {
     if (this.closing) return Promise.reject(new Error('Device listener is shutting down.'))
@@ -40,7 +43,10 @@ export class ProductionDeviceListener {
     server.on('connection', (socket) => { this.sockets.add(socket); socket.once('close', () => this.sockets.delete(socket)) })
     const websocket = new WebSocketServer({ noServer: true, maxPayload: DEVICE_FRAME_BYTES, perMessageDeflate: false })
     this.websocket = websocket
-    server.on('upgrade', deviceUpgradeHandler(this.endpoint, websocket))
+    const deviceUpgrade = deviceUpgradeHandler(this.endpoint, websocket)
+    server.on('upgrade', (request, socket, head) => {
+      if (!this.browserMedia?.(request, socket, head)) deviceUpgrade(request, socket, head)
+    })
     await new Promise<void>((resolve, reject) => {
       const failed = (error: Error) => { server.off('listening', ready); reject(error) }
       const ready = () => { server.off('error', failed); resolve() }

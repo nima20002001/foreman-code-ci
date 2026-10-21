@@ -49,6 +49,19 @@ export function readSystemPromptSetting(sql: GraphSqlClient): Promise<PromptSett
   return readSetting(sql, 'system-prompt', PromptTextSchema, DEFAULT_PROMPT_TEXT)
 }
 
+/** The same saved templates apply to direct and staged creation in their save transaction. */
+export function readAgentDefaultsSetting(sql: GraphSqlClient): Promise<VersionedSetting<AgentDefaults>> {
+  return readSetting(sql, KEYS.agents, AgentDefaultsSchema, DEFAULT_AGENT_DEFAULTS).then((snapshot) => ({
+    ...snapshot,
+    value: {
+      ...(snapshot.value.master ? { master: { ...snapshot.value.master, harness: withAdvancedDefaults(snapshot.value.master.harness) } } : {}),
+      orchestrator: { ...snapshot.value.orchestrator, harness: withAdvancedDefaults(snapshot.value.orchestrator.harness) },
+      coder: { ...snapshot.value.coder, harness: withAdvancedDefaults(snapshot.value.coder.harness) },
+      operator: { ...snapshot.value.operator, harness: withAdvancedDefaults(snapshot.value.operator.harness) },
+    },
+  }))
+}
+
 /** Versioned application defaults. Callers copy values; stored versions never mutate consumers. */
 export class PostgresFoundationSettingsRepository {
   constructor(private readonly pool: pg.Pool, private readonly projectRoot?: string) {}
@@ -102,15 +115,7 @@ export class PostgresFoundationSettingsRepository {
   }
 
   getAgentDefaults(client?: pg.ClientBase): Promise<VersionedSetting<AgentDefaults>> {
-    return this.read(KEYS.agents, AgentDefaultsSchema, DEFAULT_AGENT_DEFAULTS, client).then((snapshot) => ({
-      ...snapshot,
-      value: {
-        ...(snapshot.value.master ? { master: { ...snapshot.value.master, harness: withAdvancedDefaults(snapshot.value.master.harness) } } : {}),
-        orchestrator: { ...snapshot.value.orchestrator, harness: withAdvancedDefaults(snapshot.value.orchestrator.harness) },
-        coder: { ...snapshot.value.coder, harness: withAdvancedDefaults(snapshot.value.coder.harness) },
-        operator: { ...snapshot.value.operator, harness: withAdvancedDefaults(snapshot.value.operator.harness) },
-      },
-    }))
+    return readAgentDefaultsSetting(client ?? this.pool)
   }
 
   getWorkspaceDefaults(client?: pg.ClientBase): Promise<VersionedSetting<WorkspaceDefaults>> {

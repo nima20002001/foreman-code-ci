@@ -284,6 +284,7 @@ const AgentRenameOperationSchema = z.object({
 }).strict();
 const AgentConfigureOperationSchema = z.object({
   type: z.literal("agent.configure"), agentId: IdSchema,
+  productRole: AgentProductRoleSchema.optional(),
   expectedAgentRevision: ExpectedRevisionSchema, configuration: ManagementHarnessConfigurationSchema,
   harnessProfileSelection: AgentSchema.shape.harnessProfileSelection,
   prompt: AgentSchema.shape.prompt,
@@ -564,6 +565,9 @@ export const REPEAT_OPERATOR_TOOL_NAMES = [
 export type RepeatOperatorToolName = typeof REPEAT_OPERATOR_TOOL_NAMES[number];
 
 export const OperatorToolNameSchema = z.enum([
+  'browser_target_read', 'browser_profiles_list', 'browser_profile_get', 'browser_profile_create', 'browser_profile_update', 'browser_profile_remove', 'browser_profiles_sync', 'browser_profile_sync_get', 'browser_session_open', 'browser_sessions_list', 'browser_session_get', 'browser_session_close', 'browser_tabs_list', 'browser_tab_create', 'browser_tab_select', 'browser_tab_close', 'browser_state_read', 'browser_screenshot', 'browser_action', 'browser_view_open', 'browser_view_read', 'browser_view_close', 'browser_control_acquire', 'browser_control_release', 'browser_input',
+  'memory_board_get', 'memory_board_changes_read', 'memory_card_create', 'memory_card_update',
+  'memory_note_create', 'memory_note_update', 'memory_note_archive',
   'harness_instances_list', 'harness_instance_save', 'harness_instance_check', 'workspace_root_configuration_adopt',
   'reference_files_list', 'reference_file_read', 'reference_file_add', 'reference_file_remove',
   'file_retention_get', 'file_retention_preview', 'file_retention_save', 'run_summaries_list', 'run_board_snapshot_get',
@@ -585,11 +589,12 @@ export const OperatorToolNameSchema = z.enum([
   "operator_mcp_setup_get",
   "operator_chat_controls_get", "operator_chat_controls_update", "agent_chat_controls_get", "agent_chat_controls_update",
   "operator_chat_create", "operator_chat_list", "operator_chat_get", "operator_chat_history_get", "operator_chat_activity_get",
-  "operator_chat_send", "operator_chat_cancel", "operator_chat_respond", "operator_handoff_history_get",
+  "operator_chat_send", "operator_chat_cancel", "operator_chat_cancel_queued", "operator_chat_cancel_all_queued", "operator_chat_respond", "operator_handoff_history_get",
   "operator_chat_delete", "operator_chat_restore",
   "agent_chat_ensure_conversation", "conversation_file_upload", "conversation_file_finalize",
   "conversation_file_cancel", "conversation_files_list", "conversation_file_read",
-  "agent_chat_read", "agent_chat_send", "agent_chat_interrupt", "agent_chat_cancel_queued", "agent_chat_respond",
+  "agent_chat_read", "agent_chat_send", "agent_chat_interrupt", "agent_chat_cancel_queued", "agent_chat_cancel_all_queued",
+  "workflow_chat_read", "workflow_chat_post", "workflow_chat_deliveries_read", "workflow_chat_delivery_cancel", "agent_chat_respond",
   "workspace_defaults_get",
   'general_settings_get', 'general_settings_update', 'circle_credit_allowance_get', 'circle_credit_allowance_update',
   'circle_accounts_list', 'circle_account_add', 'circle_account_remove',

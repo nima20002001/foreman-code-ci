@@ -1,3 +1,17 @@
+import type { SqlQuery } from '../../infrastructure/transaction.js'
+import { nativeChatPrompt, preflightChatInput, restoreAcceptedChatInput, validateChatInput, type AcceptedChatInput, type AcceptedChatSettings, type PreparedChatInput } from './nativeChatInput.js'
+import { operatorMessagePrompt } from './operatorInput.js'
+import { installChatDeliveryBridge, operatorDeliveryBridge } from '../workflow-chat/deliveryBridgeAccess.js'
+import type { LegacyChatDeliveryBridge } from '../workflow-chat/legacyBridge.js'
+import type pg from 'pg'
+import type { TransactionSql } from '../../infrastructure/transaction.js'
+import { ConversationDeliveryOwner, type ConversationTarget } from './conversationDeliveryOwner.js'
+import type { PostgresChatDeliveryRepository } from '../workflow-chat/deliveryRepository.js'
+import type { DeliveryQualification, StoredDelivery } from '../workflow-chat/model.js'
+import type { ChatSendRequest, ChatDeliveryReceipt } from '@foreman-code/contracts'
+import { SessionControlStateSchema, sessionTaskContent } from '@foreman-code/contracts'
+import { readLiveManagementPrincipal } from '../access/liveManagementPrincipal.js'
+import { validateMessageAttachments } from './messageAttachments.js'
 import { logIgnoredError } from '../diagnostics/ignoredError.js'
 import type { ReadObservation } from '@foreman-code/contracts'
 import { errorMessage } from '../../shared/errorMessage.js'
@@ -7,7 +21,6 @@ import { withInteractionResponse, isSessionNativeInteraction } from '@foreman-co
 import { publicOperatorConversation } from './operatorConversationRecord.js'
 import { APP_MCP_TOKEN } from '../harnesses/appMcpLauncher.js'
 import type { SessionControlRequest } from '@foreman-code/contracts'
-import { operatorMessagePrompt } from './operatorMessagePrompt.js'
 import { pendingSessionControls, type ChatModelCatalog } from '../harnesses/sessionControlDefaults.js'
 import { validateSessionMessage } from './sessionControls/messageAdmission.js'
 import type { SessionControlStore } from './sessionControls/store.js'
@@ -81,12 +94,15 @@ export async function ensureOperatorRuntimeDirectory(managedRuntimeRoot: string)
 export class OperatorConversationEvents {
   private sequence = 0
   private readonly listeners = new Map<string, Set<(event: OperatorConversationStreamEvent) => void>>()
+  private readonly owners = new Set<(event: OperatorConversationStreamEvent) => void>()
   publish(conversationId: string, type: OperatorConversationStreamEvent['type'], data: Record<string, unknown>) {
     const event = OperatorConversationStreamEventSchema.parse({ id: this.sequence++, conversationId, type, data })
+    for (const owner of this.owners) owner(event)
     for (const listener of this.listeners.get(conversationId) ?? []) {
       try { listener(event) } catch (error) { logIgnoredError('engine', 'publish conversation event', error) }
     }
   }
+  subscribeOwner(listener: (event: OperatorConversationStreamEvent) => void) { this.owners.add(listener); return () => this.owners.delete(listener) }
   subscribe(id: string, listener: (event: OperatorConversationStreamEvent) => void) {
     const listeners = this.listeners.get(id) ?? new Set()
     listeners.add(listener); this.listeners.set(id, listeners)
@@ -109,6 +125,10 @@ export interface NativeManagerResolver extends ChatModelCatalog {
   /** Close the persisted process owner; absence of a registration is not positive closure. */
   closeRecoveredRuntime?(conversationId: string, signal: AbortSignal): Promise<boolean>
   release?(conversationId: string): void
+  /** Returns and retains the actual composed native request before user-message/receipt persistence. */
+  prepareInput?(input: { principalId: string; conversationId: string; configuration: OperatorConfigurationVersion;
+    request: SendOperatorMessageRequest; workingDirectory: string; row: ConversationRow; prompt: string; sql?: TransactionSql; settings: AcceptedChatSettings }): Promise<PreparedChatInput>
+  qualifiedSteer?(row: ConversationRow, configuration: OperatorConfigurationVersion): Promise<boolean>
 }
 export interface OperatorChatAuthority {
   current(principalId: string): Promise<ManagementPrincipal>
@@ -176,6 +196,24 @@ function definiteCreationFailure(error: unknown): boolean {
 }
 
 export class OperatorChatService {
+  get deliveryBridge(): LegacyChatDeliveryBridge | undefined { return operatorDeliveryBridge(this) }
+  installDeliveryBridge(bridge: LegacyChatDeliveryBridge): void { installChatDeliveryBridge(this, bridge) }
+
+  async assertDeliveryReadable(principal: ManagementPrincipal): Promise<void> {
+    requireAuthorization(principal, 'operator_chat:read')
+    requireAuthorization(await this.authority.current(principal.id), 'operator_chat:read')
+  }
+
+  async replayLegacyDelivery(principal: ManagementPrincipal, id: string, input: SendOperatorMessageRequest) {
+    await this.assertAccess(id, principal, 'operator_chat:read')
+    const childId = `operator-fork:${input.requestId}`
+    const child = await this.repository.active(childId)
+    const original = await this.repository.hasTurn(id, input.requestId) ? id
+      : child?.parent_conversation_id === id && child.owner_principal_id === principal.id
+        && child.fork_request_id === input.requestId && await this.repository.hasTurn(childId, input.requestId) ? childId : undefined
+    if (!original) return undefined
+    return this.repository.beginTurn(original, input, principal.id, undefined, undefined, true)
+  }
   private readonly activityObservations = new Map<string, ReadObservation>()
   readonly events = new OperatorConversationEvents()
   private readonly runtimes = new Map<string, Runtime>()
@@ -189,6 +227,7 @@ export class OperatorChatService {
   private closing = false
   private shutdownTask: Promise<void> | undefined
   private sessionControlsStore: SessionControlStore | undefined
+  private canonicalDelivery: ConversationDeliveryOwner | undefined
   private sessionControls() { return this.sessionControlsStore ??= this.repository.createSessionControls() }
 
   private commandReceipts: OperatorChatCommands | undefined
@@ -476,7 +515,15 @@ export class OperatorChatService {
     return false
   }
 
+  send(id: string, value: SendOperatorMessageRequest & { intent?: undefined }, principal: ManagementPrincipal):
+    ReturnType<OperatorChatService['sendLegacy']>
+  send(id: string, value: SendOperatorMessageRequest, principal: ManagementPrincipal):
+    ReturnType<OperatorChatService['sendLegacy']> | ReturnType<LegacyChatDeliveryBridge['sendOperator']>
   send(id: string, value: SendOperatorMessageRequest, principal: ManagementPrincipal) {
+    if (value.intent !== undefined && this.deliveryBridge) return this.deliveryBridge.sendOperator(principal, id, value)
+    return this.sendLegacy(id, value, principal)
+  }
+  sendLegacy(id: string, value: SendOperatorMessageRequest, principal: ManagementPrincipal) {
     this.assertOpen()
     const controller = new AbortController()
     this.acceptanceControllers.add(controller)
@@ -515,7 +562,10 @@ export class OperatorChatService {
     if (publicOperatorConversation(row.record).status === 'archived') {
       throw new DomainError('CONVERSATION_ARCHIVED', 'This conversation is read-only.', 409)
     }
-    if (!receiptId) validateSessionMessage(input.content, input.sessionMode)
+    if (!receiptId) {
+      validateSessionMessage(input.content, input.sessionMode)
+      validateChatInput(input)
+    }
     const configuration = receiptId ? undefined : await this.repository.configuration(row.operator_configuration_version_id)
     if (!receiptId && !configuration) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'Pinned Operator configuration was not found.', 409)
     const harness = configuration ? await this.repository.harnessForMessage(configuration, input) : undefined
@@ -529,6 +579,8 @@ export class OperatorChatService {
     }
     const fork = Boolean(harness && configuration && harnessSessionChanged(configuration.harness, harness)
       && await this.repository.hasMessages(id))
+    const prepareInput = (row: ConversationRow, accepted: OperatorConfigurationVersion, tx: pg.PoolClient) =>
+      this.prepareOperatorInput(principal, input, row, accepted, tx)
     const admit = () => this.control(id, async () => {
       this.assertOpen(); controller.signal.throwIfAborted()
       const current = await this.authority.current(row.owner_principal_id!)
@@ -540,9 +592,9 @@ export class OperatorChatService {
             (accepted) => this.validate(accepted))
         : fork
           ? await this.repository.beginForkTurn(id, input, row.owner_principal_id!, harness!, configuration!.id,
-              (accepted) => this.validate(accepted), preparedProfile)
+              (accepted) => this.validate(accepted), preparedProfile, prepareInput)
           : await this.repository.beginTurn(id, input, row.owner_principal_id!, input.settings ? harness : undefined,
-              configuration!.id, false, (accepted) => this.validate(accepted), preparedProfile)
+              configuration!.id, false, (accepted) => this.validate(accepted), preparedProfile, prepareInput)
       if (begun.replayed) {
         requireAuthorization(await this.authority.current(principal.id), 'operator_chat:read')
         return begun
@@ -580,12 +632,228 @@ export class OperatorChatService {
     return fork || childReceipt ? this.control(childId, admit) : admit()
   }
 
+  private async prepareOperatorInput(principal: ManagementPrincipal, input: SendOperatorMessageRequest, row: ConversationRow,
+    configuration: OperatorConfigurationVersion, sql: TransactionSql, steer = false): Promise<AcceptedChatInput> {
+    const settings = await this.sessionControls().acceptedSettings({ conversationId: row.id, principalId: principal.id,
+      defaultSubject: 'application-operator', profileKey: configuration.contentHash }, input.sessionMode, sql)
+    const acceptedRequest = { ...input, sessionMode: settings.sessionMode }
+    const initial = !steer && !await this.repository.hasNativeSubmission(row.id, sql)
+    const handoff = !steer && Boolean(row.handoff_context && (!row.native_session_id
+      || !await this.repository.handoffInitialized(row.id, row.native_session_id, sql)))
+    const prompt = steer ? nativeChatPrompt(sessionTaskContent(input.content, settings.sessionMode), false)
+      : operatorMessagePrompt(row, acceptedRequest, initial, handoff)
+    const prepare = (text: string) => preflightChatInput(input, {
+      workerRequired: configuration.harnessProfileSelection?.target.hostRef.kind === 'device', prompt: text, startup: initial || handoff, settings,
+      ...(this.managers.prepareInput ? { prepare: () => this.managers.prepareInput!({ principalId: principal.id,
+        conversationId: row.id, configuration, request: acceptedRequest, workingDirectory: this.workingDirectory, row, prompt: text, sql, settings }) } : {}),
+    })
+    const accepted = await prepare(prompt)
+    const plain = operatorMessagePrompt(row, acceptedRequest, false, false)
+    if ((initial || handoff) && prompt !== plain) accepted.subsequent = { ...await prepare(plain), startup: false }
+    return accepted
+  }
+
+  createDeliveryOwner(receipts: PostgresChatDeliveryRepository, changed?: (receiptId: string) => Promise<void>): ConversationDeliveryOwner {
+    if (this.canonicalDelivery) return this.canonicalDelivery
+    const owner = new ConversationDeliveryOwner(this.repository.pool, receipts, {
+      authenticate: (principal, target, action, sql) => this.authorizeDelivery(principal, target, action, sql),
+      lock: async (tx, principal, target) => {
+        const row = await this.lockDelivery(tx, principal, target)
+        return { id: row.id, activeRequestId: row.active_request_id, nativeSessionId: row.native_session_id, nativeTurnId: row.active_native_turn_id }
+      },
+      qualifyLocked: (tx, principal, request) => this.qualifyDelivery(tx, principal, request),
+      journalLocked: async (tx, principal, command) => {
+        if (command.request.target.kind !== 'operator_conversation') throw new DomainError('CHAT_TARGET_INVALID', 'An Operator conversation is required.', 422)
+        const row = await this.lockDelivery(tx, principal, command.request.target)
+        await this.repository.queueDeliveryLocked(tx, row, { ...(command.ownerBinding.operatorInput ?? this.deliveryInput(command.request)),
+          intent: command.receipt.appliedIntent }, command)
+      },
+      dispatch: (principal, target, commandId) => this.dispatchDelivery(principal, target, commandId),
+      dispatchStop: async (principal, target, owner) => {
+        if (owner.requestId) await this.cancelNative(target.conversationId, owner.requestId, principal, () => {})
+      },
+      conversationChanged: async target => { this.events.publish(target.conversationId, 'state', { snapshotRequired: true }) },
+      read: async (principal, target) => {
+        const state = await this.get(target.conversationId, principal)
+        const row = await this.repository.active(target.conversationId)
+        return { target, state, receipts: [], delivery: { state: row?.turn_state === 'starting' ? 'starting'
+          : row?.turn_state === 'canceling' || row?.turn_state === 'uncertain' ? 'settling' : row?.active_request_id ? 'active' : 'idle',
+        capabilities: { steer: row && await this.qualifiedSteer(row) ? 'native_expected_turn' : 'unavailable',
+          queue: state.conversation.status !== 'archived', interruptAndSend: state.conversation.status !== 'archived' },
+        ...(row?.active_native_turn_id ? { nativeTurnId: row.active_native_turn_id } : {}) } }
+      },
+      progress: (command, tx) => this.deliveryProgress(command, tx), ...(changed ? { changed } : {}),
+    })
+    this.canonicalDelivery = owner
+    this.events.subscribeOwner(event => {
+      if (event.type === 'delta') return
+      void this.syncDeliveryReceipts(event.conversationId, owner).catch(error => logIgnoredError('engine', 'synchronize Operator delivery', error))
+      this.pumpDeliveries(event.conversationId)
+    })
+    return owner
+  }
+
+  private async authorizeDelivery(principal: ManagementPrincipal, target: ConversationTarget,
+    action: 'read' | 'write' | 'cancel', sql?: TransactionSql): Promise<void> {
+    if (target.kind !== 'operator_conversation') throw new DomainError('CHAT_TARGET_INVALID', 'An Operator conversation is required.', 422)
+    const query: SqlQuery = sql ?? this.repository.pool
+    const live = await readLiveManagementPrincipal(query, principal.id)
+    requireAuthorization(principal, 'operator_chat:read')
+    if (action !== 'read') requireAuthorization(principal, action === 'write' ? 'operator_chat:write' : 'operator_chat:cancel')
+    requireAuthorization(live, 'operator_chat:read')
+    if (action !== 'read') requireAuthorization(live, action === 'write' ? 'operator_chat:write' : 'operator_chat:cancel')
+    const row = await this.repository.active(target.conversationId, query)
+    if (row ? row.owner_principal_id !== principal.id || action !== 'read' && Boolean(row.deleted_at)
+      : action !== 'read' || !(await query.query(`select 1 from chat_delivery_commands
+        where principal_id=$1 and target_hash=$2 limit 1`, [principal.id, commandInputHash(target)])).rowCount) {
+      throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversation was not found.', 404)
+    }
+  }
+
+  private async lockDelivery(tx: TransactionSql, principal: ManagementPrincipal, target: ConversationTarget): Promise<ConversationRow> {
+    await this.authorizeDelivery(principal, target, 'read', tx)
+    const row = (await tx.query<ConversationRow>(`select * from operator_conversations
+      where id=$1 and kind='operator' and deleted_at is null for update`, [target.conversationId])).rows[0]
+    if (!row || row.owner_principal_id !== principal.id) throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversation was not found.', 404)
+    if (publicOperatorConversation(row.record).status === 'archived') throw new DomainError('CONVERSATION_ARCHIVED', 'This conversation is read-only.', 409)
+    return row
+  }
+
+  private deliveryInput(request: ChatSendRequest): SendOperatorMessageRequest {
+    if (!request.commandId) throw new DomainError('CHAT_COMMAND_REQUIRED', 'A retained command is required.', 422)
+    return { requestId: request.commandId, content: request.content, intent: request.intent,
+      ...(request.attachments ? { attachments: request.attachments } : {}),
+      ...(request.sessionMode ? { sessionMode: request.sessionMode } : {}) }
+  }
+
+  private async qualifiedSteer(row: ConversationRow): Promise<boolean> {
+    const runtime = this.runtimes.get(row.id)
+    if (row.harness !== 'codex' || !row.native_session_id || !runtime?.session || !runtime.manager.steerTurn
+      || runtime.session.nativeSessionId !== row.native_session_id || runtime.disposal || runtime.observationOnly || !this.managers.qualifiedSteer) return false
+    const configuration = await this.repository.configuration(row.operator_configuration_version_id)
+    return Boolean(configuration && await this.managers.qualifiedSteer(row, configuration))
+  }
+
+  qualifyLegacyDelivery(tx: TransactionSql, principal: ManagementPrincipal, request: ChatSendRequest,
+    legacy: SendOperatorMessageRequest): Promise<DeliveryQualification> {
+    if (!this.canonicalDelivery) throw new DomainError('CHAT_DELIVERY_UNAVAILABLE', 'Common delivery is not installed.', 503)
+    return this.canonicalDelivery.qualifyLocked(tx, principal, request,
+      (sql, caller, input) => this.qualifyDelivery(sql, caller, input, legacy))
+  }
+
+  private async qualifyDelivery(tx: TransactionSql, principal: ManagementPrincipal, request: ChatSendRequest,
+    legacy?: SendOperatorMessageRequest): Promise<DeliveryQualification> {
+    if (request.target.kind !== 'operator_conversation') throw new DomainError('CHAT_TARGET_INVALID', 'An Operator conversation is required.', 422)
+    await this.authorizeDelivery(principal, request.target, 'write', tx)
+    const row = await this.lockDelivery(tx, principal, request.target)
+    const configuration = legacy ? await this.repository.deliveryConfiguration(tx, row, legacy, config => this.validate(config))
+      : await this.repository.configuration(row.operator_configuration_version_id, tx)
+    if (!configuration) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'The accepted Operator configuration is unavailable.', 409)
+    this.validate(configuration)
+    const controls = (await tx.query<{ record: unknown }>('select record from conversation_session_controls where conversation_id=$1 for update', [row.id])).rows[0]
+    const savedControls = controls ? SessionControlStateSchema.parse(controls.record) : undefined
+    const mode = savedControls?.appliedMode ?? 'regular'
+    const requestedMode = request.sessionMode ?? savedControls?.desiredMode ?? 'regular'
+    const canSteer = Boolean(row.active_request_id && row.active_native_turn_id && configuration.id === row.operator_configuration_version_id && !request.attachments?.length
+      && requestedMode === mode && await this.qualifiedSteer(row))
+    const appliedIntent = request.intent === 'auto' ? canSteer ? 'steer' : 'next_turn' : request.intent
+    if (appliedIntent === 'steer' && !canSteer) throw new DomainError('CHAT_STEER_UNAVAILABLE', 'This input cannot steer the qualified Operator turn; use Queue or Interrupt and send.', 409)
+    if (appliedIntent === 'interrupt_and_send' && !row.active_request_id) throw new DomainError('CHAT_TURN_NOT_ACTIVE', 'There is no active Operator turn to interrupt.', 409)
+    const input = { ...(legacy ?? this.deliveryInput(request)), intent: appliedIntent }
+    validateSessionMessage(input.content, input.sessionMode)
+    await validateMessageAttachments(tx, row.id, input.attachments)
+    const acceptedInput = await this.prepareOperatorInput(principal, input, row, configuration, tx, appliedIntent === 'steer')
+    return { appliedIntent, ownerBinding: { configurationVersionId: configuration.id, acceptedInput,
+      ...(legacy ? { operatorInput: input } : {}),
+      ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
+      ...(row.active_request_id ? { ownerRequestId: row.active_request_id } : {}),
+      ...(row.native_session_id ? { nativeSessionId: row.native_session_id } : {}),
+      ...(row.active_native_turn_id ? { nativeTurnId: row.active_native_turn_id } : {}) } }
+  }
+
+  private async dispatchDelivery(principal: ManagementPrincipal, target: ConversationTarget, commandId: string): Promise<void> {
+    if (target.kind !== 'operator_conversation') throw new DomainError('CHAT_TARGET_INVALID', 'An Operator target is required.', 422)
+    const command = await this.canonicalDelivery!.receipts.find(principal.id, commandId)
+    if (!command || command.ownerAdmission !== 'owner_admitted') return
+    if (command.receipt.appliedIntent === 'steer') return this.steerDelivery(principal, target.conversationId, command)
+    if (command.receipt.appliedIntent === 'interrupt_and_send' && command.ownerBinding.ownerRequestId) {
+      await this.cancelNative(target.conversationId, command.ownerBinding.ownerRequestId, principal, () => {})
+    }
+    this.events.publish(target.conversationId, 'state', { requestId: commandId, snapshotRequired: true })
+    this.pumpDeliveries(target.conversationId)
+  }
+
+  private async steerDelivery(principal: ManagementPrincipal, id: string, command: StoredDelivery): Promise<void> {
+    await this.control(id, async () => {
+      const row = await this.repository.active(id), runtime = this.runtimes.get(id), binding = command.ownerBinding
+      let state: ChatDeliveryReceipt['state'] = 'failed', nativeTurnId: string | undefined, errorCode = 'CHAT_TARGET_CHANGED'
+      if (row?.active_request_id === binding.ownerRequestId && row?.active_native_turn_id === binding.nativeTurnId
+        && runtime?.session && runtime.session.nativeSessionId === binding.nativeSessionId && runtime.manager.steerTurn && binding.nativeTurnId && binding.acceptedInput) {
+        try {
+          runtime.manager.setSessionControlPrincipal?.(principal.id)
+          restoreAcceptedChatInput(runtime.manager, nativeCorrelation(id, command.request.commandId), binding.acceptedInput)
+          const result = await runtime.manager.steerTurn(runtime.session, { prompt: binding.acceptedInput.prompt,
+            clientCorrelationId: nativeCorrelation(id, command.request.commandId), expectedTurnId: binding.nativeTurnId },
+          AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(30_000)]))
+          if (result.nativeTurnId !== binding.nativeTurnId) throw new Error('The native owner acknowledged a different steer turn.')
+          state = 'accepted'; nativeTurnId = result.nativeTurnId; errorCode = ''
+        } catch (error) { state = definitePromptRejection(error) ? 'failed' : 'unknown'; errorCode = 'CHAT_STEER_UNCONFIRMED' }
+      }
+      await this.repository.pool.query(`update operator_conversation_turns set delivery=$3,native_turn_id=coalesce(native_turn_id,$4),
+        delivery_error=$5::jsonb,updated_at=now() where conversation_id=$1 and request_id=$2 and delivery in ('submitting','unknown')`,
+      [id, command.request.commandId, state, nativeTurnId ?? null, errorCode ? JSON.stringify({ code: errorCode, message: 'Read the retained steer receipt before sending another command.' }) : null])
+      this.events.publish(id, 'state', { requestId: command.request.commandId, snapshotRequired: true })
+    })
+  }
+
+  private pumpDeliveries(id: string): void {
+    if (!this.canonicalDelivery || this.closing || this.tasks.has(id)) return
+    void this.control(id, async () => {
+      if (this.closing || this.tasks.has(id)) return
+      const next = await this.repository.claimDelivery(id)
+      if (!next) return
+      const controller = new AbortController()
+      const promise = this.runTurn(id, next.input, next.configuration, next.ownerId, controller.signal).finally(() => {
+        if (this.tasks.get(id)?.promise === promise) this.tasks.delete(id)
+        this.pumpDeliveries(id)
+      })
+      this.tasks.set(id, { requestId: next.input.requestId, controller, promise })
+      void promise.catch(error => logIgnoredError('harness', 'finish queued Operator input', error))
+    }).catch(error => logIgnoredError('engine', 'claim queued Operator input', error))
+  }
+
+  private async deliveryProgress(command: StoredDelivery, tx: TransactionSql): Promise<Partial<Pick<ChatDeliveryReceipt, 'state' | 'nativeTurnId' | 'errorCode'>>> {
+    if (command.request.target.kind !== 'operator_conversation') throw new Error('A foreign target reached the Operator owner.')
+    const row = (await tx.query<{ delivery: ChatDeliveryReceipt['state']; result: ExecutionResult | null;
+      native_turn_id: string | null; delivery_error: { code: string } | null; submitted: boolean; uncertain: boolean;
+      original_result: ExecutionResult | null }>(`select t.delivery,t.result,t.native_turn_id,t.delivery_error,
+      t.payload->'nativeSubmission' is not null as submitted,
+      c.active_request_id=t.request_id and c.turn_state='uncertain' as uncertain,original.result as original_result
+      from operator_conversation_turns t join operator_conversations c on c.id=t.conversation_id
+      left join operator_conversation_turns original on original.conversation_id=t.conversation_id
+        and original.request_id=t.payload->>'targetRequestId'
+      where t.conversation_id=$1 and t.request_id=$2`, [command.request.target.conversationId, command.request.commandId])).rows[0]
+    if (!row) return { state: 'unknown', errorCode: 'CHAT_OWNER_JOURNAL_MISSING' }
+    const result = row.result ?? (command.receipt.appliedIntent === 'steer' && row.delivery === 'accepted' ? row.original_result : null)
+    const state = result ? result.outcome === 'succeeded' ? 'completed' : result.outcome === 'canceled' ? 'canceled' : 'failed'
+      : row.uncertain ? 'unknown' : ['failed', 'canceled', 'unknown'].includes(row.delivery) ? row.delivery
+        : row.native_turn_id || row.submitted ? 'accepted' : row.delivery
+    return { state, ...(row.native_turn_id ? { nativeTurnId: row.native_turn_id } : {}),
+      ...(row.delivery_error ? { errorCode: row.delivery_error.code } : result?.error ? { errorCode: result.error.code } : {}) }
+  }
+
+  private async syncDeliveryReceipts(id: string, owner: ConversationDeliveryOwner): Promise<void> {
+    const commands = await owner.receipts.unfinishedForTarget({ kind: 'operator_conversation', conversationId: id })
+    for (const command of commands) await owner.refresh(command)
+  }
+
   private async runtime(id: string, row: ConversationRow, configuration: OperatorConfigurationVersion, signal: AbortSignal,
     fileInputs: boolean, controlPrincipalId?: string): Promise<Runtime> {
     signal.throwIfAborted()
     const resident = this.runtimes.get(id)
     if (resident && (resident.observationOnly || resident.disposalStarted || resident.disposal
-      || Boolean(resident.fileInputs) !== fileInputs)) await this.release(id)
+      || Boolean(resident.fileInputs) !== fileInputs || !resident.configuration
+      || !sameOperatorExecutionConfiguration(resident.configuration, configuration))) await this.release(id)
     const existing = this.runtimes.get(id)
     if (controlPrincipalId) existing?.manager.setSessionControlPrincipal?.(controlPrincipalId)
     const fileOnly = fileInputs && configuration.harness.harness === 'claude'
@@ -695,19 +963,42 @@ export class OperatorChatService {
     }).catch(ignoreError('harness', 'deliver cancellation to native turn', { chatId: id, requestId })) // Persistence failure leaves the accepted request fenced.
   }
 
+  private async recordSubmittedTurn(id: string, requestId: string, ownerId: string, runtime: Runtime,
+    nativeTurnId: string, flush: () => void): Promise<void> {
+    // Reconciliation may own control() while the original callback is retried.
+    // The repository fences this SQL write by its saved request, session and owner.
+    if (!await this.repository.submitted(id, requestId, nativeTurnId,
+      { nativeSessionId: runtime.session!.nativeSessionId, principalId: ownerId })) {
+      throw new Error('Native turn ownership was lost.')
+    }
+    if (runtime.fileInputs) await this.managers.recordFileSubmission!(id, requestId, nativeTurnId)
+    const current = await this.repository.active(id)
+    flush()
+    this.events.publish(id, 'state', { requestId, activeRequestId: requestId,
+      revision: Number(current?.revision), turnState: current?.cancel_requested ? 'canceling' : 'active' })
+    const cancelRequested = Boolean(current && current.active_request_id === requestId && current.cancel_requested)
+    if (cancelRequested) {
+      // Persist identity before acknowledging submission, but NEVER await
+      // a native operation here. The tracked control queue owns delivery
+      // after this callback returns and releases that native lock.
+      this.deliverRequestedCancellation(id, requestId, runtime)
+    }
+  }
+
   private async runTurn(id: string, input: SendOperatorMessageRequest, configuration: OperatorConfigurationVersion, ownerId: string, signal: AbortSignal) {
     let creating = false
     let submitting = false
     let submitted = false
     let initialStream: Awaited<ReturnType<typeof primeInitialNativeStream>> | undefined
     let nativeSubmission: NativeMessageSubmission | undefined
+    let submittedTurnId: string | null = null
     let textStream: ReturnType<typeof createNativeTextStream> | undefined
     try {
       let row = await this.repository.active(id)
       if (!row || row.active_request_id !== input.requestId) return
-      const initialPrompt = publicOperatorConversation(row.record).initialPrompt?.value.text
-      const initialPromptText = initialPrompt && !await this.repository.hasNativeSubmission(id) ? initialPrompt : ''
-      const messagePrompt = (handoffContext: string | null) => operatorMessagePrompt(input, initialPromptText, handoffContext)
+      const acceptedInput = await this.repository.preparedInput(id, input.requestId)
+      const initial = !await this.repository.hasNativeSubmission(id)
+      const messagePrompt = (handoff: string | null) => acceptedInput?.prompt ?? operatorMessagePrompt(row!, input, initial, Boolean(handoff))
       const fileInputs = Boolean(input.attachments?.length)
       const admittedFiles = await this.managers.hasFileInputs?.(id, input.requestId) ?? false
       if (fileInputs !== admittedFiles || fileInputs && !this.managers.recordFileSubmission) throw new DomainError(
@@ -716,6 +1007,14 @@ export class OperatorChatService {
         defaultSubject: 'application-operator', profileKey: configuration.contentHash,
         ...(input.sessionMode ? { initialMode: input.sessionMode } : {}), busyReason: null })
       const runtime = await this.runtime(id, row, configuration, signal, fileInputs)
+      if (acceptedInput) restoreAcceptedChatInput(runtime.manager, nativeCorrelation(id, input.requestId), acceptedInput)
+      const onSubmitted = async (nativeTurnId: string) => {
+        submittedTurnId = nativeTurnId; submitted = true
+        await this.recordSubmittedTurn(id, input.requestId, ownerId, runtime, nativeTurnId, () => textStream?.flush())
+      }
+      const turnSettings = (nativeSessionId: string | null) => acceptedInput?.settings
+        ? this.sessionControls().settingsForAccepted(id, () => ({ requestId: input.requestId, nativeSessionId: nativeSessionId ?? runtime.session?.nativeSessionId ?? null }), acceptedInput.settings)
+        : this.sessionControls().turnSettings(id, () => ({ requestId: input.requestId, nativeSessionId: nativeSessionId ?? runtime.session?.nativeSessionId ?? null }), input.sessionMode)
       const onTerminal = async (observation: NativeTerminalObservation) => {
         submitted = true
         if (!await this.journalTerminal(id, input.requestId, observation.result, {
@@ -743,11 +1042,11 @@ export class OperatorChatService {
             await this.control(id, () => this.complete(id, input.requestId, { outcome: 'canceled' })); return
           }
           if (runtime.fileInputs && !this.managers.recordFileMessageSubmission) throw new DomainError('OPERATOR_FILE_MESSAGE_BINDING_REQUIRED', 'The file bridge requires an observed native message receipt.', 409)
+          await this.repository.markInitialInputOffered(id, input.requestId)
           submitting = true
           initialStream = await primeInitialNativeStream(runtime.manager.startInitialTurn(start, {
-            ...await this.sessionControls().turnSettings(id, {
-              requestId: input.requestId, nativeSessionId: null,
-            }, input.sessionMode),
+            ...await turnSettings(null),
+            onSubmitted,
             prompt: messagePrompt(initialHandoff ? row.handoff_context : null),
             clientCorrelationId: start.correlationId,
             onTerminal,
@@ -789,7 +1088,7 @@ export class OperatorChatService {
       signal.throwIfAborted(); this.assertOpen()
       submitting = true
       const correlationId = nativeCorrelation(id, input.requestId)
-      let submittedTurnId = row.active_native_turn_id
+      submittedTurnId ??= row.active_native_turn_id
       const textOwner = () => ({ scope: { kind: 'operator_chat' as const, conversationId: id },
         requestId: input.requestId, sessionId: runtime.session!.nativeSessionId,
         ...(submittedTurnId ? { turnId: submittedTurnId } : {}) })
@@ -804,15 +1103,16 @@ export class OperatorChatService {
         publish: (operation) => {
           // Raw reasoning is never promoted to a public assistant answer; safe summaries use activity records.
           if (operation.identity.channel !== 'assistant') return
-          this.events.publish(id, 'delta', { requestId: input.requestId, activityChange: activityTextEnvelope(redactText.value(operation), runtime.manager.harness),
+          const message = committed.message(operation)
+          this.events.publish(id, 'delta', { requestId: input.requestId,
+            ...(message ? { message } : {}),
+            activityChange: activityTextEnvelope(redactText.value(operation), runtime.manager.harness),
             ...(committed.revision() ? { scopeRevision: committed.revision() } : {}) })
         },
         reconcile: () => this.events.publish(id, 'state', { requestId: input.requestId, snapshotRequired: true }),
       })
       for await (const event_ of initialStream?.output ?? runtime.manager.startTurn(runtime.session, {
-        ...await this.sessionControls().turnSettings(id, {
-          requestId: input.requestId, nativeSessionId: runtime.session.nativeSessionId,
-        }, input.sessionMode),
+        ...await turnSettings(runtime.session.nativeSessionId),
         prompt: messagePrompt(includeHandoff ? row.handoff_context : null), clientCorrelationId: correlationId,
         onTerminal,
         onMessageSubmitted: async (receipt) => {
@@ -824,30 +1124,7 @@ export class OperatorChatService {
             if (runtime.fileInputs) await this.managers.recordFileMessageSubmission!(id, input.requestId, receipt)
           })
         },
-        onSubmitted: async (nativeTurnId) => {
-          submittedTurnId = nativeTurnId
-          // A callback is native evidence even when saving its identity fails.
-          // No subsequent definite error can make this prompt safe to replay.
-          submitted = true
-          // Reconciliation may own control() while the original callback is retried.
-          // The repository fences this SQL write by its saved request, session and owner.
-          if (!await this.repository.submitted(id, input.requestId, nativeTurnId,
-            { nativeSessionId: runtime.session!.nativeSessionId, principalId: row.owner_principal_id })) {
-            throw new Error('Native turn ownership was lost.')
-          }
-          if (runtime.fileInputs) await this.managers.recordFileSubmission!(id, input.requestId, nativeTurnId)
-          const current = await this.repository.active(id)
-          textStream?.flush()
-          this.events.publish(id, 'state', { requestId: input.requestId, activeRequestId: input.requestId,
-            revision: Number(current?.revision), turnState: current?.cancel_requested ? 'canceling' : 'active' })
-          const cancelRequested = Boolean(current && current.active_request_id === input.requestId && current.cancel_requested)
-          if (cancelRequested) {
-            // Persist identity before acknowledging submission, but NEVER await
-            // a native operation here. The tracked control queue owns delivery
-            // after this callback returns and releases that native lock.
-            this.deliverRequestedCancellation(id, input.requestId, runtime)
-          }
-        },
+        onSubmitted,
       }, signal)) {
         // After native output, errors from pending/history reads are not prompt rejections.
         submitted = true
@@ -865,8 +1142,7 @@ export class OperatorChatService {
           if (pending) {
             await this.repository.pending(id, input.requestId, pending)
             this.events.publish(id, 'state', { requestId: input.requestId, pending: true })
-            // Keep this consumer attached while respond() releases the native wait,
-            // so later output continues streaming for the same accepted turn.
+            // Keep this sole turn observer subscribed while the native question is answered.
           }
         }
       }
@@ -1325,6 +1601,45 @@ export class OperatorChatService {
         await this.reconcileConversation(candidate)
       }
     }))
+    if (this.canonicalDelivery && !this.closing) for (const id of await this.repository.queuedConversationIds()) this.pumpDeliveries(id)
+    await this.reconcileDeliverySteers()
+  }
+
+  /** Receipt evidence only. A crash-left steer is never offered to the native provider again. */
+  private async reconcileDeliverySteers(): Promise<void> {
+    if (!this.canonicalDelivery || this.closing) return
+    const ids = (await this.repository.pool.query<{ conversation_id: string }>(`select distinct t.conversation_id
+      from operator_conversation_turns t join operator_conversations c on c.id=t.conversation_id
+      where c.kind='operator' and t.intent='steer' and t.delivery in ('submitting','unknown')`)).rows
+    for (const { conversation_id: id } of ids) {
+      await this.control(id, async () => {
+        const commands = (await this.canonicalDelivery!.receipts.unfinishedForTarget({ kind: 'operator_conversation', conversationId: id }))
+          .filter(command => command.receipt.appliedIntent === 'steer' && command.ownerAdmission === 'owner_admitted')
+        const runtime = this.runtimes.get(id)
+        for (const command of commands) {
+          const binding = command.ownerBinding
+          let accepted = false
+          if (binding.nativeTurnId && runtime?.session && runtime.session.nativeSessionId === binding.nativeSessionId && runtime.manager.reconcileSteers) {
+            try {
+              const evidence = await runtime.manager.reconcileSteers(runtime.session, [{
+                clientCorrelationId: nativeCorrelation(id, command.request.commandId), expectedTurnId: binding.nativeTurnId,
+              }], AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(5_000)]))
+              accepted = evidence.some(item => item.nativeSessionId === binding.nativeSessionId
+                && item.nativeTurnId === binding.nativeTurnId && item.correlationId === nativeCorrelation(id, command.request.commandId))
+            } catch (error) { logIgnoredError('harness', 'read original Operator steer evidence', error) }
+          }
+          const changed = await this.repository.pool.query(`update operator_conversation_turns set delivery=$3,
+            native_turn_id=case when $4 then target_native_turn_id else native_turn_id end,
+            delivery_error=case when $4 then null else '{"code":"CHAT_STEER_UNCONFIRMED","message":"The original steer is unconfirmed and will not be resent."}'::jsonb end,
+            updated_at=now() where conversation_id=$1 and request_id=$2 and delivery in ('submitting','unknown')
+              and (delivery is distinct from $3::text or ($4 and native_turn_id is distinct from target_native_turn_id)
+                or (not $4 and delivery_error->>'code' is distinct from 'CHAT_STEER_UNCONFIRMED'))`,
+          [id, command.request.commandId, accepted ? 'accepted' : 'unknown', accepted])
+          await this.canonicalDelivery!.refresh(command)
+          if (changed.rowCount) this.events.publish(id, 'state', { requestId: command.request.commandId, snapshotRequired: true })
+        }
+      })
+    }
   }
 
   private async reconcileConversation(candidate: ConversationRow) {
@@ -1362,7 +1677,8 @@ export class OperatorChatService {
             undefined, !row.cancel_requested)
           return
         }
-        const initialSessionBound = row.harness === 'claude' && row.native_session_id
+        const offeredInitialInput = await this.repository.initialInputOffered(row.id, requestId)
+        const initialSessionBound = (offeredInitialInput || row.harness === 'claude') && row.native_session_id
         if (row.active_phase === 'accepted' || row.active_phase === 'ready' && !initialSessionBound) {
           await this.complete(row.id, requestId, row.cancel_requested ? { outcome: 'canceled' }
             : failure(new Error('The server stopped before native submission. Retry the same request.')), undefined, !row.cancel_requested)
@@ -1370,13 +1686,18 @@ export class OperatorChatService {
         }
         if (!row.native_session_id) {
           let resident = this.runtimes.get(row.id)
-          const initialTurn = row.harness === 'claude' && row.active_phase === 'submitting'
+          const initialTurn = offeredInitialInput || row.harness === 'claude' && row.active_phase === 'submitting'
           const creating = row.active_phase === 'creating' || initialTurn
           if (!resident && creating) {
             const configuration = await this.repository.configuration(row.operator_configuration_version_id)
-            if (configuration?.harnessProfileSelection?.target.hostRef.kind === 'device') {
+            if (configuration) {
               const fileInputs = await this.managers.hasFileInputs?.(row.id, requestId) ?? false
-              resident = { manager: this.managers(configuration, row.id, fileInputs), fileInputs,
+              const manager = this.managers(configuration, row.id, fileInputs)
+              if (!manager.reconcileSessionCreation) {
+                await manager.dispose?.(); this.managers.release?.(row.id)
+                throw new Error('The original native creation has no read-only recovery port.')
+              }
+              resident = { manager, fileInputs,
                 configuration, observationOnly: true,
                 creationInput: { kind: 'operator', configuration, workingDirectory: this.workingDirectory,
                   correlationId: nativeCorrelation(row.id, requestId) } }

@@ -6,7 +6,7 @@ import {
   WorkflowRunRecordSchema, ExecutionResultSchema, TimestampSchema,
 } from '../index.js'
 import { GraphIdSchema } from '../schemaPrimitives.js'
-import { WorkflowHierarchyContextSchema } from '../workflowHierarchy.js'
+import { validateHierarchyConfiguration } from './hierarchyValidation.js'
 import { canonicalGraphJson } from './json.js'
 import { ExecutionSemanticsVersionSchema as CurrentExecutionSemanticsSchema } from './workflowShape.js'
 export { ExecutionSemanticsVersionSchema as CurrentExecutionSemanticsSchema } from './workflowShape.js'
@@ -37,6 +37,9 @@ type Version = z.infer<typeof CurrentWorkflowVersionBaseSchema>
 export function validateCurrentWorkflowTopology(version: Version, context: z.RefinementCtx): void {
   const issue = (message: string, path: (string | number)[] = ['definition']) => context.addIssue({ code: 'custom', path, message })
   const graph = version.definition
+  // Hierarchy handoffs activate only an admitted request. Their saved routes may
+  // return to the entry or form review loops; the separate reporting tree stays acyclic.
+  const hierarchyRequests = Boolean(graph.hierarchy && graph.handoffs)
   if(graph.handoffs&&graph.nodes.some(node=>node.kind==='job'))issue('JOB_HANDOFF_POLICY_UNSUPPORTED: noninteractive job nodes use DAG or explicit finite repeat dependencies.')
   if (graph.id !== version.workflowId || graph.workspaceId !== version.workspaceId || graph.version !== version.version) issue('immutable scope/version mismatch')
   if (graph.entryNodeId !== version.entryNodeId) issue('authored and immutable entry must match', ['entryNodeId'])
@@ -70,7 +73,7 @@ export function validateCurrentWorkflowTopology(version: Version, context: z.Ref
       }
     }
     if (edge.kind === 'execution') {
-      if (edge.target === version.entryNodeId) issue('entry cannot have an incoming execution dependency')
+      if (!hierarchyRequests && edge.target === version.entryNodeId) issue('entry cannot have an incoming execution dependency')
       outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target])
       indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1)
     } else {
@@ -90,14 +93,14 @@ export function validateCurrentWorkflowTopology(version: Version, context: z.Ref
       if (remaining === 0) queue.push(target)
     }
   }
-  if (processed !== nodes.size) issue('execution relationships must form an acyclic graph')
+  if (!hierarchyRequests && processed !== nodes.size) issue('execution relationships must form an acyclic graph')
   const reachable = new Set<string>(), visit = [version.entryNodeId]
   for (let i = 0; i < visit.length; i++) {
     const id = visit[i]!
     if (reachable.has(id)) continue
     reachable.add(id); visit.push(...(outgoing.get(id) ?? []))
   }
-  for (const edge of execution) if (!reachable.has(edge.source) && reachable.has(edge.target)) issue('an excluded component cannot supply a selected-component dependency')
+  for (const edge of execution) if (!hierarchyRequests && !reachable.has(edge.source) && reachable.has(edge.target)) issue('an excluded component cannot supply a selected-component dependency')
   if (Object.keys(version.agentConfigurationVersionIds).length !== new Set(graph.nodes.filter(node => node.kind !== 'job').map(node => node.agentId)).size) issue('configuration pins must describe exactly this topology')
   for (const node of graph.nodes) {
     if (node.kind !== 'job' && !version.agentConfigurationVersionIds[node.agentId]) issue('each Agent requires an immutable configuration pin')
@@ -158,17 +161,7 @@ export function validateCurrentWorkflowConfigurations(value: { version: Version 
   if (!nodes.length) fail('an executable workflow needs an entry node')
   if (nodes.length === 1 && version.entryNodeId !== nodes[0]?.id) fail('a sole node starts itself')
   if (version.definition.hierarchy) {
-    const hierarchy = WorkflowHierarchyContextSchema.safeParse({
-      hierarchy: version.definition.hierarchy, workspaceId: version.workspaceId, workflowId: version.workflowId,
-      entryNodeId: version.entryNodeId, nodes: nodes.filter((node) => node.kind !== 'job').map((node) => {
-        const configuration = configs.get(version.agentConfigurationVersionIds[node.agentId]!);
-        return { workspaceId: version.workspaceId, workflowId: version.workflowId, workflowNodeId: node.id,
-          agentId: node.agentId, productRole: configuration?.productRole, configurationVersionId: configuration?.id,
-          displayName: node.name ?? node.label ?? node.id };
-      }),
-    })
-    if (!hierarchy.success) hierarchy.error.issues.forEach((issue) => fail(issue.message))
-    if (!version.definition.handoffs || version.definition.repeat || nodes.some((node) => node.kind === 'job')) fail('hierarchy requires agent handoff work without jobs or repeat blocks')
+    validateHierarchyConfiguration(value, context)
   } else {
     if (nodes.some((node) => role(node.id) === 'master')) fail('Master nodes require an explicit hierarchy')
     if (orchestrators.length ? role(version.entryNodeId) !== 'orchestrator' : nodes.find(node => node.id === version.entryNodeId)?.kind !== 'job' && role(version.entryNodeId) !== 'coder') fail('entry must use the pinned Orchestrator role when present, otherwise the Worker (coder) role')

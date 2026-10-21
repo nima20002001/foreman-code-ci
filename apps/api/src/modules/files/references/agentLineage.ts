@@ -9,6 +9,7 @@ export interface ReferenceExecutionIdentity {
   agent_id: string
   run_id: string
   execution_id: string
+  consultation_id?: string | null
 }
 export interface ReferenceConversationIdentity {
   id: string
@@ -46,7 +47,7 @@ export function effectiveReference(context: AgentReferenceContext, scope: FileSc
 
 export function referenceContextKey(context: AgentReferenceContext): string {
   return JSON.stringify([context.workspaceId, context.workflowId, context.agentId,
-    context.conversationId ?? null, context.runId ?? null, context.executionId ?? null])
+    context.conversationId ?? null, context.runId ?? null, context.executionId ?? null, context.consultationId ?? null])
 }
 export function referenceCursorKey(principalId: string, context: AgentReferenceContext): string {
   return createHash('sha256').update(JSON.stringify([principalId, referenceContextKey(context)])).digest('hex')

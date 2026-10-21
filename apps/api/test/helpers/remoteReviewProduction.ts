@@ -105,6 +105,7 @@ export async function remoteReviewProduction(options: {
   installationRefreshIntervalMs?: number; parallelSetup?: boolean; includeNodeRuntimePayload?: boolean
   installedMainService?: boolean
   sourceAccessMode?: 'read-only' | 'exclusive-write'
+  artifactOutputKeys?: string[]
   reportPhase?: (phase: string, elapsedMs: number) => void
 } = {}) {
   const rootAccessMode = options.sourceAccessMode === 'exclusive-write' ? 'read-write' : 'read-only'
@@ -217,6 +218,9 @@ export async function remoteReviewProduction(options: {
       homes: [logEnvironment.HOME!, workerEnvironment.HOME!] })
     const shape = options.workflow === 'interval' ? 'sequential' : options.workflow ?? 'approval'
     const seed = makeCurrentWorkflowFixture(randomUUID(), shape)
+    if (options.artifactOutputKeys) seed.version.definition.nodes[0]!.artifactOutputs = {
+      version: 1, outputKeys: options.artifactOutputKeys,
+    }
     if (options.workflow === 'interval') {
       seed.version.definition.handoffs = { contractVersion: 1 }
       seed.version.definition.nodes[0]!.interval = { everySeconds: 10 }
@@ -230,6 +234,10 @@ export async function remoteReviewProduction(options: {
         ...configuration, prompt: { system: systemPrompt },
         harness: { ...configuration.harness, model: 'test-model',
           ...(options.sourceAccessMode === 'exclusive-write' ? { sandbox: 'workspace-write' } : {}),
+          ...(options.artifactOutputKeys ? { advanced: {
+            ...DEFAULT_CODEX_ADVANCED_CONFIGURATION,
+            workspaceWrite: { networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true },
+          } } : {}),
           ...(options.workflow === 'interval' ? { advanced: {
             ...DEFAULT_CODEX_ADVANCED_CONFIGURATION, approvalPolicy: 'never',
           } } : {}) },
@@ -313,7 +321,8 @@ export async function remoteReviewProduction(options: {
             })
           }
           const event = parsed as { level?: unknown; code?: unknown; errorCode?: unknown; stackFrames?: unknown;
-            namespace?: unknown; tool?: unknown; runId?: unknown; err?: { code?: unknown; stack?: unknown; message?: unknown; type?: unknown }; msg?: unknown;
+            namespace?: unknown; tool?: unknown; runId?: unknown; err?: { code?: unknown; stack?: unknown; message?: unknown;
+              type?: unknown; cause?: { stack?: unknown } }; msg?: unknown;
             phase?: unknown; errorType?: unknown; errorLocation?: unknown; reason?: unknown }
           const code = event.err?.code ?? event.code ?? event.errorCode
             ?? (event.msg === 'Device extension request failed' ? 'DEVICE_EXTENSION_FAILED' : undefined)
@@ -321,6 +330,9 @@ export async function remoteReviewProduction(options: {
           if (!['warn', 'error', 'fatal'].includes(String(event.level)) || typeof code !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{1,127}$/.test(code)) continue
           const frames = Array.isArray(event.stackFrames)
             ? event.stackFrames.filter((frame): frame is string => typeof frame === 'string').slice(0, 4) : []
+          if (typeof event.err?.cause?.stack === 'string') {
+            frames.push(...event.err.cause.stack.split('\n').slice(1, 5).map(frame => `cause: ${frame}`))
+          }
           const sourceMessage = event.err?.message
           const errorDetail = code === 'source-reconciliation-unconfirmed' && typeof sourceMessage === 'string'
             && /^Process \d+ (?:still |could not be inspected|exceeded )/.test(sourceMessage)
@@ -828,6 +840,8 @@ export async function remoteReviewProduction(options: {
       pauseWorkerConnection: transport.pauseConnections,
       resumeWorkerConnection: transport.resumeConnections,
       dropNextPhysicalReadout: transport.dropNextPhysicalReadout,
+      dropNextSettlement: transport.dropNextSettlement,
+      holdNextRetirementReply: transport.holdNextRetirementReply,
       loseNextCompactionResponse: transport.loseNextCompactionResponse,
       conversationRequests: transport.conversationRequests,
       async restoreOriginalResponseGrant() {

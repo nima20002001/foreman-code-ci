@@ -81,8 +81,8 @@ export async function readAgentConfigurationTransition(pool: pg.Pool, previous: 
     [previous.sourceExecution.placement.runId, base.workspaceId])).rows[0]
     const version = WorkflowVersionV3Schema.parse(saved?.record)
     const node = version.definition.nodes.find(item => item.id === nodeId)
-    if (node && node.kind !== 'job' && node.agentId === base.agentId && node.skills) {
-      base = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id])
+    if (node && node.kind !== 'job' && node.agentId === base.agentId && (node.skills || node.browser?.enabled)) {
+      base = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id], node.browser)
     }
   }
   return validAgentSessionReplacement(previous, next, base, configuration) ? base : undefined

@@ -1,4 +1,6 @@
-import { HarnessExecutionSchema, WorkflowRunSchema } from '@foreman-code/contracts'
+import { workflowChatGrants } from './workflowChatGrants.js'
+import { canonicalJson, CoordinatorConsultationBindingSchema, HarnessExecutionSchema, WorkflowRunSchema,
+  type CoordinatorConsultationBinding } from '@foreman-code/contracts'
 import { withTransaction } from '../../infrastructure/transaction.js'
 import type pg from 'pg'
 
@@ -8,6 +10,7 @@ import type { ChildProcessEnvironment } from '../harnesses/port.js'
 import type { PostgresAccessService } from './postgres.js'
 import { lockActiveWorkerPrincipal, lockWorkerExecution, requireActiveWorkerExecution } from './workerLifecycle.js'
 import { WORKER_BINDING_ELIGIBLE } from './workerEligibility.js'
+import { readCoordinatorCredentialAuthority, readConsultationCredentialSubject } from './consultationAuthority.js'
 
 export const APP_MCP_TOKEN_ENVIRONMENT_VARIABLE = 'GRAPHQL_MCP_TOKEN'
 export const DEFAULT_WORKER_CREDENTIAL_TTL_MS = 15 * 60 * 1000
@@ -46,6 +49,81 @@ export class WorkerCredentialService {
 
   issueForReviewer(executionId: string): Promise<IssuedWorkerCredential> {
     return this.issue(executionId, 'reviewer')
+  }
+
+  /** A consultation borrows its retained native session, never its closed graph credential. */
+  issueForConsultation(input: CoordinatorConsultationBinding): Promise<IssuedWorkerCredential> {
+    const binding = CoordinatorConsultationBindingSchema.parse(input)
+    return this.transaction(async client => {
+      const authority = await readCoordinatorCredentialAuthority(client, binding, true)
+      const expiry = await this.issueExpiry(client)
+      const issued = await this.access.issue({ name: `consultation:${binding.consultationId}`,
+        audience: 'worker', agentId: authority.subject.agent.agentId,
+        grants: [...await workflowChatGrants(client, authority.source_execution_id), { actions: ['bug_reports:report', 'interactions:read'], scope: {
+          workspaceIds: [authority.workspace_id], workflowIds: [authority.workflow_id], runIds: [binding.runId],
+        } }], expiresAt: expiry.expiresAt }, client)
+      await client.query(`insert into worker_credential_bindings
+        (principal_id,execution_id,run_id,workspace_id,workflow_id,agent_id,environment_variable,purpose,
+          consultation_id,consultation_binding)
+        values($1,$2,$3,$4,$5,$6,$7,'consultation',$8,$9::jsonb)`,
+      [issued.principal.id, authority.source_execution_id, binding.runId, authority.workspace_id,
+        authority.workflow_id, authority.subject.agent.agentId, APP_MCP_TOKEN_ENVIRONMENT_VARIABLE,
+        binding.consultationId, canonicalJson(binding)])
+      return { principalId: issued.principal.id, expiresAt: issued.principal.expiresAt,
+        renewalDeadline: expiry.renewalDeadline, environment: { agentId: authority.subject.agent.agentId,
+          variables: { [APP_MCP_TOKEN_ENVIRONMENT_VARIABLE]: issued.token } } }
+    })
+  }
+
+  /** Renew only while this exact consultation still owns the live mailbox. */
+  renewForConsultation(input: CoordinatorConsultationBinding,
+    credential: Pick<IssuedWorkerCredential, 'principalId' | 'nativeLifetimeGeneration'>): Promise<string> {
+    const binding = CoordinatorConsultationBindingSchema.parse(input)
+    return this.transaction(async client => {
+      await readCoordinatorCredentialAuthority(client, binding, true)
+      await client.query('select id from management_principals where id=$1 for update', [credential.principalId])
+      const subject = await readConsultationCredentialSubject(client, credential.principalId)
+      if (subject.kind !== 'coordinator_consultation' || canonicalJson(subject.binding) !== canonicalJson(binding)) {
+        throw new DomainError('WORKER_CREDENTIAL_IDENTITY_CONFLICT', 'The credential belongs to another consultation.', 409)
+      }
+      const requestedAt = performance.now()
+      const row = (await client.query<{ expires_at: Date; database_now: Date }>(`update management_principals p
+        set expires_at=greatest(p.expires_at,clock_timestamp()+($3::integer*interval '1 millisecond'))
+        from worker_credential_bindings b where p.id=$1 and b.principal_id=p.id
+          and b.purpose='consultation' and b.consultation_binding=$2::jsonb
+          and b.revoked_at is null and p.revoked_at is null and p.expires_at>clock_timestamp()
+        returning p.expires_at,clock_timestamp() as database_now`,
+      [credential.principalId, canonicalJson(binding), this.ttlMs])).rows[0]
+      if (!row) throw new DomainError('WORKER_CREDENTIAL_NOT_RENEWABLE', 'The consultation credential is no longer active.', 409)
+      Object.assign(credential, { renewalDeadline: databaseCredentialDeadline(row.expires_at, row.database_now, requestedAt) })
+      return row.expires_at.toISOString()
+    })
+  }
+
+  /** Reuse the actual retained token after reconnect; never mint a replacement from history. */
+  async restoreForConsultation(input: CoordinatorConsultationBinding,
+    environment: ChildProcessEnvironment): Promise<IssuedWorkerCredential> {
+    const binding = CoordinatorConsultationBindingSchema.parse(input)
+    const keys = Object.keys(environment.variables), token = environment.variables[APP_MCP_TOKEN_ENVIRONMENT_VARIABLE]
+    if (keys.length !== 1 || keys[0] !== APP_MCP_TOKEN_ENVIRONMENT_VARIABLE || !token) {
+      throw new DomainError('WORKER_CREDENTIAL_IDENTITY_CONFLICT', 'The retained consultation environment is invalid.', 409)
+    }
+    const principal = await this.access.authenticate(token, 'worker')
+    return this.transaction(async client => {
+      await readCoordinatorCredentialAuthority(client, binding, true)
+      const current = await lockActiveWorkerPrincipal(client, principal)
+      const subject = await readConsultationCredentialSubject(client, current.id)
+      if (subject.kind !== 'coordinator_consultation' || canonicalJson(subject.binding) !== canonicalJson(binding)
+        || subject.agent.agentId !== environment.agentId || current.agentId !== environment.agentId) {
+        throw new DomainError('WORKER_CREDENTIAL_IDENTITY_CONFLICT', 'The retained credential belongs to another consultation.', 409)
+      }
+      const requestedAt = performance.now()
+      const clock = (await client.query<{ expires_at: Date; database_now: Date }>(
+        'select expires_at,clock_timestamp() as database_now from management_principals where id=$1', [current.id])).rows[0]!
+      return { principalId: current.id, expiresAt: clock.expires_at.toISOString(),
+        renewalDeadline: databaseCredentialDeadline(clock.expires_at, clock.database_now, requestedAt),
+        environment: structuredClone(environment) }
+    })
   }
 
   protected async issueExpiry(client: pg.ClientBase): Promise<{ expiresAt: Date; renewalDeadline: number }> {
@@ -113,7 +191,7 @@ export class WorkerCredentialService {
         name: `execution:${identity.execution_id}`,
         audience: 'worker',
         agentId: identity.agent_id,
-        grants: [{
+        grants: [...await workflowChatGrants(client, executionId), {
           actions: [
             'bug_reports:report',
             'interactions:read',
@@ -227,7 +305,8 @@ export class WorkerCredentialService {
       const active = await client.query<{ principal_id: string }>(
         `select b.principal_id from worker_credential_bindings b
          left join management_principals p on p.id=b.principal_id
-         where b.execution_id=$1 and (b.revoked_at is null or (p.id is not null and p.revoked_at is null))
+         where b.execution_id=$1 and b.purpose<>'consultation'
+           and (b.revoked_at is null or (p.id is not null and p.revoked_at is null))
          order by b.principal_id`, [executionId],
       )
       const principalIds = active.rows.map((row) => row.principal_id)
@@ -247,7 +326,8 @@ export class WorkerCredentialService {
       const active = await client.query<{ principal_id: string }>(
         `select b.principal_id from worker_credential_bindings b
          left join management_principals p on p.id=b.principal_id
-         where b.execution_id=$1 and (b.revoked_at is null or (p.id is not null and p.revoked_at is null))
+         where b.execution_id=$1 and b.purpose<>'consultation'
+           and (b.revoked_at is null or (p.id is not null and p.revoked_at is null))
          order by b.principal_id`, [executionId],
       )
       const principalIds = active.rows.map((row) => row.principal_id)

@@ -19,6 +19,7 @@ export function editorAgents(edit: NextDraftEdit): Agent[] {
 }
 function content(agent: Agent) {
   return { prompt: agent.prompt ?? {}, assignedSkills: agent.assignedSkills ?? [], description: agent.description ?? null, role: agent.role ?? null,
+    ...(agent.productRole ? { productRole: agent.productRole } : {}),
     ...(agent.graphqlTools ? { graphqlTools: agent.graphqlTools } : {}),
     ...(agent.nativeTools ? { nativeTools: agent.nativeTools } : {}) }
 }
@@ -53,7 +54,6 @@ export function configureAgentOperations(context: NextDraftContext, graph: Workf
     const source = context.agents.find((item) => item.agent.id === id)
     const before = source?.agent
     if (!before) continue // Created explicitly by addAgentOperations in the same serial writer.
-    if (before.productRole !== after.productRole) throw new Error('An existing Agent role cannot be rewritten by the board.')
     const revision = source?.metadataRevision
     if (revision === undefined) throw new Error('The Agent revision is unavailable. Reload before editing its settings.')
     if (before.name !== after.name) operations.push({ type: 'agent.rename', agentId: id, expectedAgentRevision: revision, name: after.name })
@@ -66,14 +66,26 @@ export function configureAgentOperations(context: NextDraftContext, graph: Workf
 
 /** Content-only edit. No server revision, configuration pin or pending receipt is invented. */
 export function changeDraftAgent(edit: NextDraftEdit, agent: Agent, graph: WorkflowDefinitionV3): NextDraftEdit {
+  return changeDraftAgents(edit, [agent], graph)
+}
+
+/** Role transitions and their reporting tree are one undoable draft action. */
+export function changeDraftAgents(edit: NextDraftEdit, agents: Agent[], graph: WorkflowDefinitionV3): NextDraftEdit {
   if (edit.busy || edit.pending) throw new Error('Reconcile the pending draft command before editing Agent settings.')
-  const before = editorAgents(edit).find((item) => item.id === agent.id)
-  if (sameAgentContent(before, agent) && sameValue(graph, edit.graph)) return edit
-  const history = (edit.agentHistory ?? edit.history.map(() => ({}))).map((snapshot: DraftAgentEdits) =>
-    before && !snapshot[agent.id] ? { ...snapshot, [agent.id]: before } : snapshot)
-  const previous = { ...snapshotAgentEdits(edit), ...(before ? { [agent.id]: before } : {}) }
-  const edits = { ...edit.agentEdits, [agent.id]: agent }
-  if (sameAgentContent(draftAgents(edit.context).find((item) => item.id === agent.id), agent)) delete edits[agent.id]
+  const displayed = new Map(editorAgents(edit).map(agent => [agent.id, agent]))
+  if (agents.every(agent => sameAgentContent(displayed.get(agent.id), agent)) && sameValue(graph, edit.graph)) return edit
+  const before = Object.fromEntries(agents.flatMap(agent => {
+    const previous = displayed.get(agent.id)
+    return previous ? [[agent.id, previous]] : []
+  }))
+  const history = (edit.agentHistory ?? edit.history.map(() => ({}))).map((snapshot: DraftAgentEdits) => ({ ...before, ...snapshot }))
+  const previous = { ...snapshotAgentEdits(edit), ...before }
+  const saved = new Map(draftAgents(edit.context).map(agent => [agent.id, agent]))
+  const edits = { ...edit.agentEdits }
+  for (const agent of agents) {
+    if (sameAgentContent(saved.get(agent.id), agent)) delete edits[agent.id]
+    else edits[agent.id] = agent
+  }
   return { ...edit, graph, agentEdits: referencedAgentEdits(graph, edits), future: [],
     history: [...edit.history.slice(-49), edit.graph],
     historyOffset: (edit.historyOffset ?? 0) + Math.max(0, edit.history.length - 49),

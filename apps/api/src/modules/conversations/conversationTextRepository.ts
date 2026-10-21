@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { withTransaction } from '../../infrastructure/transaction.js'
 import type pg from 'pg'
-import { MessageSchema, type ActivityScope } from '@foreman-code/contracts'
+import { MessageSchema, type ActivityScope, type Message } from '@foreman-code/contracts'
 import type { ActivityTextOperation } from '@foreman-code/contracts/activity-text'
 import type { ActivityMutationFence } from './operatorActivityRepository.js'
 
-export type TextMutationResult = { status: 'committed' | 'ignored' | 'reconciliation_required'; revision: string; messageRevision?: string }
+export type TextMutationResult = { status: 'committed' | 'ignored' | 'reconciliation_required'; revision: string; messageRevision?: string; message?: Message }
 interface Provenance {
   sessionId: string; generation?: string; turnId?: string; itemId: string; partId?: string; parentId?: string; channel: string; final: boolean
   nativeSubmission?: ActivityMutationFence['nativeSubmission']
@@ -104,15 +104,16 @@ export async function appendConversationTextOperation(pool: pg.Pool, conversatio
       activityNative: { harness: row.harness, sessionId: identity.sessionId, ...(identity.generation ? { generation: identity.generation } : {}), ...(identity.turnId ? { turnId: identity.turnId } : {}),
         itemId: identity.itemId, ...(identity.partId ? { partId: identity.partId } : {}), ...(identity.parentId ? { parentItemId: identity.parentId } : {}) },
       role: identity.channel === 'user' ? 'user' : 'assistant', activityChannel: identity.channel, content, nativeMessageId: nativeId,
-      nativeMessageComplete: operation.final, ...(operation.truncation ? { truncation: operation.truncation } : {}), ...(identity.parentId ? { nativeParentMessageId: identity.parentId } : {}),
+      nativeMessageComplete: operation.final, truncation: operation.truncation, ...(identity.parentId ? { nativeParentMessageId: identity.parentId } : {}),
       afterActivitySequence: boundary, createdAt: existing.createdAt ?? now, updatedAt: now })
     const record = { ...message, ...(attachmentRefs ? { attachmentRefs } : {}), ...(publicationRefs ? { publicationRefs } : {}) }
-    const written = (await client.query<{ revision: string }>(`insert into operator_conversation_messages
+    const written = (await client.query<{ revision: string; sequence: string }>(`insert into operator_conversation_messages
       (id,conversation_id,role,content,native_message_id,record,text_provenance) values ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
       on conflict(conversation_id,native_message_id) where native_message_id is not null do update set content=excluded.content,
-        record=excluded.record,text_provenance=excluded.text_provenance returning activity_record_revision::text as revision`,
+        record=excluded.record,text_provenance=excluded.text_provenance returning activity_record_revision::text as revision,sequence::text`,
     [message.id, conversationId, message.role, content, nativeId, JSON.stringify(record), JSON.stringify(provenance)])).rows[0]!
     const revision = (await client.query<{ revision: string }>('update operator_conversations set revision=revision+1,updated_at=now() where id=$1 returning revision::text', [conversationId])).rows[0]!.revision
-    return { status: 'committed', revision, messageRevision: written.revision }
+    return { status: 'committed', revision, messageRevision: written.revision,
+      message: { ...message, revision: written.revision, sequence: written.sequence } }
   })
 }

@@ -1,3 +1,4 @@
+import { nativeChatPrompt, prepareWorkerChatFrame, workerInputProof, type AcceptedChatInput, type PreparedChatInput } from './nativeChatInput.js'
 import { sessionStartConfiguration, sessionStartDirectory } from '../harnesses/sessionStart.js'
 import { definedProperties } from '../definedProperties.js'
 import { isDeepStrictEqual } from 'node:util'
@@ -32,7 +33,7 @@ import { logIgnoredError } from '../diagnostics/ignoredError.js'
 import type { PrepareWorkerFiles } from './mainWorkerFiles.js'
 
 function conflict(message: string): never { throw new DomainError('WORKER_CONVERSATION_CONFLICT', message, 409) }
-interface ManagerOptions {
+export interface WorkerConversationManagerOptions {
   binding: WorkerConversationBinding
   configuration: WorkerConversationConfiguration
   /** Temporary readers own their observer, while native runtime ownership stays on Worker. */
@@ -50,7 +51,15 @@ interface ManagerOptions {
   files?: PrepareWorkerFiles
   previousConfiguration?: WorkerConversationConfiguration
   previousBinding?: WorkerConversationBinding
+  /** D resolves the existing wire credential leaf from the exact accepted AgentSubject. */
+  applicationAccess?(start: NativeSessionStart): Extract<WorkerConversationRpcRequest,
+    { method: 'conversation.initial-turn' }>['applicationAccess']
 }
+
+export type WorkerChatInput =
+  | { kind: 'initial'; start: NativeSessionStart; input: NativeInitialTurnInput }
+  | { kind: 'turn'; session: NativeSessionReference; input: NativeTurnInput }
+  | { kind: 'steer'; session: NativeSessionReference; input: NativeSteerInput }
 
 /** Main's existing native port targets one conversation on its selected paired worker. */
 export class WorkerConversationManager implements NativeHarnessSessionManager {
@@ -68,10 +77,12 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   private runtimeAcquired = false
   private reconnecting: Promise<void> | undefined
   private readonly lifetime = new AbortController()
+  private readonly preparedInputs = new Map<string, AcceptedChatInput>()
+  private retainedStart: NativeSessionStart | undefined
 
-  constructor(private readonly options: ManagerOptions) {
+  constructor(private readonly options: WorkerConversationManagerOptions) {
     this.harness = options.binding.harness
-    if (this.harness === 'claude') this.startInitialTurn = this.initialTurn.bind(this)
+    this.startInitialTurn = this.initialTurn.bind(this)
     if (options.acceptedConfiguration) {
       if (!('operatorId' in options.configuration)) conflict('Presentation changes require an Operator configuration.')
       workerExecutionConfiguration(options.binding, options.acceptedConfiguration, options.configuration)
@@ -80,6 +91,43 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
 
   private frame(input: Record<string, unknown>): WorkerConversationRpcRequest {
     return { ...input, binding: this.options.binding } as WorkerConversationRpcRequest
+  }
+
+  private inputFrame(input: WorkerChatInput): WorkerConversationRpcRequest {
+    const common = { prompt: nativeChatPrompt(input.input.prompt, Boolean(this.options.files)),
+      correlationId: input.input.clientCorrelationId }
+    if (input.kind === 'steer') return this.frame({ method: 'conversation.steer', ...common,
+      session: input.session, expectedTurnId: input.input.expectedTurnId })
+    const preferences = { ...(input.input.sessionMode ? { sessionMode: input.input.sessionMode } : {}),
+      ...(input.input.sessionPreferences ? { preferences: input.input.sessionPreferences } : {}) }
+    if (input.kind === 'turn') return this.frame({ method: 'conversation.start-turn', ...common, ...preferences,
+      session: input.session, ...(this.options.files ? { fileInputs: true } : {}) })
+    return this.frame({ method: 'conversation.initial-turn', ...this.startFields(input.start), ...common, ...preferences,
+      ...(this.options.previousBinding ? { previousBinding: this.options.previousBinding } : {}),
+      ...(this.options.previousConfiguration ? { previousConfiguration: this.options.previousConfiguration } : {}) })
+  }
+
+  /** Pure preparation: callers invoke this before persisting a message, using accepted owner facts. */
+  prepareInput(input: WorkerChatInput): PreparedChatInput {
+    const frame = prepareWorkerChatFrame(this.inputFrame(input))
+    return { prompt: 'prompt' in frame ? frame.prompt : input.input.prompt,
+      workerFrames: [frame] }
+  }
+
+  restorePreparedInput(correlationId: string, accepted: AcceptedChatInput): void {
+    this.preparedInputs.set(correlationId, structuredClone(accepted))
+  }
+
+  private acceptedInput(input: WorkerChatInput): WorkerConversationRpcRequest {
+    const frame = prepareWorkerChatFrame(this.inputFrame(input))
+    const prepared = this.preparedInputs.get(input.input.clientCorrelationId)
+    if (!prepared) return frame // Historical commands predate retained preparation; new admission restores its proof.
+    const proof = workerInputProof(frame)
+    if (!prepared.workerProofs.some(saved => saved.method === proof.method && saved.inputHash === proof.inputHash)) {
+      throw new DomainError('CHAT_PREFLIGHT_CHANGED', 'The native input no longer matches its accepted prepared frame.', 409)
+    }
+    this.preparedInputs.delete(input.input.clientCorrelationId)
+    return frame
   }
   private currentChannel() {
     const channel = this.options.currentChannel?.() ?? this.options.channel
@@ -138,14 +186,14 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
   private async capture(frame: WorkerConversationRpcRequest, options: {
     callbacks?: WorkerConversationCallbacks; recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string
-    current?: ManagerOptions['current']
+    current?: WorkerConversationManagerOptions['current']
   } = {}, signal?: AbortSignal) {
     await this.reconnect(signal, { reattachSession: frame.method !== 'conversation.release-runtime' })
     return this.captureConnected(frame, options)
   }
   private captureConnected(frame: WorkerConversationRpcRequest, options: {
     callbacks?: WorkerConversationCallbacks; recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string
-    current?: ManagerOptions['current']
+    current?: WorkerConversationManagerOptions['current']
   } = {}): ReturnType<MainWorkerConversationBridge['capture']> {
     const channel = this.options.channel
     let requested = false
@@ -275,15 +323,20 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
       conflict('Only this conversation’s scoped application credential may cross the worker channel.')
     }
     const token = environment && readProductEnvironment(environment.variables, 'MCP_TOKEN')
-    if (token && (this.options.binding.owner.kind !== 'operator' || this.options.binding.appMcpAccess !== 'scoped')) {
-      conflict('File-only or Agent chat cannot receive management MCP authority.')
+    const applicationAccess = this.options.applicationAccess?.(start)
+      ?? (token && this.options.binding.owner.kind === 'operator' ? { kind: 'operator-chat-mcp' as const, token } : undefined)
+    if ((token || applicationAccess) && this.options.binding.appMcpAccess !== 'scoped'
+      || token && !applicationAccess
+      || applicationAccess?.kind === 'operator-chat-mcp' && this.options.binding.owner.kind !== 'operator') {
+      conflict('The native credential does not match this conversation’s exact scoped owner.')
     }
     return { operationId: start.correlationId, configuration: this.options.configuration,
       ...(this.preferences ? { preferences: this.preferences } : {}),
-      ...(token ? { applicationAccess: { kind: 'operator-chat-mcp' as const, token } } : {}) }
+      ...(applicationAccess ? { applicationAccess } : {}) }
   }
   private async open(start: NativeSessionStart, mode: 'create' | 'attach' | 'fork',
     source: NativeSessionReference | undefined, signal?: AbortSignal) {
+    this.retainedStart = start
     const fields = this.startFields(start)
     if (mode === 'attach' && start.kind === 'operator' && start.observationOnly) delete fields.applicationAccess
     const frame = this.frame({ method: 'conversation.open', ...fields, mode,
@@ -323,7 +376,8 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
     const fields = this.startFields(start)
     const raw = await this.request({ method: 'conversation.status' }, signal)
     const record = z.object({ receipt: WorkerConversationReceiptSchema.optional() }).parse(raw).receipt
-    const initialTurn = this.harness === 'claude' && !forkSource
+    const initialTurn = !forkSource && Boolean(record?.turns.some(turn => turn.correlationId === fields.operationId
+      && turn.creationOperationId === fields.operationId))
     const inputHash = commandInputHash(initialTurn
       ? { mode: 'initial-turn', correlationId: fields.operationId }
       : { mode: forkSource ? 'fork' : 'create', source: forkSource ?? null, preferences: fields.preferences ?? null })
@@ -397,10 +451,15 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   async deliverClaudeCredential(token: string, signal: AbortSignal) {
     if (this.harness !== 'claude' || this.options.binding.owner.kind !== 'operator'
       || this.options.binding.appMcpAccess !== 'scoped') conflict('This manager has no scoped Claude Operator credential.')
+    return this.deliverScopedCredential({ kind: 'operator-chat-mcp', token }, signal)
+  }
+
+  private async deliverScopedCredential(applicationAccess: NonNullable<Extract<WorkerConversationRpcRequest,
+    { method: 'conversation.initial-turn' }>['applicationAccess']>, signal: AbortSignal) {
     this.preparationActive = true
     const lease = await this.capture(this.frame({
       method: 'conversation.refresh-mcp', configuration: this.options.configuration,
-      applicationAccess: { kind: 'operator-chat-mcp', token },
+      applicationAccess,
     }))
     try {
       const result = z.object({ acknowledged: z.literal(true) }).strict().parse(await lease.request(signal))
@@ -484,19 +543,19 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
   startTurn(session: NativeSessionReference, input: NativeTurnInput, signal?: AbortSignal) {
     this.assertSession(session)
-    return this.stream(this.frame({ method: 'conversation.start-turn', session, prompt: input.prompt,
-      ...(this.options.files ? { fileInputs: true } : {}),
-      correlationId: input.clientCorrelationId, ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
-      ...(input.sessionPreferences ? { preferences: input.sessionPreferences } : {}) }), input, undefined, signal)
+    if (this.preparedInputs.get(input.clientCorrelationId)?.workerProofs.some(proof => proof.method === 'conversation.initial-turn')) {
+      if (!this.retainedStart) conflict('The accepted conversation-bound input has no restored startup facts.')
+      const start = { ...this.retainedStart, correlationId: input.clientCorrelationId }
+      const frame = this.acceptedInput({ kind: 'initial', start, input: { ...input,
+        onSessionObserved: async observed => { this.assertSession(observed) } } })
+      return this.stream(frame, input, undefined, signal)
+    }
+    return this.stream(this.acceptedInput({ kind: 'turn', session, input }), input, undefined, signal)
   }
   readonly startInitialTurn?: NonNullable<NativeHarnessSessionManager['startInitialTurn']>
   private initialTurn(start: NativeSessionStart, input: NativeInitialTurnInput, signal?: AbortSignal) {
-    return this.stream(this.frame({ method: 'conversation.initial-turn', ...this.startFields(start),
-      ...(this.options.previousBinding ? { previousBinding: this.options.previousBinding } : {}),
-      ...(this.options.previousConfiguration ? { previousConfiguration: this.options.previousConfiguration } : {}),
-      prompt: input.prompt, correlationId: input.clientCorrelationId,
-      ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
-      ...(input.sessionPreferences ? { preferences: input.sessionPreferences } : {}) }), input, input, signal)
+    this.retainedStart = start
+    return this.stream(this.acceptedInput({ kind: 'initial', start, input }), input, input, signal)
   }
   async history(session: NativeSessionReference, signal?: AbortSignal): Promise<NativeHistory> {
     return this.readHistory(session, signal)
@@ -506,10 +565,11 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
     const fields = this.startFields(start)
     if (!fields.applicationAccess) conflict('A fresh scoped application credential is required.')
     if (this.harness === 'claude') {
-      await this.deliverClaudeCredential(fields.applicationAccess.token, signal ?? new AbortController().signal)
+      await this.deliverScopedCredential(fields.applicationAccess, signal ?? new AbortController().signal)
     } else {
       await this.open(start, 'attach', session, signal)
     }
+    this.retainedStart = start
   }
   async retireTurn(session: NativeSessionReference, correlationId: string) {
     this.assertSession(session)
@@ -627,8 +687,9 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
   async steerTurn(session: NativeSessionReference, input: NativeSteerInput, signal?: AbortSignal) {
     this.assertSession(session)
-    return z.object({ nativeTurnId: z.string().min(1) }).parse(await this.request({ method: 'conversation.steer',
-      session, prompt: input.prompt, correlationId: input.clientCorrelationId, expectedTurnId: input.expectedTurnId }, signal))
+    const lease = await this.capture(this.acceptedInput({ kind: 'steer', session, input }))
+    try { return z.object({ nativeTurnId: z.string().min(1) }).parse(await lease.request(signal)) }
+    finally { await this.release(lease) }
   }
   async reconcileSteers(session: NativeSessionReference, inputs: readonly Pick<NativeSteerInput, 'clientCorrelationId' | 'expectedTurnId'>[], signal?: AbortSignal) {
     this.assertSession(session)

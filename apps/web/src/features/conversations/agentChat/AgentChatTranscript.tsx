@@ -1,6 +1,6 @@
 import type { AgentChatState, AgentChatTurn, SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
 import type { MessageAttachmentRef } from '@foreman-code/contracts/files'
-import { parseSessionCommand, type InteractionResponseValue, type Message, type SessionMode } from '@foreman-code/contracts'
+import { parseSessionCommand, type ChatDeliveryReceipt, type InteractionResponseValue, type Message, type SessionMode } from '@foreman-code/contracts'
 import { X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Button, IconButton, Tooltip } from '../../../shared/ui/nocturne'
@@ -15,7 +15,8 @@ import { useExecutionActivity } from './executionActivity'
 import { AgentChatMessage } from './AgentChatMessage'
 import { AgentChatActivity } from './AgentChatActivity'
 import { ChatDeliveryState } from './ChatDeliveryState'
-import { approvalReplyAvailable, mergeChatMessages } from './model'
+import { RetainedAgentCommand } from './RetainedAgentCommand'
+import { agentChatContextKey, approvalReplyAvailable, mergeChatMessages } from './model'
 import { confirmedCommandReceipt } from './commandRecords'
 import { applyCanonicalActivityItems } from './activityMerge'
 import { placeChatActivities } from './activityPlacement'
@@ -23,11 +24,13 @@ import { commandMayHaveBeenAccepted, type AgentChatCommandRecord, type useAgentC
 
 export function AgentChatTranscript({
   state, name, commands, history, readOnly = false, cancelReason, responseReason, resendReason, controlResendReason,
-  onRefresh, refreshing, onCancel, onRespond, onSendAgain,
+  onRefresh, refreshing, onCancel, onRespond, onSendAgain, onDenied, onReceipt,
 }: {
   state: AgentChatState; name: string; commands: AgentChatCommandRecord[]; history: ReturnType<typeof useAgentChat>['history']
   readOnly?: boolean; cancelReason?: string; responseReason?: string; resendReason?: string; controlResendReason?: string
   onRefresh?(): void; refreshing?: boolean
+  onDenied?(error: Error): void
+  onReceipt?(receipt: ChatDeliveryReceipt): void
   onCancel(requestId: string): void; onRespond(optionId: string, response?: InteractionResponseValue): void
   onSendAgain(content: string, attachments?: MessageAttachmentRef[], mode?: SessionMode): void
 }) {
@@ -101,7 +104,7 @@ export function AgentChatTranscript({
       {retry}
     </>
   }
-  return <ConversationViewport revision={revision}>{onBrowse => <>
+  return <ConversationViewport revision={revision} storageKey={`${agentChatContextKey(state.context)}:${id ?? 'native'}`}>{onBrowse => <>
     {history.hasGap ? <HistoryWindowNotice pending={history.isFetching}
       onReload={() => { onBrowse(); void history.reloadNearer() }} /> : null}
     {id && (state.hasEarlierMessages && !history.data || history.hasNextPage) ? <Button size="sm" variant="ghost"
@@ -138,6 +141,10 @@ export function AgentChatTranscript({
           status={<ChatDeliveryState delivery={turn.delivery} turn={turn} initialDelivery={initialDelivery(turn)} />} actions={messageActions(turn)} />
       })}
     </section> : null}
+    {commands.map(record => record.command?.kind === 'send' && record.result?.receipt
+      && !turns.some(turn => turn.requestId === record.result!.receipt!.commandId)
+      ? <RetainedAgentCommand key={record.result.receipt.id} command={record.command} receipt={record.result.receipt}
+        onDenied={onDenied} onReceipt={onReceipt} onSendAgain={onSendAgain} readOnly={readOnly} resendReason={resendUnavailable(record.command.input.content)} /> : null)}
     {unresolved.map(record => {
       if (record.command?.kind !== 'send') return null
       const input = record.command.input

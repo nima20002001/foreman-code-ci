@@ -67,6 +67,10 @@ jobs:
       CI_WATCHDOG_MESSAGE_FILE: .logs/ci-durations/watchdog-message.json
     steps:
       - run:
+          # Chromium's sandbox needs unprivileged user namespaces, which the image's AppArmor policy restricts.
+          name: Allow unprivileged user namespaces
+          command: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run:
           name: Checkout tested commit
           command: |
             started=$(date +%s%3N)

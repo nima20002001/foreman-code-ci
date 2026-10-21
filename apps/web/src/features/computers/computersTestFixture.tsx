@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { http, HttpResponse, type HttpHandler } from 'msw'
 import type { DeviceRegistration } from '@foreman-code/contracts/device-identity'
 import type { BuildComputerStatus } from '@foreman-code/contracts/build-computers'
@@ -65,6 +66,8 @@ export function computersFixture(children: React.ReactNode, handlers: HttpHandle
     http.post('*/api/management/resource-telemetry/selector', () => HttpResponse.json({ kind: 'unavailable' })),
   )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  const rendered = render(<QueryClientProvider client={client}>{children}</QueryClientProvider>)
+  const routeTree = createRootRoute({ component: () => children })
+  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/'] }) })
+  const rendered = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
   return { client, rendered, statuses, activity }
 }

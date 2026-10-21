@@ -1,3 +1,4 @@
+import { nativeWorkerTarget } from './fixtures/browserTarget.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -11,8 +12,9 @@ test('the built standalone artifact meets manifest bounds and loads its installe
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = new URL('../../../', import.meta.url).pathname;
   const output = join(directory, 'release');
+  const { file: targetFile } = await nativeWorkerTarget(root);
   execFileSync(process.execPath, ['scripts/build-worker-artifact.mjs',
-    'apps/worker/artifacts/test-hosts/ubuntu-24.04-x64-target.json', output],
+    targetFile, output],
   { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const manifest = WorkerArtifactManifestSchema.parse(JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8')));
   assert.ok(manifest.files.every(file => !file.path.includes('/claude-agent-sdk-')));

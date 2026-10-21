@@ -16,7 +16,9 @@ import { harnessMcpTools } from './tools/harnessMcp.js'
 import { claudePluginTools } from './tools/claudePlugins.js'
 import { settingsTools } from './tools/settings.js'
 import { providerAccountTools } from './tools/providerAccounts.js'
+import { workflowChatTools } from './tools/workflowChat.js'
 import { agentChatTools } from './tools/agentChat.js'
+import { withWorkflowExecutionChatTools } from './executionChat.js'
 import { sessionControlTools } from './tools/sessionControls.js'
 import { workspaceDefaultsTools } from './tools/workspaceDefaults.js'
 import { workspaceTools } from './tools/workspaces.js'
@@ -26,6 +28,8 @@ import { runTools } from './tools/runs.js'
 import { subagentTools } from './tools/subagents.js'
 import { interactionTools } from './tools/interactions.js'
 import { extendedOperatorTools } from './tools/extensions.js'
+import { memoryBoardToolDefinitions } from './tools/memoryBoards.js'
+import { DomainError } from '../../modules/errors.js'
 import { toolSchemaTools } from './tools/toolSchema.js'
 
 /**
@@ -45,6 +49,11 @@ import { toolSchemaTools } from './tools/toolSchema.js'
  * Discovery and capability tests compare the authenticated endpoint with this registry.
  */
 export const OPERATOR_TOOL_GROUPS = {
+  memoryBoards: memoryBoardToolDefinitions(context => {
+    const service = context.services?.memoryBoards
+    if (!service) throw new DomainError('MEMORY_BOARDS_UNAVAILABLE', 'Memory boards are unavailable.', 503)
+    return service
+  }).map(tool => ({ ...tool, enabled: (services: import('./types.js').OperatorServices) => Boolean(services.memoryBoards) })),
   bugReports: bugReportTools,
   resourceTelemetry: [resourceTelemetryTool, resourceTelemetrySelectorTool],
   harnessRegistry: harnessRegistryTools,
@@ -59,7 +68,8 @@ export const OPERATOR_TOOL_GROUPS = {
   claudePlugins: claudePluginTools,
   settings: settingsTools,
   providerAccounts: providerAccountTools,
-  agentChat: agentChatTools,
+  agentChat: withWorkflowExecutionChatTools(agentChatTools),
+  workflowChat: workflowChatTools(),
   sessionControls: sessionControlTools,
   workspaceDefaults: workspaceDefaultsTools,
   workspaces: workspaceTools,

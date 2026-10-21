@@ -16,6 +16,7 @@ import { useConversationDraftStore } from '../conversations'
 import { savedClaudeConfiguration } from '../settings/claudeSettings.fixtures'
 import { clearRevisionedFormPersistence } from '../settings/revisionedForm'
 import { OperatorChat } from './OperatorChat'
+import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { useOperatorChatStore } from './operatorChatStore'
 import { configuredOperatorSetup } from './operatorSetupTestFixture'
 import { operatorState } from './pr17-test-fixtures'
@@ -32,6 +33,7 @@ const sourceAccountId = '20000000-0000-4000-8000-000000000001'
 const otherAccountId = '20000000-0000-4000-8000-000000000002'
 const clients: QueryClient[] = []
 const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   window.localStorage.clear()
   clearRevisionedFormPersistence()
@@ -136,7 +138,7 @@ function setup(provider: AccountProvider, mode: 'explicit' | 'default' | 'defaul
   return { messages, edits, source, client, user: userEvent.setup() }
 }
 
-it.each(['codex', 'claude'] as const)('sends the source revision and opens a linked %s chat after selecting another account', async provider => {
+it.each(['codex', 'claude'] as const)('keeps the selected %s target and draft pinned after choosing another account', async provider => {
   const { user, messages, edits, source } = setup(provider, 'explicit')
   expect(await screen.findByText('Earlier answer')).toBeVisible()
   await user.click(screen.getByRole('button', { name: /Agent settings:/ }))
@@ -144,19 +146,15 @@ it.each(['codex', 'claude'] as const)('sends the source revision and opens a lin
   await waitFor(() => expect(picker).toBeEnabled())
   await user.selectOptions(picker, otherAccountId)
   await waitFor(() => expect(edits).toHaveLength(1))
-  const notice = await screen.findByText(/Your next message starts .* chat with prior conversation context/)
-  expect(notice).toBeVisible()
+  expect(await screen.findByText('Changed Operator settings apply to a new chat. This draft stays with the selected conversation.')).toBeVisible()
   const composer = within(screen.getByRole('form', { name: 'Conversation composer' }))
   fireEvent.change(composer.getByRole('textbox', { name: 'Message' }), { target: { value: 'Continue here' } })
-  await waitFor(() => expect(composer.getByRole('button', { name: 'Send message' })).toBeEnabled())
-  await user.click(composer.getByRole('button', { name: 'Send message' }))
-  expect(await screen.findByText('Continued using the other account')).toBeVisible()
-  expect(messages).toHaveLength(1)
-  expect(messages[0]).toMatchObject({ forkExpectedRevision: source.revision,
-    configurationVersionId: source.conversation.operatorConfigurationVersionId,
-    content: 'Continue here', settings: { harness: provider, accountId: otherAccountId } })
-  expect(useOperatorChatStore.getState().selectedConversationId).toBe(`operator-fork:${messages[0]!.requestId}`)
-  expect(screen.getByText('Continued from')).toBeVisible()
+  expect(composer.getByRole('button', { name: 'Send message' })).toBeDisabled()
+  fireEvent.keyDown(composer.getByRole('textbox', { name: 'Message' }), { key: 'Enter' })
+  expect(messages).toHaveLength(0)
+  expect(useOperatorChatStore.getState().selectedConversationId).toBe(source.conversation.id)
+  expect(composer.getByRole('textbox', { name: 'Message' })).toHaveValue('Continue here')
+  expect(screen.getByText('Earlier answer')).toBeVisible()
 })
 
 it.each(['codex', 'claude'] as const)('keeps the accepted %s account when a different future default exists', async provider => {

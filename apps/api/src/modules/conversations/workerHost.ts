@@ -32,7 +32,7 @@ export interface WorkerConversationAllocation {
   manager: NativeHarnessSessionManager
   inspector?: NativeMcpInspector
   start(input: { correlationId: string; instructionsDelivered: boolean;
-    applicationAccess?: { kind: 'operator-chat-mcp'; token: string } }): Promise<NativeSessionStart>
+    applicationAccess?: Extract<WorkerConversationRpcRequest, { method: 'conversation.initial-turn' }>['applicationAccess'] }): Promise<NativeSessionStart>
   nativeOwner(session: NativeSessionReference, options?: { allowExited: true }): Promise<RemoteNativeIdentity>
   close(): Promise<void>
   deliverClaudeCredential?(token: string, signal: AbortSignal): Promise<void>
@@ -556,6 +556,86 @@ export class WorkerConversationHost {
     }
   }
 
+  /** The accepted envelope addresses this exact journal binding; only its owner derives a future provider SID. */
+  private async initialInput(request: Extract<WorkerConversationRpcRequest, { method: 'conversation.initial-turn' }>,
+    connection: Readonly<DeviceSessionBinding>, signal: AbortSignal) {
+    validateConfiguration(request.binding, request.configuration)
+    if (request.previousConfiguration) await this.replaceSession(request, connection, signal)
+    await this.ports.journal.receive(request.binding, connection)
+    const existing = await this.ports.journal.read(request.binding)
+    const original = existing?.turns.find(turn => turn.correlationId === request.correlationId)
+    if (original) {
+      // Exact replay validates its retained input without acquiring a native writer after restart.
+      if (original.creationOperationId) await this.ports.journal.reserveInitialTurn(request.binding,
+        request.operationId, commandInputHash({ mode: 'initial-turn', correlationId: request.correlationId }), request.correlationId,
+        commandInputHash({ prompt: request.prompt, mode: request.sessionMode ?? 'regular', preferences: request.preferences ?? null }), request.sessionMode ?? 'regular')
+      else await this.ports.journal.reserveTurn(request.binding, request.correlationId,
+        commandInputHash({ prompt: request.prompt, mode: request.sessionMode ?? 'regular', preferences: request.preferences ?? null }),
+        { mode: request.sessionMode ?? 'regular' })
+      return { receipt: await this.ports.journal.read(request.binding) }
+    }
+    if (existing?.session) {
+      const { resident } = await this.resident({ ...request, session: existing.session }, connection, signal)
+      const reserved = await this.ports.journal.reserveTurn(request.binding, request.correlationId,
+        commandInputHash({ prompt: request.prompt, mode: request.sessionMode ?? 'regular', preferences: request.preferences ?? null }),
+        { mode: request.sessionMode ?? 'regular' })
+      if (reserved.dispatch) this.pump(resident, request, connection, () => this.continuedInput(resident, request, connection, existing.session!))
+      return { receipt: await this.ports.journal.read(request.binding) }
+    }
+    const resident = await this.allocate(request, connection, signal)
+    const initial = await this.ports.journal.reserveInitialTurn(request.binding, request.operationId,
+      commandInputHash({ mode: 'initial-turn', correlationId: request.correlationId }), request.correlationId,
+      commandInputHash({ prompt: request.prompt, mode: request.sessionMode ?? 'regular', preferences: request.preferences ?? null }),
+      request.sessionMode ?? 'regular')
+    if (initial.dispatch) {
+      try {
+        const manager = resident.allocation.manager
+        if (request.preferences) {
+          await manager.configureSessionPreferences?.(request.preferences)
+          await this.ports.journal.preferences(request.binding, request.preferences, null)
+        }
+        const start = await resident.allocation.start({ correlationId: request.correlationId, instructionsDelivered: false,
+          ...(request.applicationAccess ? { applicationAccess: request.applicationAccess } : {}) })
+        this.pump(resident, request, connection, () => this.initialStream(resident, request, connection, start))
+      } catch (error) { await this.reject(resident.binding, request, error) }
+    }
+    return { receipt: await this.ports.journal.read(request.binding) }
+  }
+
+  private async *initialStream(resident: Resident,
+    request: Extract<WorkerConversationRpcRequest, { method: 'conversation.initial-turn' }>,
+    connection: Readonly<DeviceSessionBinding>, start: NativeSessionStart) {
+    const manager = resident.allocation.manager
+    const callbacks = this.callbacks(resident, request, connection, this.lifetime.signal)
+    if (manager.startInitialTurn) {
+      yield* manager.startInitialTurn(start, { ...callbacks,
+        onSessionObserved: session => this.bind(resident, session, request, this.lifetime.signal) }, this.lifetime.signal)
+      return
+    }
+    // Codex can create without an input. Creation and the reserved input remain one original journal command.
+    const session = await manager.createSession(start, this.lifetime.signal)
+    await this.bind(resident, session, request, this.lifetime.signal)
+    await this.authorize(request, connection, this.lifetime.signal)
+    yield* manager.startTurn(session, callbacks, this.lifetime.signal)
+  }
+
+  private async *continuedInput(resident: Resident, request: Extract<WorkerConversationRpcRequest,
+    { method: 'conversation.initial-turn' | 'conversation.start-turn' }>, connection: Readonly<DeviceSessionBinding>, session: NativeSessionReference) {
+    const manager = resident.allocation.manager
+    if (request.preferences) {
+      await manager.configureSessionPreferences?.(request.preferences)
+      await this.ports.journal.preferences(request.binding, request.preferences, null)
+    }
+    if (request.method === 'conversation.initial-turn' && request.applicationAccess) {
+      const refresh = request.binding.harness === 'claude'
+        ? resident.allocation.deliverClaudeCredential : resident.allocation.refreshApplicationAccess
+      if (!refresh) unavailable('The original native conversation cannot refresh its scoped credential.')
+      await refresh.call(resident.allocation, request.applicationAccess.token, this.lifetime.signal)
+    }
+    await this.authorize(request, connection, this.lifetime.signal)
+    yield* manager.startTurn(session, this.callbacks(resident, request, connection, this.lifetime.signal), this.lifetime.signal)
+  }
+
   private pump(resident: Resident, request: WorkerConversationRpcRequest & { correlationId: string },
     connection: Readonly<DeviceSessionBinding>, stream: () => AsyncIterable<unknown>) {
     const task = (async () => {
@@ -880,33 +960,7 @@ export class WorkerConversationHost {
         : resident.allocation.manager.inspectMcp(signal)
     }
     if (request.method === 'conversation.initial-turn') {
-      validateConfiguration(request.binding, request.configuration)
-      if (request.previousConfiguration) await this.replaceSession(request, connection, signal)
-      const resident = await this.allocate(request, connection, signal)
-      const manager = resident.allocation.manager
-      if (!manager.startInitialTurn) unavailable('The native driver does not use atomic initial message admission.')
-      await this.ports.journal.receive(request.binding, connection)
-      const initial = await this.ports.journal.reserveInitialTurn(request.binding, request.operationId,
-        commandInputHash({ mode: 'initial-turn', correlationId: request.correlationId }), request.correlationId,
-        commandInputHash({ prompt: request.prompt, mode: request.sessionMode ?? 'regular',
-          preferences: request.preferences ?? null }), request.sessionMode ?? 'regular')
-      if (initial.dispatch) {
-        try {
-          if (request.preferences) {
-            await manager.configureSessionPreferences?.(request.preferences)
-            await this.ports.journal.preferences(request.binding, request.preferences, null)
-          }
-          const start = await resident.allocation.start({ correlationId: request.correlationId, instructionsDelivered: false,
-            ...(request.applicationAccess ? { applicationAccess: request.applicationAccess } : {}) })
-          this.pump(resident, request, connection, () => manager.startInitialTurn!(start, {
-            ...this.callbacks(resident, request, connection, this.lifetime.signal),
-            onSessionObserved: session => this.bind(resident, session, request, this.lifetime.signal),
-          }, this.lifetime.signal))
-        } catch (error) {
-          await this.reject(resident.binding, request, error)
-        }
-      }
-      return { receipt: await this.ports.journal.read(request.binding) }
+      return this.initialInput(request, connection, signal)
     }
     if (!('session' in request)) unavailable('This native operation requires its conversation session.')
     const { resident, record } = await this.resident(request, connection, signal)
@@ -916,8 +970,7 @@ export class WorkerConversationHost {
         const reserved = await this.ports.journal.reserveTurn(request.binding, request.correlationId, commandInputHash({
           prompt: request.prompt, mode: request.sessionMode ?? 'regular', preferences: request.preferences ?? null }),
         { mode: request.sessionMode ?? 'regular' })
-        if (reserved.dispatch) this.pump(resident, request, connection, () => manager.startTurn(request.session,
-          this.callbacks(resident, request, connection, this.lifetime.signal), this.lifetime.signal))
+        if (reserved.dispatch) this.pump(resident, request, connection, () => this.continuedInput(resident, request, connection, request.session))
         return { receipt: await this.ports.journal.read(request.binding) }
       }
       case 'conversation.history':

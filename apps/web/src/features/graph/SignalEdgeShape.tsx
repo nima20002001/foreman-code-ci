@@ -1,6 +1,8 @@
 import { useState, type CSSProperties } from 'react'
 import { BaseEdge } from '@xyflow/react'
 import type { EdgeSignal, FloatingCurve } from './signalEdge'
+import { InfoHint } from '../../shared/ui/InfoHint'
+import './signalEdgeHierarchy.css'
 
 /** One fact in flight. `startsAt` is a performance.now() time; it may be in the past or future.
  * `word` replaces the signal's usual word for facts that are not handoffs, such as a CI request. */
@@ -26,14 +28,24 @@ export function PulseFlight({ path, pulse }: { path: string; pulse: EdgePulse })
 }
 
 /** SignalEdge: base line, a lasting trace, and pulses for facts crossing it. */
-export function SignalEdgeShape({ id, curve, kind = 'execution', signal, pulses, interactionWidth = 24 }: {
+export function SignalEdgeShape({ id, curve, kind = 'execution', signal, pulses, interactionWidth = 24, reportingParent }: {
   id: string; curve: FloatingCurve; kind?: 'execution' | 'approval'; signal?: EdgeSignal; pulses?: readonly EdgePulse[]
   interactionWidth?: number
+  reportingParent?: string
 }) {
   const flying = pulses?.[pulses.length - 1]?.signal
-  return <g className="n-signal-edge" data-kind={kind} data-signal={signal ?? flying} data-flying={flying ? '' : undefined}>
+  return <g className="n-signal-edge" data-kind={kind} data-signal={signal ?? flying} data-flying={flying ? '' : undefined}
+    data-reporting={!!reportingParent || undefined}>
     <BaseEdge id={id} path={curve.path} className="n-signal-edge-base" interactionWidth={interactionWidth} />
     {signal ? <path className="n-signal-edge-trace" d={curve.path} /> : null}
     {pulses?.map((pulse) => <PulseFlight key={pulse.key} path={curve.path} pulse={pulse} />)}
+    {reportingParent ? <foreignObject x={curve.mid.x - 80} y={curve.mid.y - 64} width={160} height={32}
+      className="hierarchy-edge-label-object">
+      <div className="hierarchy-edge-label nodrag nopan" onClick={event => event.stopPropagation()}>
+        <span>Orchestrates</span><InfoHint label={`Reporting to ${reportingParent}`}>
+          {`Tasks go down; reports return to ${reportingParent}.`}
+        </InfoHint>
+      </div>
+    </foreignObject> : null}
   </g>
 }

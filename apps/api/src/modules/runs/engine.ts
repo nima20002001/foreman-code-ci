@@ -228,6 +228,7 @@ export class LangGraphWorkflowEngine {
         })
       }
       await executeRepeatEngineStart({ owner, signal: controller.signal,
+        limiter: this.nativeExecutions.executionCapacity(runId, snapshot.version.definition.executionPolicy!.maxParallelism),
         checkpointer: this.checkpointer, admission: this.workerAdmission,
         configuredParallelism: this.configuredParallelism, runtimeRoot: this.workspaceRoot,
         factory: this.runs.repeatRepositoryFactory(), native: this.nativeExecutions,
@@ -345,7 +346,7 @@ export class LangGraphWorkflowEngine {
         if (cleanupRequired && (snapshot.run.executionState !== 'completed'
           || snapshot.stopRequested || snapshot.run.outcome !== 'succeeded')) {
           await this.nativeExecutions.cancelRun(owner.runId, owner)
-          await settleWorkflowRun(owner, await hasRecoveredWorkflowNativeLifetime(owner))
+          await settleWorkflowRun(owner, await hasRecoveredWorkflowNativeLifetime(owner), this.runs.memoryBoards)
         } else await this.nativeExecutions.finishRun(owner.runId)
         await this.finishOwned(owner)
       } catch (error) {
@@ -424,6 +425,7 @@ export class LangGraphWorkflowEngine {
     const finished = beginRuntimeTiming('engine', 'reconcile.pass')
     const task = (async () => {
       await this.workerCredentials.reconcileTerminalCredentials?.().catch(onError)
+      await this.nativeExecutions.reconcileWorkflowControls(onError)
       await this.nativeExecutions.reconcileReviews(onError)
       // Fair sweep: a capacity-limited pass resumes after the last candidate it
       // handled, wrapping once, so a persistently unresolved prefix cannot starve

@@ -27,7 +27,7 @@ export function WorkflowAgentPanel({ panels, findNode, nodes, chatScope, active 
     }
   }, [active, board, chats, nodes, selection])
   if (!active || !board?.sidePanelHost || board.memoryOpen || selection?.kind !== 'agent'
-    || selection.executionId) return null
+    || selection.tab === 'chat' && (selection.executionId || board.executionChatMounted)) return null
   const node = findNode(selection.nodeId)
   const body = node === false ? <p role="status">This node is not available in the selected workflow or Run.</p>
     : panels(selection.nodeId, node)[selection.tab === 'details' ? 'info' : selection.tab]

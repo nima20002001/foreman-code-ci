@@ -7,7 +7,8 @@ import { useConversationAttachments } from '../../attachments'
 
 import { prepareChatAttachments } from '../chatAttachmentAttempt'
 
-import { agentChatStateKey, useAgentChat } from './useAgentChat'
+import { useAgentChat } from './useAgentChat'
+import { selectedRunChatApi } from './selectedRunChatClient'
 import { agentChatApi } from '../../../shared/api/agentChat'
 import { assertSession, sessionGeneration } from '../../../shared/api/sessionBoundary'
 import { useConversationDraftStore } from '../conversationDraftStore'
@@ -36,14 +37,17 @@ export function useAgentConversationComposer({ chat, state, sessionControls, att
     mutationFn: async (input: { requestId: string; expectedConversationId: string | null; draftContent: string }) => {
       assertSession(generation)
       if (!state) throw new Error('Refresh this conversation before starting a new one.')
-      const result = await agentChatApi.startNew(state.context, input.expectedConversationId, input.requestId)
+      const { workspaceId, ...context } = state.context
+      const result = chat.selection ? await selectedRunChatApi.send(chat.selection, { requestId: input.requestId,
+        context, content: '/new', intent: 'next_turn', expectedConversationId: input.expectedConversationId, attachments: [] })
+        : await agentChatApi.startNew({ workspaceId, ...context }, input.expectedConversationId, input.requestId)
       assertSession(generation)
-      if (result.reset.requestId !== input.requestId
+      if (!('reset' in result) || result.reset.requestId !== input.requestId
         || result.reset.previousConversationId !== input.expectedConversationId
         || !stateBelongsToContext(result.state, state.context)) {
         throw new Error('The response did not confirm the new conversation.')
       }
-      const key = agentChatStateKey(state.context, generation)
+      const key = chat.queryKey
       await client.cancelQueries({ queryKey: key, exact: true })
       assertSession(generation)
       client.setQueryData(key, result.state)

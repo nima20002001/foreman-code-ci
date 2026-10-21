@@ -1,18 +1,18 @@
-import type { QueryClient } from '@tanstack/react-query'
-import type { InteractionResponseValue } from '@foreman-code/contracts'
-import type { AgentChatState, AgentChatTurn, SendAgentChatMessageRequest, SendAgentChatMessageResponse } from '@foreman-code/contracts/agent-chat'
+import type { Mutation, QueryClient } from '@tanstack/react-query'
+import type { ChatDeliveryReceipt, InteractionResponseValue } from '@foreman-code/contracts'
+import type { AgentChatState, AgentChatTurn, SendAgentChatMessageRequest, AgentChatSendResponse } from '@foreman-code/contracts/agent-chat'
 import type { ChatAttachmentAttempt } from '../chatAttachmentAttempt'
 import { receiptForCommand } from './receiptReadback'
 
 export type AgentChatCommand =
-  | { kind: 'send'; input: SendAgentChatMessageRequest; clearDraft: boolean; attachmentAttempt?: ChatAttachmentAttempt }
+  | { kind: 'send'; input: SendAgentChatMessageRequest; clearDraft: boolean; draftVersion?: number; attachmentAttempt?: ChatAttachmentAttempt }
   | { kind: 'stop'; conversationId: string; requestId: string; expectedNativeTurnId?: string }
   | { kind: 'cancel'; conversationId: string; requestId: string; turnRequestId: string }
   | { kind: 'respond'; conversationId: string; requestId: string; nativeRequestId: string;
     optionId: string; response?: InteractionResponseValue }
 
 /** The query owns the full projection. Mutations keep only command/readback identity, not snapshots. */
-export type AgentChatCommandResult = { conversationId?: string; turn?: AgentChatTurn; replayed?: boolean }
+export type AgentChatCommandResult = { conversationId?: string; turn?: AgentChatTurn; receipt?: ChatDeliveryReceipt; replayed?: boolean }
 export type AgentChatCommandReadback = { conversationId: string; turn: AgentChatTurn }
 export type AgentChatReadbacks = Record<number, AgentChatCommandReadback>
 export const agentChatReadbacksKey = ['agent-chat', 'command-readbacks'] as const
@@ -22,14 +22,21 @@ export type AgentChatCommandRecord = {
 }
 export const AGENT_CHAT_ACKNOWLEDGEMENT_LIMIT = 20
 
-export function compactAgentChatResult(result: SendAgentChatMessageResponse | { state: AgentChatState }): AgentChatCommandResult {
-  return { conversationId: result.state.conversation?.id,
-    ...('turn' in result ? { turn: result.turn, replayed: result.replayed } : {}) }
+export function agentChatCommandOrder(mutation: Mutation): number {
+  const original = mutation.options.meta?.chatCommandOrder
+  return typeof original === 'number' ? original : mutation.mutationId
+}
+
+export function compactAgentChatResult(result: AgentChatSendResponse | { state: AgentChatState }): AgentChatCommandResult {
+  return { conversationId: result.state && 'conversation' in result.state ? result.state.conversation?.id : undefined,
+    ...('turn' in result && result.turn ? { turn: result.turn } : {}),
+    ...('receipt' in result && result.receipt ? { receipt: result.receipt } : {}),
+    ...('replayed' in result ? { replayed: result.replayed } : {}) }
 }
 
 /** Never read a receipt from a replacement conversation, even if its request id happens to match. */
 export function currentCommandReceipt(result: AgentChatCommandResult | undefined, state: AgentChatState | undefined): AgentChatTurn | undefined {
-  const requestId = result?.turn?.requestId
+  const requestId = result?.turn?.requestId ?? result?.receipt?.commandId
   return requestId && result?.conversationId === state?.conversation?.id
     ? state?.turns.find((turn) => turn.requestId === requestId) : undefined
 }
@@ -66,6 +73,7 @@ export function isRetirableAcknowledgement(record: Pick<AgentChatCommandRecord, 
   if (record.status === 'pending' || record.status === 'idle') return false
   if (record.status !== 'success' && !record.readback) return false
   const turn = record.readback?.turn ?? currentCommandReceipt(record.result, state) ?? record.result?.turn
+  if (!turn && record.result?.receipt) return ['completed', 'failed', 'canceled'].includes(record.result.receipt.state)
   // Keep unresolved input even after HTTP success: accepted/queued work can still become unknown.
   // A successful control has no turn; a send retires only after positive terminal readback.
   return !turn || ['completed', 'failed', 'canceled'].includes(turn.delivery)
@@ -83,7 +91,7 @@ export function retireAgentChatAcknowledgements(client: QueryClient): void {
     return isRetirableAcknowledgement({ status: mutation.state.status, result: mutation.state.data as AgentChatCommandResult | undefined,
       readback: readbacks[mutation.mutationId] }, state)
   })
-  for (const mutation of acknowledged.slice(0, -AGENT_CHAT_ACKNOWLEDGEMENT_LIMIT)) cache.remove(mutation)
+  for (const mutation of acknowledged.sort((left, right) => agentChatCommandOrder(left) - agentChatCommandOrder(right)).slice(0, -AGENT_CHAT_ACKNOWLEDGEMENT_LIMIT)) cache.remove(mutation)
   // Proof has exactly the mutation's lifetime; retirement cannot leave a second unbounded cache.
   const retained = new Set(cache.getAll().map((mutation) => mutation.mutationId))
   const entries = Object.entries(readbacks).filter(([id]) => retained.has(Number(id)))

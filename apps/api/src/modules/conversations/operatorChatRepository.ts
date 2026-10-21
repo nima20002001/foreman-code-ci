@@ -1,5 +1,10 @@
+import { omitProperties } from '../../shared/omitProperties.js'
+import type { SqlQuery } from '../../infrastructure/transaction.js'
+import { boundedConversationMessages } from './snapshotMessages.js'
 import type { TextTruncation } from '@foreman-code/contracts/activity-text'
-import { withTransaction } from '../../infrastructure/transaction.js'
+import { withTransaction, type TransactionSql } from '../../infrastructure/transaction.js'
+import type { AcceptedChatInput } from './nativeChatInput.js'
+import type { StoredDelivery } from '../workflow-chat/model.js'
 import { admitSessionMessage } from './sessionControls/messageAdmission.js'
 import { SessionControlStore } from './sessionControls/store.js'
 import type { NativeMessageSubmission } from '../harnesses/port.js'
@@ -77,7 +82,7 @@ export interface ConversationRow {
   last_result: ExecutionResult | null
   updated_at: Date
 }
-type Queryable = Pick<pg.PoolClient, 'query'>
+type Queryable = SqlQuery
 
 export interface OperatorTerminal {
   observation: {
@@ -140,7 +145,7 @@ function conversation(row: ConversationRow): Conversation {
 /** SQL transitions are fenced by the accepted request, even under a delayed native response. */
 export class PostgresOperatorConversationRepository {
   readonly activity: PostgresOperatorActivityRepository
-  constructor(private readonly pool: pg.Pool, private readonly accountConfigurations?: ProviderAccountConfigurationService) {
+  constructor(readonly pool: pg.Pool, private readonly accountConfigurations?: ProviderAccountConfigurationService) {
     this.activity = new PostgresOperatorActivityRepository(pool)
   }
 
@@ -282,14 +287,15 @@ export class PostgresOperatorConversationRepository {
       `${id}:${row.active_request_id ?? 'session'}`)
       ?? await readProviderAccountBinding(query, 'operator-command', `${id}:session`)
       ?? legacyProviderAccountBinding(configuration.harness, configuration.harnessProfileSelection) : undefined
-    return OperatorConversationStateSchema.parse({ conversation: conversation(row), messages: await hydrateMessageAttachments(query, id, row.messages),
+    const messages = boundedConversationMessages(await hydrateMessageAttachments(query, id, row.messages), OPERATOR_SNAPSHOT_MESSAGE_BYTES)
+    return OperatorConversationStateSchema.parse({ conversation: conversation(row), messages,
       ...(providerAccountBinding ? { providerAccountBinding } : {}),
       ...(row.parent_conversation_id && row.handoff_source_harness && row.handoff_source_sequence ? { handoff: {
         parentConversationId: row.parent_conversation_id, sourceHarness: row.handoff_source_harness,
         sourceMessageSequence: row.handoff_source_sequence, omittedMessages: row.handoff_omitted_messages,
       } } : {}),
       activities: row.activities, activityNextCursor: row.activity_cursor,
-      hasEarlierMessages: Number(row.message_count) > row.messages.length,
+      hasEarlierMessages: Number(row.message_count) > messages.length,
       settings: configuration.harness.harness === 'opencode'
         ? { harness: 'opencode', model: configuration.harness.model, variant: configuration.harness.variant,
           showThinking: configuration.harness.thinking }
@@ -383,6 +389,20 @@ export class PostgresOperatorConversationRepository {
   async configuration(id: string, query: Queryable = this.pool): Promise<OperatorConfigurationVersion | undefined> {
     const result = await query.query<{ record: unknown }>('select record from operator_configuration_versions where id=$1', [id])
     return result.rows[0] ? OperatorConfigurationVersionSchema.parse(result.rows[0].record) : undefined
+  }
+
+  /** A queued wrapper pins its own accepted settings; it does not rewrite the active conversation. */
+  async deliveryConfiguration(tx: TransactionSql, row: ConversationRow, input: SendOperatorMessageRequest,
+    validate: (configuration: OperatorConfigurationVersion) => void): Promise<OperatorConfigurationVersion> {
+    const current = await this.configuration(row.operator_configuration_version_id, tx)
+    if (!current) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'The accepted Operator configuration is unavailable.', 409)
+    const accepted = await acceptOperatorConfiguration(tx, current, input, undefined, undefined, validate, this.accountConfigurations)
+    if (harnessSessionChanged(current.harness, accepted.harness)) {
+      throw new DomainError('HARNESS_HANDOFF_REQUIRED', 'Continue in a new chat to change harness or provider account.', 409)
+    }
+    if (this.accountConfigurations) await this.accountConfigurations.acceptedBindings.accept(tx, 'operator-command',
+      `${row.id}:${input.requestId}`, accepted.harness, accepted.harnessProfileSelection)
+    return accepted
   }
   async configurationForInspection(id: string, principal: ManagementPrincipal) {
     await authorizeOperatorConfigurationRead(this.pool, principal, id)
@@ -526,7 +546,8 @@ export class PostgresOperatorConversationRepository {
   /** The first cross-harness message and its child are one durable, idempotent admission. */
   async beginForkTurn(sourceId: string, input: SendOperatorMessageRequest, ownerId: string, harness: HarnessConfiguration,
     expectedConfigurationId?: string, validate?: (configuration: OperatorConfigurationVersion) => void,
-    preparedProfile?: HarnessProfileSelection) {
+    preparedProfile?: HarnessProfileSelection,
+    prepareInput?: (row: ConversationRow, configuration: OperatorConfigurationVersion, tx: pg.PoolClient) => Promise<AcceptedChatInput>) {
     const childId = `operator-fork:${input.requestId}`
     const forked = await withTransaction(this.pool, async (client) => {
       const source = (await client.query<ConversationRow>('select * from operator_conversations where id=$1 for update', [sourceId])).rows[0]
@@ -577,13 +598,15 @@ export class PostgresOperatorConversationRepository {
         values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$8,'accepted','starting',1)`,
       [childId,current.operatorId,next.id,harness.harness,ownerId,JSON.stringify(record),sourceId,input.requestId,source.harness,sourceSequence,context.omitted,
         context.text])
-      await client.query(`insert into operator_conversation_turns (conversation_id,request_id,payload,input_hash,operator_configuration_version_id)
-        values ($1,$2,$3::jsonb,$4,$5)`, [childId,input.requestId,JSON.stringify({ ...commandPayload(input), acceptedConfigurationVersionId: next.id }),commandHash(input),next.id])
       if (this.accountConfigurations) {
         const binding = await this.accountConfigurations.acceptedBindings.accept(client, 'operator-command',
           `${childId}:${input.requestId}`, next.harness, next.harnessProfileSelection)
         if (binding) await saveProviderAccountBinding(client, 'operator-command', `${childId}:session`, binding)
       }
+      const preparedInput = await prepareInput?.((await this.active(childId, client))!, next, client)
+      await client.query(`insert into operator_conversation_turns (conversation_id,request_id,payload,input_hash,operator_configuration_version_id)
+        values ($1,$2,$3::jsonb,$4,$5)`, [childId,input.requestId,JSON.stringify({ ...commandPayload(input), acceptedConfigurationVersionId: next.id,
+        ...(preparedInput ? { preparedInput } : {}) }),commandHash(input),next.id])
       const message = MessageSchema.parse({ id: randomUUID(), conversationId: childId, role: 'user', requestId: input.requestId,
         content: input.content, createdAt: now, updatedAt: now })
       await client.query(`insert into operator_conversation_messages (id,conversation_id,role,content,client_request_id,record)
@@ -592,12 +615,13 @@ export class PostgresOperatorConversationRepository {
       if (!state) throw new Error('The forked conversation was not persisted.')
       return { state, replayed: false }
     })
-    return forked ?? this.beginTurn(childId, input, ownerId, undefined, undefined, false, validate)
+    return forked ?? this.beginTurn(childId, input, ownerId, undefined, undefined, false, validate, undefined, prepareInput)
   }
 
   async beginTurn(id: string, input: SendOperatorMessageRequest, ownerId: string, harness?: HarnessConfiguration,
     expectedConfigurationId?: string, receiptOnly = false, validate?: (configuration: OperatorConfigurationVersion) => void,
-    preparedProfile?: HarnessProfileSelection) {
+    preparedProfile?: HarnessProfileSelection,
+    prepareInput?: (row: ConversationRow, configuration: OperatorConfigurationVersion, tx: pg.PoolClient) => Promise<AcceptedChatInput>) {
     return withTransaction(this.pool, async (client) => {
       const row = (await client.query<ConversationRow>('select * from operator_conversations where id=$1 for update', [id])).rows[0]
       if (!row || row.deleted_at || row.owner_principal_id !== ownerId) throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversation was not found.', 404)
@@ -614,6 +638,9 @@ export class PostgresOperatorConversationRepository {
         if (conversation(row).status === 'archived') throw new DomainError('CONVERSATION_ARCHIVED', 'This conversation is read-only.', 409)
         if (row.active_request_id || !['idle', 'error'].includes(row.turn_state)) {
           throw new DomainError('CONVERSATION_TURN_ACTIVE', 'This conversation has an active or uncertain turn.', 409)
+        }
+        if (!prior && (await client.query(`select 1 from operator_conversation_turns where conversation_id=$1 and delivery='queued' limit 1`, [id])).rowCount) {
+          throw new DomainError('CONVERSATION_TURN_ACTIVE', 'Previously accepted input is waiting in this conversation queue.', 409)
         }
         if (!prior && ((input.configurationVersionId !== undefined && input.configurationVersionId !== row.operator_configuration_version_id)
           || (expectedConfigurationId !== undefined && expectedConfigurationId !== row.operator_configuration_version_id))) {
@@ -673,8 +700,10 @@ export class PostgresOperatorConversationRepository {
               { source: sessionBinding })
             if (binding) await saveProviderAccountBinding(client, 'operator-command', `${id}:session`, binding)
           }
+          const preparedInput = await prepareInput?.(row, (await this.configuration(row.operator_configuration_version_id, client))!, client)
           await client.query(`insert into operator_conversation_turns (conversation_id,request_id,payload,input_hash,operator_configuration_version_id)
-            values ($1,$2,$3::jsonb,$4,$5)`, [id, input.requestId, JSON.stringify({ ...commandPayload(input), acceptedConfigurationVersionId: row.operator_configuration_version_id }), commandHash(input),row.operator_configuration_version_id])
+            values ($1,$2,$3::jsonb,$4,$5)`, [id, input.requestId, JSON.stringify({ ...commandPayload(input), acceptedConfigurationVersionId: row.operator_configuration_version_id,
+            ...(preparedInput ? { preparedInput } : {}) }), commandHash(input),row.operator_configuration_version_id])
           const now = new Date().toISOString()
           const message = MessageSchema.parse({ id: randomUUID(), conversationId: id, role: 'user', requestId: input.requestId, content: input.content, createdAt: now, updatedAt: now })
           await client.query(`insert into operator_conversation_messages (id,conversation_id,role,content,client_request_id,record)
@@ -695,6 +724,95 @@ export class PostgresOperatorConversationRepository {
       if (!state) throw new Error('Conversation disappeared inside its locked transaction.')
       return { replayed, state }
     })
+  }
+
+  async markInitialInputOffered(id: string, requestId: string): Promise<void> {
+    const changed = await this.pool.query(`update operator_conversation_turns t
+      set payload=payload || '{"initialInputOffered":true}'::jsonb
+      from operator_conversations c where c.id=t.conversation_id and c.id=$1
+        and c.active_request_id=$2 and t.request_id=$2 and c.deleted_at is null`, [id, requestId])
+    if (changed.rowCount !== 1) throw new DomainError('CHAT_OWNER_CHANGED', 'The initial native input lost its admitted owner.', 409)
+  }
+
+  async initialInputOffered(id: string, requestId: string): Promise<boolean> {
+    const row = (await this.pool.query<{ offered: boolean }>(`select
+      coalesce((payload->>'initialInputOffered')::boolean,false) as offered
+      from operator_conversation_turns where conversation_id=$1 and request_id=$2`, [id, requestId])).rows[0]
+    return row?.offered === true
+  }
+
+  async preparedInput(id: string, requestId: string, query: Queryable = this.pool): Promise<AcceptedChatInput | undefined> {
+    return (await query.query<{ input: AcceptedChatInput | null }>(`select payload->'preparedInput' as input
+      from operator_conversation_turns where conversation_id=$1 and request_id=$2`, [id, requestId])).rows[0]?.input ?? undefined
+  }
+
+  /** Uses the same conversation turn/message journal as legacy Operator sends. */
+  async queueDeliveryLocked(tx: TransactionSql, row: ConversationRow, input: SendOperatorMessageRequest,
+    command: StoredDelivery): Promise<void> {
+    const binding = command.ownerBinding
+    if (!binding.acceptedInput || !binding.configurationVersionId) throw new DomainError('CHAT_PREFLIGHT_UNAVAILABLE', 'The accepted Operator input is unavailable.', 503)
+    const intent = command.receipt.appliedIntent
+    if (intent !== 'next_turn' && (row.active_request_id !== binding.ownerRequestId
+      || row.native_session_id !== binding.nativeSessionId || row.active_native_turn_id !== (binding.nativeTurnId ?? null))) {
+      throw new DomainError('CHAT_TARGET_CHANGED', 'The originally addressed Operator turn changed before admission.', 409)
+    }
+    await admitSessionMessage(tx, row.id, { ...input, intent })
+    await validateMessageAttachments(tx, row.id, input.attachments)
+    const configuration = await this.configuration(binding.configurationVersionId, tx)
+    if (!configuration) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'The pinned Operator configuration is unavailable.', 409)
+    if (this.accountConfigurations) {
+      const source = await readProviderAccountBinding(tx, 'operator-command', `${row.id}:session`)
+        ?? (row.native_session_id ? legacyProviderAccountBinding(configuration.harness, configuration.harnessProfileSelection) : undefined)
+      await this.accountConfigurations.acceptedBindings.accept(tx, 'operator-command', `${row.id}:${input.requestId}`,
+        configuration.harness, configuration.harnessProfileSelection, { source })
+    }
+    const now = new Date().toISOString()
+    const message = MessageSchema.parse({ id: randomUUID(), conversationId: row.id, role: 'user', requestId: input.requestId,
+      content: input.content, createdAt: now, updatedAt: now })
+    await tx.query(`insert into operator_conversation_messages(id,conversation_id,role,content,client_request_id,record)
+      values($1,$2,'user',$3,$4,$5::jsonb)`, [message.id, row.id, input.content, input.requestId, JSON.stringify(withMessageAttachmentRefs(message, input.attachments))])
+    await tx.query(`insert into operator_conversation_turns(conversation_id,request_id,payload,input_hash,
+      operator_configuration_version_id,intent,delivery,message_id,target_native_turn_id)
+      values($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9)`, [row.id, input.requestId, JSON.stringify({ ...commandPayload(input),
+      request: input, preparedInput: binding.acceptedInput, ownerPrincipalId: command.principalId,
+      acceptedConfigurationVersionId: binding.configurationVersionId,
+      ...(intent === 'steer' ? { targetRequestId: binding.ownerRequestId } : {}),
+      ...(intent === 'interrupt_and_send' ? { interruptRequestId: binding.ownerRequestId } : {}) }), commandHash(input),
+    binding.configurationVersionId, intent, intent === 'steer' ? 'submitting' : 'queued', message.id, binding.nativeTurnId ?? null])
+    await tx.query(`update operator_conversations set revision=revision+1,updated_at=now(),
+      cancel_requested=case when $2 and active_request_id=$3 then true else cancel_requested end,
+      turn_state=case when $2 and active_request_id=$3 then 'canceling' else turn_state end where id=$1`,
+    [row.id, intent === 'interrupt_and_send', binding.ownerRequestId ?? null])
+  }
+
+  async claimDelivery(id: string): Promise<{ input: SendOperatorMessageRequest; configuration: OperatorConfigurationVersion; ownerId: string } | undefined> {
+    return withTransaction(this.pool, async tx => {
+      const row = (await tx.query<ConversationRow>(`select * from operator_conversations where id=$1 and kind='operator' for update`, [id])).rows[0]
+      if (!row || row.deleted_at || row.active_request_id || !row.owner_principal_id || !['idle', 'error'].includes(row.turn_state)) return undefined
+      const turn = (await tx.query<{ request_id: string; operator_configuration_version_id: string;
+        payload: { request: SendOperatorMessageRequest; preparedInput: AcceptedChatInput } }>(`select * from operator_conversation_turns
+        where conversation_id=$1 and delivery='queued' and intent<>'steer'
+        order by (intent='interrupt_and_send') desc,turn_sequence limit 1 for update`, [id])).rows[0]
+      if (!turn) return undefined
+      const configuration = await this.configuration(turn.operator_configuration_version_id, tx)
+      if (!configuration) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'The queued Operator configuration is unavailable.', 409)
+      const accepted = turn.payload.preparedInput
+      const selected: AcceptedChatInput = await this.hasNativeSubmission(id, tx) && accepted.subsequent ? accepted.subsequent : accepted
+      const preparedInput = omitProperties(selected, ['subsequent'])
+      await tx.query(`update operator_conversation_turns set delivery='submitting',started_at=coalesce(started_at,now()),
+        payload=jsonb_set(payload,'{preparedInput}',$3::jsonb),updated_at=now() where conversation_id=$1 and request_id=$2`,
+      [id, turn.request_id, JSON.stringify(preparedInput)])
+      await tx.query(`update operator_conversations set active_request_id=$2,active_native_turn_id=null,active_phase='accepted',
+        operator_configuration_version_id=$3,record=record || jsonb_build_object('operatorConfigurationVersionId',$3::text),
+        turn_state='starting',cancel_requested=false,pending_interaction=null,response_delivery=null,last_error=null,last_result=null,
+        revision=revision+1,updated_at=now() where id=$1`, [id, turn.request_id, configuration.id])
+      return { input: turn.payload.request, configuration, ownerId: row.owner_principal_id }
+    })
+  }
+
+  async queuedConversationIds(): Promise<string[]> {
+    return (await this.pool.query<{ conversation_id: string }>(`select distinct t.conversation_id from operator_conversation_turns t
+      join operator_conversations c on c.id=t.conversation_id where c.kind='operator' and c.deleted_at is null and t.delivery='queued'`)).rows.map(row => row.conversation_id)
   }
 
   async phase(id: string, requestId: string, phase: TurnPhase, handoffContextIncluded = false): Promise<boolean> {

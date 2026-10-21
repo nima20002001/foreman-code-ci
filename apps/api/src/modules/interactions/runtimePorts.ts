@@ -2,7 +2,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
 
 import type { AcceptedNodePlacement } from '@foreman-code/contracts/node-placement'
-import type { AgentConfigurationVersion, AgentHarness, DurableInteraction, NativeSessionReference, ReviewJob, HarnessExecutionRequest } from '@foreman-code/contracts'
+import type { AgentConfigurationVersion, AgentHarness, DurableInteraction, NativeSessionReference, ReviewJob,
+  HarnessExecutionRequest, CoordinatorConsultationBinding } from '@foreman-code/contracts'
 import type { WorkflowArtifactOutputsV1 } from '@foreman-code/contracts/workflow-artifact-result'
 
 import type { NativeHarnessSessionManager } from '../harnesses/port.js'
@@ -10,7 +11,8 @@ import type { RunOwnership } from '../runs/ownership.js'
 
 export interface NativeManagerOwnershipContext {
   reviewJob?: ReviewJob
-  purpose?: 'reviewer'
+  purpose?: 'reviewer' | 'consultation'
+  consultation?: CoordinatorConsultationBinding
   correlationId?: string
   nativeTurnId?: string
   harness: AgentHarness
@@ -54,6 +56,21 @@ export interface NativeSessionManagerResolver {
   release?(context: NativeManagerResolutionContext, manager?: NativeHarnessSessionManager, state?: 'released' | 'failed'): void
 }
 
+/** A cold consultation owns a separate process lifetime; its source execution
+ * remains completed and cannot be used as a replacement launch authority. */
+function managerKey(context: NativeManagerResolutionContext): string {
+  if (context.purpose !== 'consultation') {
+    if (context.consultation) throw new Error('A consultation binding requires consultation purpose.')
+    return context.executionId
+  }
+  const binding = context.consultation
+  if (!binding || binding.runId !== context.runId
+    || context.nativeSessionId !== undefined && context.nativeSessionId !== binding.nativeSessionId) {
+    throw new Error('The native consultation requires its exact immutable source and retained session.')
+  }
+  return `consultation:${binding.consultationId}`
+}
+
 export class ExecutionScopedNativeSessionManagerResolver implements NativeSessionManagerResolver {
   private disposed = false
   private disposal: Promise<void> | undefined
@@ -70,11 +87,13 @@ export class ExecutionScopedNativeSessionManagerResolver implements NativeSessio
 
   resolve(context: NativeManagerResolutionContext, owner?: RunOwnership): ResolvedNativeSessionManager {
     if (this.disposed) throw new Error('Native managers are shutting down.')
-    const existing = this.entries.get(context.executionId)
+    const key = managerKey(context)
+    const existing = this.entries.get(key)
     if (existing) {
       if (existing.context.agentId !== context.agentId || existing.context.harness !== context.harness
         || existing.context.workingDirectory !== context.workingDirectory
         || existing.context.purpose !== context.purpose
+        || !isDeepStrictEqual(existing.context.consultation, context.consultation)
         || existing.context.runId !== context.runId || existing.context.attempt !== context.attempt
         || !isDeepStrictEqual(existing.context.acceptedPlacement, context.acceptedPlacement)
         || !isDeepStrictEqual(existing.context.artifactOutputs, context.artifactOutputs)
@@ -103,7 +122,7 @@ export class ExecutionScopedNativeSessionManagerResolver implements NativeSessio
     owner?.assertOwned()
     const admission = { owner, generation: randomUUID() }
     const manager = this.create(context, () => {
-      const current = this.entries.get(context.executionId)
+      const current = this.entries.get(key)
       // Failed startup still needs its owner to commit cleanup before release.
       return current?.admission === admission
         && (current.lifecycle === 'disposing' || !this.disposed)
@@ -123,24 +142,24 @@ export class ExecutionScopedNativeSessionManagerResolver implements NativeSessio
         get processState() { return entry.lifecycle === 'resident' ? 'resident' : 'needs_start' },
         get lifecycle() { return entry.lifecycle },
         beginStart: () => {
-          if (this.disposed || this.entries.get(context.executionId) !== entry || entry.lifecycle !== 'allocated') {
+          if (this.disposed || this.entries.get(key) !== entry || entry.lifecycle !== 'allocated') {
             throw new Error('The native manager is already starting, resident, or released.')
           }
           entry.lifecycle = 'starting'
         },
         markResident: () => {
-          if (this.disposed || this.entries.get(context.executionId) !== entry
+          if (this.disposed || this.entries.get(key) !== entry
             || (entry.lifecycle !== 'starting' && entry.lifecycle !== 'resident')) {
             throw new Error('An unstarted or released native manager cannot become resident.')
           }
           entry.lifecycle = 'resident'
         },
         markFailed: () => {
-          if (this.entries.get(context.executionId) === entry) entry.lifecycle = 'failed'
+          if (this.entries.get(key) === entry) entry.lifecycle = 'failed'
         },
       },
     }
-    this.entries.set(context.executionId, entry)
+    this.entries.set(key, entry)
     return entry.resolved
   }
 
@@ -161,17 +180,18 @@ export class ExecutionScopedNativeSessionManagerResolver implements NativeSessio
   }
 
   release(context: NativeManagerResolutionContext, manager?: NativeHarnessSessionManager, state: 'released' | 'failed' = 'released'): void {
-    const current = this.entries.get(context.executionId)
+    const key = managerKey(context)
+    const current = this.entries.get(key)
     if (current && current.context.agentId === context.agentId && (!manager || current.manager === manager)) {
       current.lifecycle = state
       current.admission.owner = undefined
-      this.entries.delete(context.executionId)
+      this.entries.delete(key)
     }
   }
 
   adoptOwner(executionId: string, manager: NativeHarnessSessionManager, owner: RunOwnership): void {
     owner.assertOwned()
-    const entry = this.entries.get(executionId)
+    const entry = [...this.entries.values()].find(value => value.context.executionId === executionId && value.manager === manager)
     if (this.disposed || !entry || entry.manager !== manager || entry.context.runId !== owner.runId) {
       throw new Error('The existing native manager does not belong to this Run owner.')
     }

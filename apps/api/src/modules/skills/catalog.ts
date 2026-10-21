@@ -1,4 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { skillHash } from './instructions.js'
+export { skillHash } from './instructions.js'
+import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
 import type { GraphSqlClient } from '../run-graph/connection.js'
 import type { AssignedSkill, ResolvedSkill, WorkspaceSkillReference } from '@foreman-code/contracts'
@@ -15,10 +17,6 @@ import type { PostgresCommandCoordinator } from '../commands/postgres.js'
 import { DomainError } from '../errors.js'
 
 type Source = 'http' | 'mcp'
-
-export function skillHash(instructions: string): string {
-  return `sha256:${createHash('sha256').update(instructions, 'utf8').digest('hex')}`
-}
 
 function verifiedVersion(record: unknown): SkillVersion {
   const skill = SkillVersionSchema.parse(record)

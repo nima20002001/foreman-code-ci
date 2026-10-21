@@ -80,6 +80,7 @@ export class Wave25WorkerCredentialService extends WorkerCredentialService {
       const updated = await client.query(`update worker_credential_bindings b set purpose='reviewer',
         approval_review_job_id=$3,approval_review_lease_fence=$4::bigint,approval_connection_generation=$5::bigint
         from management_principals p where b.principal_id=$1 and b.execution_id=$2 and p.id=b.principal_id
+        and b.purpose in ('workflow','reviewer')
         and b.revoked_at is null and p.revoked_at is null and p.expires_at>clock_timestamp()
         and b.approval_native_session_id=$6 and b.agent_id=$7 returning b.principal_id`,
       [credential.principalId, executionId, job.id, row.lease_fence, authority.generation,
@@ -91,8 +92,9 @@ export class Wave25WorkerCredentialService extends WorkerCredentialService {
     if (!await this.subject(id)) return super.renewForExecution(id, credential)
     const lease = await this.locked(id, async (client) => {
       await client.query('select id from management_principals where id=$1 for update', [credential.principalId])
-      const binding = await client.query<{ purpose: Purpose }>(
+      const binding = await client.query<{ purpose: Purpose | 'consultation' }>(
         'select principal_id,purpose from worker_credential_bindings where principal_id=$1 for update', [credential.principalId])
+      if (!binding.rows[0] || binding.rows[0].purpose === 'consultation') return fail('WORKER_CREDENTIAL_NOT_RENEWABLE')
       try { await assertWave25WorkerBinding(client, credential.principalId) }
       catch (error) {
         if (!(error instanceof Error) || !('code' in error) || error.code !== 'REVIEWER_BINDING_REBIND_REQUIRED') throw error

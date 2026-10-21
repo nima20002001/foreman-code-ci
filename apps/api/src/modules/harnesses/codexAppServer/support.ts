@@ -1,5 +1,5 @@
 /** Pure helpers and limits shared by the Codex app-server session manager layers. */
-import { isWorkflowStart, sessionStartConfiguration, sessionStartOwner, sessionStartSystemPrompt } from '../sessionStart.js'
+import { hasWorkflowRequest, sessionStartConfiguration, sessionStartOwner, sessionStartSystemPrompt } from '../sessionStart.js'
 import { readProductEnvironment } from '@foreman-code/contracts/product-environment'
 import { isSupportedAppMcpTokenName } from '../appMcpLauncher.js'
 import { createHash } from 'node:crypto'
@@ -75,7 +75,7 @@ export function validateEnvironmentOwner(input: NativeSessionStart, requiredVari
   if (input.environment && input.environment.agentId !== ownerId(input)) {
     throw new HarnessExecutionError('CODEX_SESSION_OWNER_MISMATCH', 'The scoped process environment belongs to another Agent.')
   }
-  if (isWorkflowStart(input) && input.request.workspaceId !== input.request.configuration.workspaceId) {
+  if (hasWorkflowRequest(input) && input.request.workspaceId !== input.request.configuration.workspaceId) {
     throw new HarnessExecutionError('CODEX_SESSION_OWNER_MISMATCH', 'The accepted configuration belongs to another workspace.')
   }
   const token = requiredVariable && isSupportedAppMcpTokenName(requiredVariable)

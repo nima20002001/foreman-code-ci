@@ -1,3 +1,5 @@
+import { withBrowserToolDefaults } from '@foreman-code/contracts'
+import { managedBrowserSkillId, readManagedBrowserSkill } from '../skills/browserSkill.js'
 import { authorizeWorkflowWorktreeContent, validateWorkflowWorktrees,
   type WorkflowWorktreeServices } from './worktreeSettings.js'
 import { withTransaction } from '../../infrastructure/transaction.js'
@@ -361,6 +363,8 @@ export class CurrentWorkflowAuthoring {
       presentationOnly = sameExecutableWorkflow(input.graph,
         reconcileAgentProfilePlacements(input.graph, snapshot.configurations))
     }
+    if (presentationOnly && base && input.graph.nodes.some(node => node.kind !== 'job' && node.browser?.enabled
+      && !base.nodeSkillSnapshots?.[node.id]?.some(skill => skill.skillId === managedBrowserSkillId))) presentationOnly = false
     if (presentationOnly && base) {
       await validateWorkflowWorktrees({ sql: client, principal, definition: input.graph, previous: current,
         services: this.options.worktrees })
@@ -398,8 +402,9 @@ export class CurrentWorkflowAuthoring {
     })
     configurations.push(...(staged?.prepared.map((item) => item.configuration) ?? []))
     // Publication and the immutable version must use the same manual placement flags and inherited approval.
-    const graph = manualPositionsForSave(reconcileAgentProfilePlacements({ ...input.graph,
+    const placedGraph = manualPositionsForSave(reconcileAgentProfilePlacements({ ...input.graph,
       approval: input.graph.approval ?? current.approval }, configurations), current, source)
+    const graph = { ...placedGraph, nodes: placedGraph.nodes.map(node => node.kind === 'job' ? node : withBrowserToolDefaults(node)) }
     await validateWorkflowWorktrees({ sql: client, principal, definition: graph, previous: current,
       configurations, services: this.options.worktrees })
     const number = Number((await client.query<{ next: string }>('select coalesce(max(version),0)+1 as next from workflow_versions where workflow_id=$1',
@@ -419,11 +424,12 @@ export class CurrentWorkflowAuthoring {
       const configuration = configurations.find(config => config.agentId === node.agentId)!
       const additions = await resolveAssignedSkills(client, input.workspaceId, node.skills?.add ?? [],
         base?.nodeSkillSnapshots?.[node.id])
+      if (node.browser?.enabled) additions.push(await readManagedBrowserSkill())
       if (additions.length) {
         version.nodeSkillSnapshots ??= {}
         version.nodeSkillSnapshots[node.id] = additions
       }
-      const effective = node.skills ? configurationWithNodeSkills(configuration, node.skills, additions) : configuration
+      const effective = configurationWithNodeSkills(configuration, node.skills, additions, node.browser)
       if (instructionsTooLarge(composeInstructionText(effective))) {
         throw new DomainError('AGENT_INSTRUCTIONS_TOO_LARGE',
           'Agent instructions and node skills exceed the 512 KiB limit. Remove skills or shorten the instructions.', 400)

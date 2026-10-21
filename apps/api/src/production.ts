@@ -1,4 +1,16 @@
+import { BROWSER_DEVICE_EXTENSION } from '@foreman-code/contracts'
+import { createProductionBrowser } from './modules/collaboration/browserComposition.js'
+import { createMainBrowserRemote } from './modules/collaboration/browserRemote.js'
+import { prepareAgentChatInput, prepareOperatorChatInput } from './modules/collaboration/chatInputPreparation.js'
+import { ConversationCredentials } from './modules/access/conversationCredentialIssuer.js'
+import { conversationChatTools, readConversationCredential } from './modules/access/conversationCredentials.js'
+import { ConversationNativeAccess } from './modules/collaboration/conversationNativeAccess.js'
+import { createProductionWorkflowChat } from './modules/collaboration/groupChatProduction.js'
+import { createMemoryBoardService } from './modules/memory-boards/production.js'
+import { memoryBoardAuthority } from './modules/collaboration/memoryBoardAuthority.js'
 import { requireRsyncTransferOwner } from './modules/byte-transfer/rsyncTransferOwner.js'
+import { WorkflowCollaborationIntegration, type WorkflowFeaturePorts } from './modules/collaboration/workflowIntegration.js'
+import { createWorkflowExecutionChatService } from './modules/collaboration/workflowChatProduction.js'
 import { MANAGED_MCP_NAMESPACE } from '@foreman-code/contracts/managed-mcp-channel'
 import { DeviceManagedMcp } from './modules/harnesses/deviceManagedMcp.js'
 import { RunWorktrees } from './modules/runs/runWorktrees.js'
@@ -52,8 +64,7 @@ import { registerComputerSyncRoutes } from './routes/computerSync.js'
 import { sessionStartDirectory } from './modules/harnesses/sessionStart.js'
 import { recoverPersistedClaudeCompaction } from './modules/harnesses/claudeSdk/recoverCompaction.js'
 import { registerBuildComputerRoutes } from './routes/buildComputers.js'
-import { WORKSPACE_ROOT_EXTENSION } from '@foreman-code/contracts/workspace-root-policies'
-import { PRODUCT_SLUG } from '@foreman-code/contracts/product'
+import { ApprovedRootAllowlistSchema, WORKSPACE_ROOT_EXTENSION } from '@foreman-code/contracts/workspace-root-policies'
 import type { ClaudeHarnessConfiguration } from '@foreman-code/contracts/claude'
 import { readProductEnvironment } from '@foreman-code/contracts/product-environment'
 import { appLauncherPath, appMcpServerName } from './modules/harnesses/appMcpLauncher.js'
@@ -119,6 +130,7 @@ import { JOB_INPUT_NAMESPACE } from './modules/files/jobInputs/service.js'
 import { PostgresWorkflowJobNodeStore, workflowJobStorePublication } from './modules/jobs/workflowStore.js'
 import { createProductionJobs } from './modules/jobs/production.js'
 import type { OperatorServices } from './mcp/operator/types.js'
+import { WorkflowHierarchyService } from './modules/workflow-hierarchy/service.js'
 import { registerJobRoutes } from './routes/jobs.js'
 import { registerJobRuntimeProfileRoutes } from './routes/jobRuntimeProfiles.js'
 import { registerSourceRoutes } from './routes/sources.js'
@@ -144,12 +156,13 @@ import { NativeProviderAccountOperations } from './modules/provider-accounts/nat
 import { NativeAccountJournal } from './modules/provider-accounts/nativeJournal.js'
 import type { AcceptedProviderAccountBinding } from '@foreman-code/contracts/provider-accounts'
 import { ProviderAccountConfigurationService } from './modules/harnesses/providerAccountConfiguration.js'
-import { assertClaudeCredentialEndpoint } from './modules/harnesses/claudeSdk/mcpInspection.js'
+import { prepareClaudeWorkflowCredentials } from './modules/harnesses/claudeSdk/workflowCredentials.js'
 import { PostgresClaudeInteractionAuthority } from './modules/harnesses/claudeSdk/domainAuthority.js'
 import { productionSelectedProfileManager } from './modules/harnesses/selectedProfileProduction.js'
 import { createProductionWorkerConversations } from './modules/conversations/workerProduction.js'
 import { REMOTE_PREPARATION_EXTENSION, WorkerConversationCallbackSchema } from '@foreman-code/contracts/remote-execution-rpc'
 import { credentialAuthority } from './modules/interactions/wave25/credentialAuthority.js'
+import { readCoordinatorCredentialAuthority } from './modules/access/consultationAuthority.js'
 import type { GraphSqlClient } from './modules/run-graph/connection.js'
 import { currentOperatorAuthority } from './modules/access/runAuthority.js'
 import { requireAuthorization } from './modules/access/policy.js'
@@ -315,6 +328,8 @@ export type ProductionProviderAccountSelection = AccountNativeSelection & {
 type ProductionMainInstallation = Awaited<ReturnType<ProductionDeviceRuntime['initializeFromRuntime']>>
 
 interface ProductionComposition {
+  collaborationPorts: WorkflowFeaturePorts | undefined
+  workflowCollaboration: WorkflowCollaborationIntegration
   config: ApiConfig
   database: ReturnType<typeof createDatabase>
   checkpoints: CheckpointStore
@@ -364,6 +379,7 @@ interface ProductionComposition {
   artifactResultSource: ReturnType<typeof createProductionWorkflowArtifactResultSource> | undefined
   artifactOutputsGate: ReturnType<typeof createWorkflowArtifactOutputsGate> | undefined
   localWorkflowArtifacts: LocalWorkflowArtifacts | undefined
+  memoryBoards: ReturnType<typeof createMemoryBoardService>
   workflowRuntime: ReturnType<typeof createWorkflowRepositoryServices>
   repository: PostgresInteractionRepository
   budgets: PostgresApprovalBudgetRepository
@@ -430,6 +446,11 @@ interface ProductionComposition {
   operatorManagers: Map<string, NativeHarnessSessionManager>
   operatorConversations: PostgresOperatorConversationRepository
   agentConversations: PostgresAgentChatRepository
+  browser: ReturnType<typeof createProductionBrowser>
+  browserRemote: ReturnType<typeof createMainBrowserRemote>
+  conversationNativeAccess: ConversationNativeAccess
+  workflowChat: ReturnType<typeof createProductionWorkflowChat>
+  stopWorkflowChat?: () => void
   workerChats: ReturnType<typeof createProductionWorkerConversations>
   agentChatProfileSelection: (
     configuration: import('@foreman-code/contracts').AgentConfigurationVersion,
@@ -498,6 +519,7 @@ export function buildProductionApp(
   qualificationSuites?: Record<CompatibilityHarness, QualificationSuite>,
   infrastructure?: ProductionHarnessInfrastructure,
   accountSelection?: ProductionProviderAccountSelection,
+  collaborationPorts?: WorkflowFeaturePorts,
 ) {
   // Service callbacks read the same slots as later startup and shutdown stages.
   const composition = {
@@ -510,9 +532,11 @@ export function buildProductionApp(
     qualificationSuites,
     infrastructure,
     accountSelection,
+    collaborationPorts,
   } as ProductionComposition
   configureMainTransport(composition)
   configureDeviceRuntime(composition)
+  configureBrowser(composition)
   configureProviderAccounts(composition)
   configureWorkflowRepositories(composition)
   configureHarnessQualifications(composition)
@@ -544,6 +568,26 @@ export function buildProductionApp(
     },
     startDeviceListener: () => composition.deviceRuntime.startListener(),
   }
+}
+
+function configureBrowser(composition: ProductionComposition) {
+  const { config, database, deviceRuntime } = composition
+  const reportFailure = (error: unknown) => componentLogger('harness').warn({ err: error }, 'Browser runtime requires attention')
+  composition.browser = createProductionBrowser({ pool: database.pool,
+    stateDirectory: config.browserStateDirectory ?? resolve(config.harnesses.workspaceRoot, 'browser-state'),
+    runtimeRoot: config.browserRuntimeRoot,
+    binding: id => deviceRuntime.currentBinding(id),
+    assertHostOwnership: async () => {
+      if (!composition.runtimeOwner?.active) throw new DomainError('NATIVE_RUNTIME_UNAVAILABLE', 'The browser runtime owner is unavailable.', 503)
+    }, reportFailure,
+    remote: (pairing, authority) => {
+      const remote = createMainBrowserRemote({ pool: database.pool, pairing, authority,
+        endpoint: () => deviceRuntime.endpointForDomains(), browser: () => composition.browser, reportFailure })
+      composition.browserRemote = remote
+      return remote
+    },
+  })
+  composition.collaborationPorts = { ...composition.collaborationPorts, browser: composition.browser.lifecycle }
 }
 
 function configureMainTransport(composition: ProductionComposition) {
@@ -636,6 +680,7 @@ function configureDeviceRuntime(composition: ProductionComposition) {
   const deviceRuntime = composition.deviceRuntime = new ProductionDeviceRuntime(database.pool, infrastructure?.deviceListener, {
     workerArtifacts: workerArtifactLocation({ environment: process.env,
       releaseDirectory: fileURLToPath(new URL('../../../', import.meta.url)) }),
+    browserMedia: (request, socket, head) => composition.browserRemote.mediaUpgrade(request, socket, head),
     extensions: [
       remoteTelemetry.extension,
       ...rsync.extensions.map(extension => ({ ...extension, role: 'duplex' as const, async handle(raw: unknown, context: import('./modules/devices/deviceApplicationChannel.js').DeviceExtensionContext) {
@@ -646,6 +691,7 @@ function configureDeviceRuntime(composition: ProductionComposition) {
         context.signal.throwIfAborted()
         return { payload: intent }
       } })),
+      { ...BROWSER_DEVICE_EXTENSION, handle: (payload, context) => composition.browserRemote.handle(payload, context) },
       { namespace: WORKSPACE_ROOT_EXTENSION.namespace, version: WORKSPACE_ROOT_EXTENSION.version, role: 'client', maxJsonBytes: WORKSPACE_ROOT_EXTENSION.maxPayloadBytes, maxBinaryBytes: 0 },
       { ...JOB_RUNTIME_QUALIFICATION_EXTENSION, role: 'duplex', async handle(payload, context) {
         const handler = composition.jobRuntime?.qualificationExtension.handle
@@ -754,6 +800,7 @@ function configureDeviceRuntime(composition: ProductionComposition) {
     },
     async bindingReady(binding, signal, endpoint) {
       if (!signal.aborted) {
+        composition.browser.profiles.wake()
         composition.jobRuntime?.requestQueueWake()
         composition.runtimeServices.ciEnrollment?.request({
           hostRef: { kind: 'device', mainId: binding.mainId, deviceId: binding.deviceId },
@@ -839,6 +886,7 @@ function configureProviderAccounts(composition: ProductionComposition) {
   composition.accountConfigurations = new ProviderAccountConfigurationService(providerAccounts)
   const workflowCapture = composition.workflowCapture = createWorkflowNativeCaptureChannel()
   composition.reviewCapture = createReviewNativeCaptureChannel()
+  composition.memoryBoards = createMemoryBoardService(database.pool, memoryBoardAuthority)
   composition.workflowRuntime = createWorkflowRepositoryServices(workflowCapture.verify, (sql, owner, capture) => {
     if (!composition.remoteWorkflow) throw new DomainError('REMOTE_WORKFLOW_UNAVAILABLE', 'The actual original native physical composition is unavailable.', 503)
     return composition.remoteWorkflow.assertPhysical(sql, owner, capture)
@@ -877,7 +925,21 @@ function configureWorkflowRepositories(composition: ProductionComposition) {
     reviewCapture,
     workflowRuntime,
   } = composition
+  const collaboration = composition.workflowCollaboration = new WorkflowCollaborationIntegration(
+    composition.collaborationPorts, async (owner, execution) => {
+      const placement = await owner.oneShotConnection().transaction(sql =>
+        readAcceptedPlacement(sql, execution.runId, execution.workflowNodeId), true)
+      if (placement) return placement.hostRef.kind === 'device' ? placement.hostRef.deviceId : placement.hostRef.mainId
+      const mainId = composition.artifactComposition?.mainId
+      if (!mainId) throw new DomainError('BROWSER_COMPUTER_UNAVAILABLE', 'The accepted Main computer is unavailable.', 503)
+      return mainId
+    })
   const workflowServices: RepeatRepositoryServices = { ...workflowRuntime.services,
+    collaboration: collaboration.hooks,
+    prepareCollaborationExecution: (owner, run, version, execution) => collaboration.prepare(owner, run, version, execution),
+    readCollaborationPrompt: (owner, execution, version) => collaboration.readPrompt(owner, execution, version),
+    releaseCollaborationExecution: (owner, execution, version) => collaboration.release(owner, execution, 'terminal', version),
+    memoryBoards: composition.memoryBoards,
     async reconcileWorkflowArtifacts(owner, run, execution, signal) {
       signal.throwIfAborted()
       const snapshot = await runs.getRepeatSnapshot(run.id, owner)
@@ -1074,8 +1136,25 @@ function configureHarnessQualifications(composition: ProductionComposition) {
   composition.profileAuthority = {
     async authorize(binding, selector, client) {
       binding.admissionSignal?.throwIfAborted()
-      if (binding.kind === 'workflow') {
-        const current = await credentialAuthority(client, binding.executionId, binding.purpose ?? 'workflow')
+      if (binding.kind === 'workflow' && binding.purpose === 'consultation') {
+        if (!binding.consultation) throw new DomainError('HARNESS_PROFILE_OWNER_CONFLICT',
+          'The consultation profile requires its mailbox binding.', 409)
+        const current = await readCoordinatorCredentialAuthority(client, binding.consultation)
+        if (current.run_id !== binding.runId || current.execution.id !== binding.executionId
+          || current.execution.attempt !== binding.attempt) throw new DomainError('HARNESS_PROFILE_OWNER_CONFLICT',
+          'The consultation source attempt changed.', 409)
+        const owner = binding.getOwner()
+        if (!owner || owner.runId !== binding.runId) throw new DomainError('HARNESS_PROFILE_OWNER_CONFLICT',
+          'The consultation Run owner is unavailable.', 409)
+        owner.assertOwned()
+        const row = (await client.query<{ principal_id: string }>(
+          "select record->>'authorizationPrincipalId' as principal_id from runs where id=$1", [binding.runId])).rows[0]
+        if (!row) throw new DomainError('HARNESS_PROFILE_OWNER_CONFLICT', 'The accepted Run is unavailable.', 409)
+        const principal = (await currentOperatorAuthority(client, row.principal_id)).principal
+        requireAuthorization(principal, 'runs:start', { workspaceId: current.workspace_id, workflowId: current.workflow_id })
+      } else if (binding.kind === 'workflow') {
+        const current = await credentialAuthority(client, binding.executionId,
+          binding.purpose === 'reviewer' ? 'reviewer' : 'workflow')
         if (current.run.id !== binding.runId || current.execution.attempt !== binding.attempt) throw new DomainError('HARNESS_PROFILE_OWNER_CONFLICT', 'The exact Run attempt changed.', 409)
         if (!current.nativeSessionId && binding.purpose !== 'reviewer') {
           const owner = binding.getOwner()
@@ -1292,7 +1371,9 @@ function configureWorkflowManagers(composition: ProductionComposition) {
     }
     // Object allocation remains native/registry IO-free. The coordinator reserves
     // this SAME scope immediately before its lifetime/entered commits.
-    const recovery = processRegistry.scope(`execution:${context.executionId}`)
+    const processOwner = context.purpose === 'consultation' && context.consultation
+      ? `consultation:${context.consultation.consultationId}` : `execution:${context.executionId}`
+    const recovery = processRegistry.scope(processOwner)
     const remote = remoteWorkflow!.manager(context, getOwner)
     if (remote) return remote
     const nativeOutputs = configuration.harness === 'codex' && context.artifactOutputs && !context.purpose
@@ -1317,6 +1398,7 @@ function configureWorkflowManagers(composition: ProductionComposition) {
         ...(accountBinding ? { accountBinding } : {}),
         profiles: claudeProfiles, ...(selector ? { selector } : {}),
         binding: { kind: 'workflow', runId: context.runId, executionId: context.executionId, attempt: context.attempt, getOwner },
+        ...(context.consultation ? { consultation: context.consultation } : {}),
         role: 'workflow', configuration, workingDirectory: context.workingDirectory, ownerAgentId: context.agentId,
         recovery, appMcpAccess: 'scoped', mode: infrastructure?.mode ?? 'native',
         ...(infrastructure?.claudeClient ? { loadClient: infrastructure.claudeClient } : {}),
@@ -1343,7 +1425,8 @@ function configureWorkflowManagers(composition: ProductionComposition) {
         ...(accountBinding ? { accountBinding } : {}),
         ...(context.nativeSessionId ? { nativeSessionId: context.nativeSessionId } : {}),
         selector, binding: { kind: 'workflow', runId: context.runId, executionId: context.executionId, attempt: context.attempt, getOwner,
-          ...(context.purpose ? { purpose: context.purpose } : {}) },
+          ...(context.purpose ? { purpose: context.purpose } : {}),
+          ...(context.consultation ? { consultation: context.consultation } : {}) },
         configuration, role: 'workflow', workingDirectory: context.workingDirectory, ownerAgentId: context.agentId,
         recovery, appMcpAccess: 'scoped', ...(nativeOutputs ? { nativeOutputs } : {}) })
       launchScopes.set(manager, recovery)
@@ -1445,6 +1528,17 @@ function configureExecutionCoordinator(composition: ProductionComposition) {
     prepareWorkflowManagerContext,
   } = composition
   const launchCredentials = composition.launchCredentials = {
+    async restoreConsultation(binding, environment) {
+      const credential = await credentials.restoreForConsultation(binding, environment)
+      await appRoutes.refresh()
+      return credential
+    },
+    async renewConsultation(binding, credential, signal) {
+      signal?.throwIfAborted()
+      const expiresAt = await credentials.renewForConsultation(binding, credential)
+      if (!composition.closing) await appRoutes.refresh({ signal })
+      return expiresAt
+    },
     async restore(executionId, environment) {
       await validateContinuation(executionId)
       const credential = await credentials.restoreForExecution(executionId, environment)
@@ -1487,6 +1581,7 @@ function configureExecutionCoordinator(composition: ProductionComposition) {
         executionId: execution.id, agentId: execution.agentId, harness: input.harness,
         workingDirectory: input.workingDirectory, configuration, runId: execution.runId, attempt: execution.attempt,
         ...(input.purpose ? { purpose: input.purpose } : {}),
+        ...(input.consultation ? { consultation: input.consultation } : {}),
       }
       const preparedContext = await prepareWorkflowManagerContext(context)
       const placement = preparedContext.acceptedPlacement
@@ -1496,41 +1591,16 @@ function configureExecutionCoordinator(composition: ProductionComposition) {
       let runnerId = run.executionLocation.runnerId
       if (placement?.hostRef.kind === 'main') runnerId = locations.runnerId
       if (placement?.hostRef.kind === 'device') runnerId = placement.registration!.workerInstallationId
-      const { manager } = managers.resolve(preparedContext)
+      const manager = input.manager ?? managers.resolve(preparedContext).manager
       const detection = remoteWorkflow.isRemote(input.executionId)
         ? remoteMcpPreflight(manager, preparedContext)
         : new McpDetectionService(nativeFactories.inspector(manager), appMcpEndpoint)
       if (input.harness === 'claude') {
         const claude = claudeLaunches.get(manager)
         if (!claude || configuration.harness.harness !== 'claude') throw new DomainError('CLAUDE_OWNER_UNAVAILABLE', 'The exact Claude launch is unavailable.', 409)
-        const inspected = await nativeFactories.inspector(manager).inspect({ harness: 'claude', runnerId,
-          workingDirectory: input.workingDirectory, serverName: PRODUCT_SLUG, phase: 'configuration', ...(input.signal ? { signal: input.signal } : {}) })
-        assertClaudeCredentialEndpoint(inspected.entry, appMcpEndpoint)
-        await credentials.revokeSupersededForExecution(input.executionId)
-        input.signal?.throwIfAborted()
-        const credential = await (input.purpose === 'reviewer' ? credentials.issueForReviewer(input.executionId) : credentials.issueForExecution(input.executionId))
-        try {
-          const token = readProductEnvironment(credential.environment.variables, 'MCP_TOKEN')
-          const serverName = appMcpServerName(configuration.harness.mcpServers)
-          const configured = configuration.harness.mcpServers[serverName]
-          if (!token || configured?.type !== 'http' || configured.url !== appMcpEndpoint) throw new DomainError('APP_MCP_PREFLIGHT_FAILED', 'The accepted Claude settings cannot receive this scoped HTTP credential.', 409)
-          const start = { ...await claude.inspectionStart(), environment: credential.environment }
-          await claude.manager.refreshInspectionCredentials(start, { ...configuration.harness.mcpServers,
-            [serverName]: { ...configured, headers: { Authorization: `Bearer ${token}` } } }, input.signal)
-          const checked = await detection.preflight({ harness: 'claude', runnerId,
-            workingDirectory: input.workingDirectory, ...(input.signal ? { signal: input.signal } : {}) })
-          if (checked.detection.state !== 'connected' || checked.detection.credentialArrangement?.kind !== 'scoped_http_header') {
-            componentLogger('harness').warn({ executionId: input.executionId, state: checked.detection.state,
-              arrangement: checked.detection.credentialArrangement?.kind ?? null }, 'Claude scoped MCP credential preflight rejected')
-            throw new DomainError('APP_MCP_PREFLIGHT_FAILED', 'Claude did not acknowledge the scoped HTTP credential on its current query.', 409)
-          }
-          await appRoutes.refresh({ signal: input.signal })
-          return { credential, detection: checked }
-        } catch (error) {
-          componentLogger('harness').warn({ executionId: input.executionId, code: error instanceof DomainError ? error.code
-            : error instanceof Error ? error.constructor.name : typeof error }, 'Claude workflow credential preflight failed')
-          await credentials.revoke(credential); throw error
-        }
+        return prepareClaudeWorkflowCredentials({ input, configuration: configuration.harness, claude,
+          inspector: nativeFactories.inspector(manager), detection, credentials, runnerId, endpoint: appMcpEndpoint,
+          refreshRoutes: () => appRoutes.refresh({ signal: input.signal }) })
       }
       const launch = new WorkerLaunchCredentialService(detection, credentials, runnerId)
       // The coordinator reserved and retained this exact manager lifetime
@@ -1576,16 +1646,18 @@ function configureExecutionCoordinator(composition: ProductionComposition) {
       signal.throwIfAborted()
       return closed
     },
-    async (executionId, manager) => {
+    async (executionId, manager, consultation) => {
       if (remoteWorkflow!.isRemote(executionId)) return
       const scope = launchScopes.get(manager)
-      if (!scope || scope.owner !== `execution:${executionId}` || scope.launchId) throw new DomainError(
+      const expectedOwner = consultation ? `consultation:${consultation.consultationId}` : `execution:${executionId}`
+      if (!scope || scope.owner !== expectedOwner || scope.launchId) throw new DomainError(
         'NATIVE_LAUNCH_RESERVATION_CONFLICT', 'The exact manager launch scope is unavailable or already reserved.', 409)
       if (hasDetachedStdioProcess(scope)) return
       Object.assign(scope, await processRegistry.reserveLaunch(scope.owner))
     },
     prepareWorkflowManagerContext,
     executionId => remoteWorkflow.afterReviewCommit(executionId),
+    composition.workflowCollaboration,
   )
   composition.telemetryLifetime = new AbortController()
   composition.mainTelemetryContext = null
@@ -1643,6 +1715,12 @@ function configureConversationManagers(composition: ProductionComposition) {
     endpoint: () => deviceRuntime.endpointForDomains(), profiles: selectedProfiles, claudeProfiles,
     operators: operatorConversations, agents: agentConversations, registry: harnessRegistry,
     qualifications: qualificationRepository, access, mcpForward: () => selectedMainMcpForward(composition.app),
+    agentMcp: { authorize: async request => {
+      const principal = await access.authenticate(request.token, 'worker')
+      const credential = await readConversationCredential(database.pool, principal.id)
+      if (!credential) throw new DomainError('ACCESS_DENIED', 'A scoped Agent conversation credential is required.', 403)
+      return { subject: credential.subject, expiresAt: principal.expiresAt }
+    }, forward: () => selectedMainMcpForward(composition.app) },
     fileService: () => productionFileTools(composition.app),
     files: (conversationId, configuration, workingDirectory) => async ({ host, assertHost, ...turn }) => {
       const admissions = 'operatorId' in configuration
@@ -1804,6 +1882,25 @@ function configureOperatorChat(composition: ProductionComposition) {
     operatorAccountBindings,
     resolveOperatorManager,
   } = composition
+  resolveOperatorManager.prepareInput = prepareOperatorChatInput(database.pool, async profile => {
+    const host = profile.target.hostRef
+    if (host.kind !== 'device') throw new DomainError('CHAT_PREFLIGHT_UNAVAILABLE', 'The Worker profile is unavailable.', 409)
+    const endpoint = deviceRuntime.endpointForDomains()
+    const channel = endpoint.captureRequest(host.deviceId, WORKSPACE_ROOT_EXTENSION.namespace)
+    if (!channel || channel.binding.mainId !== host.mainId
+      || channel.binding.workerInstallationId !== profile.target.applicationInstallationId) {
+      throw new DomainError('CHAT_PREFLIGHT_UNAVAILABLE', 'The selected Worker is unavailable.', 503)
+    }
+    const response = await channel.request({ version: 1, operation: 'workspace-roots.configuration' },
+      { signal: new AbortController().signal })
+    const roots = ApprovedRootAllowlistSchema.parse(response.payload)
+    if (response.bytes !== undefined || !isDeepStrictEqual(roots.hostRef, host)
+      || roots.applicationInstallationId !== profile.target.applicationInstallationId
+      || !isDeepStrictEqual(endpoint.captureRequest(host.deviceId, WORKSPACE_ROOT_EXTENSION.namespace)?.binding, channel.binding)) {
+      throw new DomainError('CHAT_PREFLIGHT_UNAVAILABLE', 'The selected Worker root changed during input preparation.', 409)
+    }
+    return roots.managedRuntimeRoot
+  })
   const chatAuthority = composition.chatAuthority = new PostgresOperatorChatAuthority(
     database.pool, access, rollout, operatorWorkingDirectory, appMcpEndpoint,
     (manager) => workerChats!.inspector(manager) ?? nativeFactories.inspector(manager),
@@ -1904,7 +2001,8 @@ function configureAgentChat(composition: ProductionComposition) {
     recoverChatCompaction,
   } = composition
   const agentChatManagers = new Map<string, NativeHarnessSessionManager>()
-  const resolveAgentChatManager: AgentChatManagerFactory = async (conversationId, configuration, workingDirectory, accountSource) => {
+  const nativeAccess = composition.conversationNativeAccess = new ConversationNativeAccess(new ConversationCredentials(database.pool))
+  const resolveAgentChatManager: AgentChatManagerFactory = async (conversationId, configuration, workingDirectory, accountSource, featureContext) => {
     if (configuration.harness.harness === 'opencode') {
       throw new DomainError('HARNESS_RETIRED', RETIRED_OPENCODE_MESSAGE, 409)
     }
@@ -1916,9 +2014,15 @@ function configureAgentChat(composition: ProductionComposition) {
     const selector = selected.profileSelection
     const resolved = agentChatManagers.get(conversationId)
     if (resolved) return resolved
+    const appMcpAccess = featureContext && conversationChatTools(featureContext).length ? 'scoped' as const : 'none' as const
     if (selector?.target.hostRef.kind === 'device') {
-      const manager = workerChats!.create({ configuration, conversationId, workingDirectory, appMcpAccess: 'none',
-        profileSelection: selector, sourceExecution: selected.sourceExecution })
+      const manager = workerChats!.create({ configuration, conversationId, workingDirectory, appMcpAccess, fileInputs: true,
+        profileSelection: selector, sourceExecution: selected.sourceExecution,
+        applicationAccess: start => {
+          const token = start.environment?.variables.FOREMAN_CODE_MCP_TOKEN ?? start.environment?.variables.GRAPHQL_MCP_TOKEN
+          return token ? { kind: 'agent-chat-mcp', token } : undefined
+        } })
+      if (featureContext) await nativeAccess.bind(manager, featureContext)
       agentChatManagers.set(conversationId, manager)
       return manager
     }
@@ -1936,11 +2040,12 @@ function configureAgentChat(composition: ProductionComposition) {
         ...(selector ? { selector } : {}),
         binding: { kind: 'agent', conversationId, workspaceId: configuration.workspaceId, repository: agentConversations },
         role: 'agent-chat', configuration: harness, workingDirectory, ownerAgentId: configuration.agentId, recovery,
-        appMcpAccess: 'none', mode: infrastructure?.mode ?? 'native',
+        appMcpAccess, mode: infrastructure?.mode ?? 'native',
         files: { service: () => productionFileTools(composition.app), ...(infrastructure?.claudeFileSdk ? { sdk: infrastructure.claudeFileSdk } : {}) },
         ...(infrastructure?.claudeClient ? { loadClient: infrastructure.claudeClient } : {}),
         inspectionStart: async () => { throw new DomainError('CLAUDE_MANAGEMENT_MCP_FORBIDDEN', 'Agent chat has no management MCP inspection authority.', 403) },
       })
+      if (featureContext) await nativeAccess.bind(manager, featureContext)
       agentChatManagers.set(conversationId, manager)
       return manager
     }
@@ -1950,8 +2055,9 @@ function configureAgentChat(composition: ProductionComposition) {
         ...(accountBinding?.kind === 'slot' ? { accountBinding } : {}),
         selector,
         binding: { kind: 'agent', conversationId, workspaceId: configuration.workspaceId, repository: agentConversations },
-        configuration: harness, role: 'agent-chat', workingDirectory, ownerAgentId: configuration.agentId, recovery, appMcpAccess: 'none',
+        configuration: harness, role: 'agent-chat', workingDirectory, ownerAgentId: configuration.agentId, recovery, appMcpAccess,
         files: productionCodexChatFiles(() => composition.app, conversationId, chatFileAdmissions) })
+      if (featureContext) await nativeAccess.bind(manager, featureContext)
       agentChatManagers.set(conversationId, manager)
       return manager
     }
@@ -1963,10 +2069,11 @@ function configureAgentChat(composition: ProductionComposition) {
       role: 'agent-chat', workingDirectory, ownerAgentId: configuration.agentId,
       configured: { instanceId: selection?.instance.instanceId ?? configuration.agentId, instanceRevision: configuration.id, driverId: harness.harness,
         enabled: true, configuration: harness },
-      processRecovery: recovery, appMcpAccess: 'none',
+      processRecovery: recovery, appMcpAccess,
       harness: 'codex',
       chatFiles: productionCodexChatFiles(() => composition.app, conversationId, chatFileAdmissions),
     })
+    if (featureContext) await nativeAccess.bind(manager, featureContext)
     agentChatManagers.set(conversationId, manager)
     return manager
   }
@@ -1994,6 +2101,7 @@ function configureAgentChat(composition: ProductionComposition) {
     }
     return undefined
   }
+  resolveAgentChatManager.prepareInput = prepareAgentChatInput(database.pool)
   resolveAgentChatManager.modelOptions = async configuration =>
     configuration.harness === 'opencode' ? []
       : (await composition.nativeConfigurations.options(configuration.harness)).models
@@ -2110,6 +2218,7 @@ function configureOperatorServices(composition: ProductionComposition) {
     }),
     operatorChat: chat,
     agentChat,
+    memoryBoards: composition.memoryBoards,
     workspaces: new WorkspaceManagementService(database.pool, commands, locations, foundationSettings, projectRoot),
     locations,
     workflows: new WorkflowManagementService(database.pool, commands, {
@@ -2180,6 +2289,18 @@ function configureOperatorServices(composition: ProductionComposition) {
       },
     )),
   }
+  composition.operatorServices.workflowHierarchy = new WorkflowHierarchyService(database.pool, commands,
+    composition.operatorServices.workflows)
+  const executionChat = createWorkflowExecutionChatService(database.pool, approvals)
+  composition.operatorServices.executionChat = executionChat
+  composition.workflowChat = createProductionWorkflowChat({ pool: database.pool,
+    agent: composition.agentChat, agentRepository: composition.agentConversations, operator: composition.chat,
+    execution: executionChat,
+    bindConversationScope: composition.conversationNativeAccess.rebind,
+  })
+  composition.operatorServices.browser = composition.browser
+  composition.operatorServices.workflowChat = composition.workflowChat.service
+  composition.operatorServices.chatDelivery = composition.workflowChat.router
 }
 
 function configureHttpApplication(composition: ProductionComposition) {
@@ -2325,6 +2446,7 @@ function configureRuntimeLifecycle(composition: ProductionComposition) {
       } },
       { name: 'computer maintenance admission', run: () => {
         composition.stopComputerTimers()
+        composition.browser.stopAdmission()
         runtimeServices.computerMaintenance?.stopAdmission()
       } },
       { name: 'passive resource telemetry admission', run: async () => { telemetryLifetime.abort() } },
@@ -2341,6 +2463,8 @@ function configureRuntimeLifecycle(composition: ProductionComposition) {
       { name: 'native MCP settings', run: () => harnessSettings.mcp.shutdown() },
       { name: 'Codex plugin settings', run: () => harnessSettings.plugins.shutdown() },
       { name: 'harness qualification checks', run: () => Promise.all([harnessCatalog.shutdownChecks(), nativeConfigurations.shutdownChecks()]).then(() => undefined) },
+      { name: 'browser runtime', run: async () => { await composition.browser.stop(); composition.browserRemote.close() } },
+      { name: 'Group chat', run: async () => { composition.stopWorkflowChat?.() } },
       { name: 'Operator chat', run: () => chat.shutdown() },
       { name: 'Agent chat', run: () => agentChat.shutdown() },
       { name: 'automatic reviews', run: () => reviews.shutdown() },
@@ -2463,6 +2587,7 @@ function configureRuntimeStartup(composition: ProductionComposition) {
       providerAccounts.bindTarget(async () => ({ hostRef: { kind: 'main', mainId: machine.installationId },
         applicationInstallationId: machine.installationId, keyRevision: null, authorizationRevision: null }))
       assertOpen()
+      await composition.browser.start(machine.installationId)
       await initializeJobServices(composition, machine)
       await initializeWorkflowArtifacts(composition, machine)
       const computerServices = await initializeComputerServices(composition, machine)
@@ -2474,6 +2599,7 @@ function configureRuntimeStartup(composition: ProductionComposition) {
     return composition.initialization
   }
   app.addHook('onListen', async () => {
+    composition.stopWorkflowChat ??= composition.workflowChat.start()
     if (!composition.initialized || composition.closing || infrastructure?.mode === 'replay') return
     composition.nativeDefaultsInitialization ??= (async () => {
       await initializeNativeDefaults({
@@ -2833,7 +2959,10 @@ async function initializeComputerServices(composition: ProductionComposition, ma
     () => deviceRuntime.endpointForDomains(), commands)
   registerComputerAccountsRoutes(app, runtimeServices.computerAccounts)
   runtimeServices.computerMaintenance = new FleetMaintenanceService(database.pool, machine.installationId,
-    () => deviceRuntime.endpointForDomains(), commands, new ComputerMaintenance(maintenancePorts), {
+    () => deviceRuntime.endpointForDomains(), commands, new ComputerMaintenance({ ...maintenancePorts, browserRuntime: {
+      status: () => composition.browser.runtime.status(), retry: async () => {
+        const status = await composition.browser.runtime.retry(); composition.browser.profiles.wake(); return status
+      } } }), {
       workerManifestSha256s: () => readProductionWorkerManifestSha256s({ environment: process.env,
         releaseDirectory: fileURLToPath(new URL('../../../', import.meta.url)) }),
       workerContentSha256s: () => readProductionWorkerContentSha256s({ environment: process.env,

@@ -1,6 +1,7 @@
 import { GraphIdSchema, RunActivityPublicSchema, WorkHandoffResultSchema,
   type RunActivityPublic, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
-import { CiActivitySchema, ExecutionResultSchema } from '@foreman-code/contracts'
+import { CiActivitySchema, COORDINATION_RESULT_PROTOCOL, ExecutionResultSchema, parseCoordinationResult,
+  WorkHandoffDataSchema, type CoordinationResult } from '@foreman-code/contracts'
 import { nativePersistenceRedactor } from '../interactions/nativePersistence.js'
 import { repeatId } from './repeatResolution.js'
 import { safeNodeName, nativeToolTitle } from './nativeAction.js'
@@ -20,6 +21,8 @@ export interface ActivityReadRow {
   ci_ticket_id?: string | null; ci_activity?: unknown;
   job_definition_revision?: number | null; job_definition_version_id?: string | null;
   result_outcome: string | null;
+  /** Immutable Run marker; absent for historical unmarked results. */
+  result_protocol?: string | null;
   work_result?: unknown;
   safe_payload: Record<string, unknown>; native: Record<string, unknown> | null;
 }
@@ -29,7 +32,27 @@ const id = (value: unknown): string | undefined => GraphIdSchema.safeParse(value
 const count = (value: unknown): number | undefined => typeof value === 'number'
   && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 
-function activityWorkResult(raw: unknown): RunActivityPublic['workResult'] {
+function coordinatedActivityResult(row: ActivityReadRow, version: WorkflowVersionV3): CoordinationResult | undefined {
+  if (row.result_protocol !== COORDINATION_RESULT_PROTOCOL || !row.execution_node_id) return undefined
+  const result = ExecutionResultSchema.safeParse(row.work_result)
+  if (!result.success || result.data.outcome !== 'succeeded') return undefined
+  try {
+    return parseCoordinationResult(result.data.output, { resultProtocol: COORDINATION_RESULT_PROTOCOL,
+      definition: version.definition, workflowNodeId: row.execution_node_id, interval: Boolean(row.execution_tick_index) })
+  } catch { return undefined }
+}
+
+function activityWorkResult(raw: unknown, coordinated?: CoordinationResult, marked = false): RunActivityPublic['workResult'] {
+  if (marked && !coordinated) return undefined
+  if (coordinated) {
+    const data = WorkHandoffDataSchema.safeParse(coordinated.data)
+    if (!data.success || !('routing' in coordinated)) return undefined
+    const outcome = 'outcome' in coordinated.routing && coordinated.routing.outcome
+      ? coordinated.routing.outcome : 'kind' in coordinated.routing ? coordinated.routing.kind : undefined
+    if (!outcome) return undefined
+    return nativePersistenceRedactor([]).value({ outcome, latestDeliverable: data.data.latestDeliverable,
+      remainingFindings: data.data.remainingFindings })
+  }
   const result = ExecutionResultSchema.safeParse(raw)
   if (!result.success || result.data.outcome !== 'succeeded') return undefined
   let output = result.data.output
@@ -50,7 +73,8 @@ function activityWorkResult(raw: unknown): RunActivityPublic['workResult'] {
   })
 }
 
-function recordedResultActivity(raw: unknown): Pick<RunActivityPublic, 'status' | 'summary' | 'detail' | 'workResult'> {
+function recordedResultActivity(row: ActivityReadRow, version: WorkflowVersionV3): Pick<RunActivityPublic, 'status' | 'summary' | 'detail' | 'workResult'> {
+  const raw = row.work_result
   const result = ExecutionResultSchema.safeParse(raw)
   if (result.success && result.data.outcome === 'failed') {
     const error = result.data.error
@@ -59,8 +83,10 @@ function recordedResultActivity(raw: unknown): Pick<RunActivityPublic, 'status' 
     return { status: 'failed', summary: error?.retryable ? 'Attempt failed with a retryable error' : 'Work failed',
       ...(detail ? { detail } : {}) }
   }
-  const workResult = activityWorkResult(raw)
-  return { status: 'completed', summary: 'Work result recorded', ...(workResult ? { workResult } : {}) }
+  const coordinated = coordinatedActivityResult(row, version)
+  const workResult = activityWorkResult(raw, coordinated, row.result_protocol === COORDINATION_RESULT_PROTOCOL)
+  return { status: 'completed', summary: coordinated ? nativePersistenceRedactor([]).text(coordinated.summary).slice(0, 240) : 'Work result recorded',
+    ...(workResult ? { workResult } : {}) }
 }
 
 function toolLabel(native: Record<string, unknown>): string | undefined {
@@ -389,7 +415,7 @@ export function publicRunActivity(row: ActivityReadRow, version: WorkflowVersion
       ({ kind, status, summary, detail } = nativeOutputActivity(native, runId))
       break
     case 'result_recorded': case 'work_result_accepted':
-      ({ status, summary, detail, workResult } = recordedResultActivity(row.work_result))
+      ({ status, summary, detail, workResult } = recordedResultActivity(row, version))
       break
     case 'work_handoff_accepted':
       kind = 'work_request'; status = refs.requestId ? 'accepted' : 'unknown'
@@ -433,7 +459,8 @@ export function publicRunActivity(row: ActivityReadRow, version: WorkflowVersion
       status = row.kind === 'work_direction_wait' || refs.unresolvedId ? 'needs_direction' : 'unknown'
       summary = status === 'unknown' ? 'Unresolved work details unavailable'
         : row.kind === 'work_direction_wait' ? 'Run waiting for direction' : 'Work needs direction'
-      workResult = row.kind === 'work_needs_direction' ? activityWorkResult(row.work_result) : undefined
+      workResult = row.kind === 'work_needs_direction'
+        ? activityWorkResult(row.work_result, coordinatedActivityResult(row, version), row.result_protocol === COORDINATION_RESULT_PROTOCOL) : undefined
       break
     case 'interaction_pending': case 'interaction_decided': case 'interaction_delivery_state':
     case 'interaction_resolved': case 'interaction_worker_ack':

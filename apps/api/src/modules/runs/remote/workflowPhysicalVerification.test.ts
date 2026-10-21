@@ -160,7 +160,8 @@ async function physicalFixture(options: {
     correlation:`execution:${execution.id}`,provider_id:'original-turn',held:true}
   const request=vi.fn(async(payload:unknown):Promise<DeviceApplicationResult>=>{void payload;return {payload:readout}})
   const currentBinding=vi.fn<()=>DeviceSessionBinding|undefined>(()=>f.context.binding)
-  const canonicalProofs:{record:{execution:ReturnType<typeof repeatExecutionIdentity>;session:NativeSessionReference;original:WorkflowOriginalNativeSource}}[]=[]
+  const canonicalProofs:{record:{execution:ReturnType<typeof repeatExecutionIdentity>;session:NativeSessionReference;
+    original:WorkflowOriginalNativeSource;proofId?:string;settlementOf?:string}}[]=[]
   let proofReadLimit = Infinity
   const proofId = (original: WorkflowOriginalNativeSource) => workflowNativeSourceRecord(
     { ...lifetime, source: original } as unknown as WorkflowNativeCapture,
@@ -187,12 +188,16 @@ async function physicalFixture(options: {
     if(text.includes('workflow_native_entries'))return {rows:[entry],rowCount:1}
     if(text.includes('source_digest from workflow_native_proofs'))return {rows:retained.proof?[{record:retained.proof,source_digest:repeatDigest(retained.proof,4*1024*1024)}]:[],rowCount:retained.proof?1:0}
     if (text.includes('workflow_native_proofs')) {
-      if (Array.isArray(args[2]) && args[2].length === 0) return { rows: [], rowCount: 0 }
-      const ids = new Set(canonicalProofs.map(row => proofId(row.record.original)))
+      if (!Array.isArray(args[1]) && Array.isArray(args[2]) && args[2].length === 0) return { rows: [], rowCount: 0 }
+      const id = (row: typeof canonicalProofs[number]) => row.record.proofId ?? proofId(row.record.original)
+      const ids = new Set(canonicalProofs.map(id))
       const keys = args.flatMap(value => Array.isArray(value) ? value : [value])
       const indexed = keys.filter(value => typeof value === 'string' && ids.has(value))
-      const rows = indexed.length
-        ? canonicalProofs.filter(row => indexed.includes(proofId(row.record.original))) : canonicalProofs
+      const byId = Array.isArray(args[1]) || typeof args[2] === 'string' || Array.isArray(args[2])
+      const rows = canonicalProofs.filter(row => !byId || indexed.includes(id(row))
+        || text.includes("record ? 'settlementOf'") && row.record.settlementOf
+          && (Array.isArray(args[2]) ? args[2].includes(row.record.execution.executionId)
+            : args[3] === true && args[0] === row.record.execution.executionId))
       if (rows.length > proofReadLimit) {
         throw Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' })
       }
@@ -711,6 +716,43 @@ it.each(['device', 'domain'] as const)('propagates a displaced %s selector witho
 })
 
 describe('physical acknowledgment retry eligibility', () => {
+  it.each(['single', 'batch'] as const)(
+    'retires and releases changed terminal history retained by settlement: %s', async mode => {
+      const f = await physicalFixture()
+      try {
+        await closeTextOnlyFixture(f, 'completed')
+        f.execution.state = 'completed'
+        f.execution.result = f.readout.output!.result
+        f.execution.finishedAt = new Date().toISOString()
+        const sourceRecord = () => workflowNativeSourceRecord({ ...f.lifetime, source: f.source,
+          owner: f.owner, kind: 'live', observedAt: f.execution.finishedAt } as WorkflowNativeCapture,
+        { execution: f.execution, ref: { nodeId: f.execution.workflowNodeId, occurrence: null },
+          inputDigest: repeatDigest(f.execution.input) } as StoredRepeatExecution,
+        f.entry.reservation.scope, { ownerId: 'original-owner', fence: '1' })
+        const initial = structuredClone(sourceRecord())
+        Object.assign(f.source.history, { nextCursor: 'settled-history' })
+        const settlement = { ...structuredClone(sourceRecord()),
+          proofId: randomUUID(), settlementOf: initial.proofId }
+        expect(settlement.original).not.toEqual(initial.original)
+        f.canonicalProofs.push({ record: initial }, { record: settlement })
+        const saved = structuredClone(f.canonicalProofs)
+        const original = await f.bind()
+        await f.sqlConnection.transaction(sql => mode === 'single'
+          ? f.producer.assertOriginal(sql, f.owner, original)
+          : f.producer.assertOriginals(sql, f.owner, [original]))
+        const ack = { version: 1, operationId: f.intent.operationId,
+          receiptSequence: f.readout.receipt.sequence, sourceDigest: original.sourceDigest, status: 'retired' }
+        f.request.mockResolvedValueOnce({ payload: ack })
+        await expect(f.producer.acknowledge(original)).resolves.toEqual(ack)
+        expect(f.request).toHaveBeenLastCalledWith({ method: 'physical-ack', intent: f.readout.receipt.intent,
+          placement: f.placement, receiptSequence: f.readout.receipt.sequence,
+          sourceDigest: original.sourceDigest, retire: true }, { timeoutMs: deviceRequestTimeoutMs })
+        expect(f.producer.releaseExecution(original)).toBe(true)
+        expect(f.canonicalProofs).toEqual(saved)
+      } finally { await f.sqlConnection.close() }
+    },
+  )
+
   it.each(['running', 'rolled-back', 'completed'] as const)(
     'retires terminal history only after its matching execution result commits: %s', async state => {
       const f = await physicalFixture()

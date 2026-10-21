@@ -6,7 +6,8 @@ import type pg from 'pg'
 import { beforeGraphCommit, type GraphSqlClient, type GraphTransactionSql } from '../run-graph/connection.js'
 import type { RunOwnership } from '../runs/ownership.js'
 import { DomainError } from '../errors.js'
-import { RemoteOperationReceiptSchema } from '@foreman-code/contracts/remote-execution'
+import { RemoteOperationReceiptSchema, remoteWorkflowTurnId } from '@foreman-code/contracts/remote-execution'
+import type { WorkflowNativeProofRecord } from '../runs/workflowNativeProof.js'
 import { readExecutionPlacement } from '../placement/persistence.js'
 import { assertReviewerCheckoutAvailable } from '../runs/worktreeReviewers.js'
 
@@ -203,12 +204,53 @@ export async function readRemoteWorkflowContinuation(owner: RunOwnership, execut
       || lifetime.detached && !isDeepStrictEqual(lifetime.detached_reference, session)) return conflict()
     const principals = (await sql.query<{ principal_id: string }>(`select b.principal_id
       from worker_credential_bindings b join management_principals p on p.id=b.principal_id
-      where b.execution_id=$1 and b.run_id=$2 and b.agent_id=$3 and b.revoked_at is null
+      where b.execution_id=$1 and b.run_id=$2 and b.agent_id=$3 and b.purpose='workflow' and b.revoked_at is null
         and p.revoked_at is null and p.expires_at>clock_timestamp() and p.audience='worker' and p.agent_id=b.agent_id
       limit 2`, [current.id, current.runId, current.agentId])).rows
     if (principals.length !== 1) return undefined
     owner.assertOwned()
     return { session, generation: lifetime.generation, principalId: principals[0]!.principal_id, detached: lifetime.detached }
+  })
+}
+
+/** Completed output may close its existing Worker operation without reviving tool credentials. */
+export async function readRemoteOutputSettlement(owner: RunOwnership, execution: HarnessExecution,
+  proof: WorkflowNativeProofRecord) {
+  owner.assertOwned()
+  if (execution.runId !== owner.runId || execution.state !== 'completed' || !execution.nativeSessionId
+    || proof.original.type !== 'history' || !proof.original.history.terminalTurn) return undefined
+  const terminal = proof.original.history.terminalTurn
+  return owner.oneShotConnection().transaction(async sql => {
+    const placement = await readExecutionPlacement(sql, execution.id)
+    if (placement?.hostRef.kind !== 'device' || placement.payload.kind !== 'agent') return undefined
+    const row = (await sql.query<{ record: unknown; reference: unknown; receipt: unknown }>(`
+      select e.record,s.reference,r.receipt from harness_executions e join runs run on run.id=e.run_id
+      join execution_native_sessions s on s.execution_id=e.id
+      join execution_dispatch_intents i on i.execution_id=e.id
+      join remote_execution_receipts r using(operation_id)
+      where e.id=$1 and run.id=$2 and run.execution_state in ('running','waiting')
+        and run.record->>'outcome'='pending' and run.stop_requested_at is null
+        and s.workflow_finalized_at is null
+        and not exists(select 1 from run_cleanup_intents c where c.run_id=run.id and c.pending)
+      for share of e,s,r`, [execution.id, owner.runId])).rows[0]
+    if (!row) return undefined
+    const session = NativeSessionReferenceSchema.parse(row.reference)
+    const receipt = RemoteOperationReceiptSchema.parse(row.receipt)
+    const lifetime = await latest(sql, execution.id)
+    if (!lifetime || lifetime.closed || lifetime.closed_without_session || lifetime.prior_unclosed || receipt.stopFence) return undefined
+    if (!isDeepStrictEqual(HarnessExecutionSchema.parse(row.record), execution)
+      || !isDeepStrictEqual(lifetime.execution_identity, executionIdentity(execution))
+      || !isDeepStrictEqual(session, proof.session) || session.harness !== placement.payload.driverId
+      || receipt.native?.sessionId !== session.nativeSessionId
+      || remoteWorkflowTurnId(receipt, terminal.correlationId) !== terminal.providerId
+      || receipt.intent.executionId !== execution.id || receipt.intent.runId !== execution.runId
+      || receipt.intent.nodeId !== execution.workflowNodeId || receipt.intent.bindingHash !== placement.bindingHash
+      || lifetime.expected_reference !== null && !isDeepStrictEqual(lifetime.expected_reference, session)
+      || lifetime.detached && !isDeepStrictEqual(lifetime.detached_reference, session)) return conflict()
+    // Settled operations may already be retired. Recover their closure from
+    // retained readback instead of attaching a native manager again.
+    if (receipt.terminal) return undefined
+    return { session, generation: lifetime.generation, detached: lifetime.detached }
   })
 }
 

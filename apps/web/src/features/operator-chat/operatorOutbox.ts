@@ -108,7 +108,7 @@ async function exclusive<T>(id: string, work: (key: string) => T): Promise<T> {
 
 /** Reserve once before submission. Every tab and every lost-response retry reuses that identity. */
 export function reserveOperatorMessage(id: string, content: string, route: string, settings?: OperatorChatSettings,
-  forkExpectedRevision?: number, binding?: Pick<SendOperatorMessageRequest, 'configurationVersionId' | 'defaultsRevision' | 'sessionMode'>,
+  forkExpectedRevision?: number, binding?: Pick<SendOperatorMessageRequest, 'configurationVersionId' | 'defaultsRevision' | 'sessionMode' | 'intent'>,
   attachments: readonly MessageAttachmentRef[] = []): Promise<SendOperatorMessageRequest> {
   return exclusive(id, (key) => {
     const pending = readKey(key)

@@ -1,4 +1,14 @@
+import { memoryRepeatDecisionMigration } from './memoryRepeatDecisionMigration.js'
+import { browserProfilesMigration } from './browserProfilesMigration.js'
+import { conversationCredentialsMigration } from './conversationCredentialsMigration.js'
+import { hierarchyAdmissionMigration } from './hierarchyAdmissionMigration.js'
+import { hierarchyFeedbackMigration } from './hierarchyFeedbackMigration.js'
+import { workflowChatIndexMigration } from './workflowChatIndexMigration.js'
+import { workflowChatNotificationsMigration } from './workflowChatNotificationsMigration.js'
+import { hierarchyControlSettlementMigration } from './hierarchyControlSettlementMigration.js'
+import { workflowChatMigration } from './workflowChatMigration.js'
 import { operatorSummaryActivityMigration } from './operatorSummaryActivityMigration.js'
+import { workflowControlsMigration } from './workflowControlsMigration.js'
 import { ciIntegrationSelectionMigration } from './ciIntegrationSelectionMigration.js'
 import { ciExecutorCleanupMigration } from './ciExecutorCleanupMigration.js'
 import { ciRetainedExecutorsMigration } from './ciRetainedExecutorsMigration.js'
@@ -61,7 +71,13 @@ import { workJoinDispatchMigration } from './workJoinDispatchMigration.js'
 import { workJoinDispositionMigration } from './workJoinDispositionMigration.js'
 import { workParentRequestMigration } from './workParentRequestMigration.js'
 import { workReturnGroupMigration } from './workReturnGroupMigration.js'
+import { memoryWorkIndexesMigration } from './memoryWorkIndexesMigration.js'
+import { memoryBoardsMigration } from './memoryBoardsMigration.js'
 import { workReturnNodeGroupingMigration } from './workReturnNodeGroupingMigration.js'
+import { workflowHierarchyMigration } from './workflowHierarchyMigration.js'
+import { hierarchyGroupsMigration } from './hierarchyGroupsMigration.js'
+import { hierarchyDirectionMigration } from './hierarchyDirectionMigration.js'
+import { coordinationResultMigration } from './coordinationResultMigration.js'
 import { workReturnRequestMigration } from './workReturnRequestMigration.js'
 import { compactCommandActivityMigration } from './compactCommandActivityMigration.js'
 import { workflowPresentationMigration } from './workflowPresentationMigration.js'
@@ -175,6 +191,7 @@ import { fileReferenceAccessMigration } from './fileReferenceAccessMigration.js'
 import { fileToolsMigration } from '../modules/files/tools/migration.js'
 import { harnessQualificationMigration } from './harnessQualificationMigration.js'
 import { workspaceProvisioningMigration } from './workspaceProvisioningMigration.js'
+import { workflowCollaborationMigration } from './workflowCollaborationMigration.js'
 
 export const migrations = [
   { version: 1, sql: `
@@ -1008,6 +1025,23 @@ export const migrations = [
   workReturnGroupMigration,
   workReturnNodeGroupingMigration,
   ciActivityRequesterLookupMigration,
+  { ...workflowHierarchyMigration, version: 2026102100 },
+  hierarchyGroupsMigration,
+  hierarchyDirectionMigration,
+  workflowCollaborationMigration,
+  coordinationResultMigration,
+  workflowControlsMigration,
+  hierarchyControlSettlementMigration,
+  workflowChatIndexMigration,
+  hierarchyFeedbackMigration,
+  hierarchyAdmissionMigration,
+  { ...workflowChatMigration, version: 2026102120 },
+  conversationCredentialsMigration,
+  { ...browserProfilesMigration, version: 2026102122 },
+  { ...workflowChatNotificationsMigration, version: 2026102123 },
+  { version: 2026102124, ...memoryBoardsMigration },
+  { ...memoryWorkIndexesMigration, version: 2026102125 },
+  memoryRepeatDecisionMigration,
 ] as const
 
 export function assertMigrationVersions(entries: readonly { version: number }[]): void {

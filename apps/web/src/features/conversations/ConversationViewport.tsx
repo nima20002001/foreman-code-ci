@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../../shared/ui/nocturne'
+import { useRememberedChatScroll } from './chatScrollStore'
 
 /** Shared transcript scrolling, following the Operator transcript pattern. No server data lives here. */
-export function ConversationViewport({ revision, children }: {
-  revision: string; children: (onBrowse: () => void) => ReactNode
+export function ConversationViewport({ revision, children, storageKey }: {
+  revision: string; children: (onBrowse: () => void) => ReactNode; storageKey?: string
 }) {
   const scrollRef = useRef<HTMLDivElement>(null), contentRef = useRef<HTMLDivElement>(null)
   const following = useRef(true)
+  useRememberedChatScroll(storageKey, scrollRef, following)
   const [newOutput, setNewOutput] = useState(false)
   const onBrowse = () => { following.current = false }
   useLayoutEffect(() => {

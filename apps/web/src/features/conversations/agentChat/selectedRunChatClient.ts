@@ -1,7 +1,9 @@
 import {
   ReadSelectedRunChatResponseSchema, SelectedRunChatSelectionSchema,
-  type SelectedRunChatSelection,
+  SendSelectedRunChatRequestSchema, type SelectedRunChatSelection, type SelectedRunChatExecution,
 } from '@foreman-code/contracts/selected-run-chat'
+import { AgentChatSendResponseSchema, ReadAgentChatResponseSchema,
+  type SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
 import { apiClient, ApiError, type RequestOptions } from '../../../shared/api/client'
 import { agentChatRoot } from '../../../shared/api/agentChat'
 import { sameSelectedTarget } from './selectedRunChatModel'
@@ -15,6 +17,20 @@ function invalid(): never {
 }
 
 export const selectedRunChatApi = {
+  async state(selection: SelectedRunChatExecution, options?: RequestOptions) {
+    const result = await selectedRunChatApi.read(selection, options)
+    if (result.kind !== 'selected') throw new ApiError({ code: 'AGENT_CHAT_UNAVAILABLE',
+      message: 'The selected execution is unavailable for follow-up.' }, 409)
+    return ReadAgentChatResponseSchema.parse(result.state)
+  },
+  send(selection: SelectedRunChatExecution, input: SendAgentChatMessageRequest, options?: RequestOptions) {
+    const { context, ...message } = input
+    if (context.workflowId !== selection.workflowId || context.runId !== selection.runId
+      || context.workflowNodeId !== selection.workflowNodeId) invalid()
+    const parsed = SendSelectedRunChatRequestSchema.parse({ selection, message })
+    return apiClient.request(`${selectedRunChatPath(selection)}/messages`, AgentChatSendResponseSchema,
+      { ...options, method: 'POST', body: { ...parsed.message, executionId: selection.executionId } })
+  },
   async read(input: SelectedRunChatSelection, options?: RequestOptions) {
     const selection = SelectedRunChatSelectionSchema.parse(input)
     const query = selection.executionId ? `?${new URLSearchParams({ executionId: selection.executionId })}` : ''

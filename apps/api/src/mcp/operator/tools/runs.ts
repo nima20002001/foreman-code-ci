@@ -75,6 +75,7 @@ export const runTools = [
       + 'Native summaries identify messages, reasoning, commands, file edits and tool calls; details include safe counts, message phase and command exit code. '
       + 'Work result and needs-direction activities include redacted latestDeliverable, remainingFindings and outcome. '
       + 'Failed executions include their redacted failure code and reason in activity details. '
+      + 'Marked coordinated results expose the bounded model summary and the same saved deliverable/findings; historical unmarked results retain their prior view. '
       + 'Pages may return fewer items than limit to fit the 128 KiB public-page budget; follow the returned cursors. '
       + 'Use run_get for execution and normalized activity snapshots. '
       + 'Use nextCursor for incremental catch-up and olderCursor for earlier retained history; '
@@ -88,7 +89,7 @@ export const runTools = [
     name: 'run_start',
     requires: [['runs:start', 'workflow'], ['workspace_locations:read', 'workspace']],
     enabled: s => !!s.runs,
-    description: 'Request one Run of the explicit saved version. Accepted Run authority survives starter-token expiry; '
+    description: 'Request one Run of the explicit saved version. New Runs pin resultProtocol f1-f4-v1: every successful Agent result includes summary and board alongside its saved data, routing and artifact fields. Historical Runs keep their saved protocol. Accepted Run authority survives starter-token expiry; '
       + 'Source admission reclaims eligible closed copies from completed Runs when byte capacity is full. '
       + 'Active writer pressure retries with backoff; run_get exposes persisted capacity diagnostics. '
       + 'owner revocation, current scopes, Stop and completion still apply. Every new workflow uses semantics 3, with or without '
@@ -115,7 +116,8 @@ export const runTools = [
       + 'deadline for command, runner and workspace locks; RUN_START_BUSY is retryable with the same commandId and '
       + 'input. WORKER_STATUS_UNAVAILABLE means a Worker did not report its running bundle; retry the same command. '
       + 'Explicit invalid placements are rejected. New v3 Start remains unavailable until native lifecycle '
-      + 'qualification; graph read support is not admission. Retry only the same command for verified receipt '
+      + 'qualification. Saved hierarchies execute their selected child delegations and resume each parent after its children settle; only the Master finishes the Run. This does not enable structured board-result effects. '
+      + 'Graph read support is not admission. Retry only the same command for verified receipt '
       + 'readback, never a blind restart.', inputSchema: ManualRunStartInputSchema,
     outputSchema: ManualRunStartResultSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

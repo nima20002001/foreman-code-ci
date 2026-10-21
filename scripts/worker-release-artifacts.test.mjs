@@ -277,7 +277,7 @@ function assetSimulator() {
   }
 }
 
-async function fixture(t) {
+async function fixture(t, browserRuntimeStatus) {
   const cache = join(homedir(), '.cache', 'foreman-tmp')
   await mkdir(cache, { recursive: true })
   const repository = await mkdtemp(join(cache, 'worker-release-artifacts-'))
@@ -320,7 +320,8 @@ async function fixture(t) {
         'scripts/build-worker-artifact.mjs', 'apps/worker/src/cli.mjs', args[1]].map(path => ({ path,
         gitBlobSha1: git(['rev-parse', `${buildCommit}:${path}`]).toString().trim(),
         sha256: sha256(git(['show', `${buildCommit}:${path}`])) })) },
-      files: [{ path: 'src/cli.mjs', sha256: sha256(bytes), size: bytes.length }] }
+      files: [{ path: 'src/cli.mjs', sha256: sha256(bytes), size: bytes.length }],
+      ...(browserRuntimeStatus ? { browserRuntimeStatus } : {}) }
     await writeFile(join(output, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   }
   return { repository, commit, directory, productManifestPath, run, calls }
@@ -338,6 +339,15 @@ function laterBuild(f) {
   return { ...f, previousDirectory: f.directory, directory: join(f.repository, 'later-artifacts'),
     productManifestPath: join(f.repository, 'later-product.json') }
 }
+
+test('retries browser artifact resolution instead of retaining a failed browser setup forever', async t => {
+  const f = await fixture(t, { state: 'failed', retryable: true, reason: 'Matching runner artifact unavailable' })
+  await buildWorkerReleaseArtifacts(f)
+  assert.equal(f.calls.length, 4)
+  const next = laterBuild(f)
+  await buildWorkerReleaseArtifacts(next)
+  assert.equal(f.calls.length, 8)
+})
 
 test('reuses verified Worker payloads across unrelated API changes with release provenance in the index', async t => {
   const f = await fixture(t)

@@ -8,6 +8,7 @@ import { ComputerPairingForm } from './ComputerPairingForm'
 import { ConnectionSetupStatus } from './DeviceSetupGuide'
 import { CircleCiSummaryCard } from './CircleCiSummaryCard'
 import './computerSettings.css'
+import { Link } from '@tanstack/react-router'
 
 /** Which main's Add computer panel is open, keyed by session generation and main so a new session or main starts closed. */
 const useAddPanel = create<{ scope?: string; toggle(scope: string): void }>(set => ({
@@ -43,6 +44,8 @@ export function ComputerSettings({ deviceId, onSelectComputer }: { deviceId?: st
         </section>
       </> : <Alert tone="warning" title="This device is not registered with the selected main." />
       : <ComputerCards mainId={currentMain!.mainId} devices={devices} onSelectComputer={onSelectComputer} />)}
+    {!deviceId && !readFailure && !loading && currentMain
+      ? <Link to="/settings/browser-profiles" search={{ mainId: currentMain.mainId }}>Browser profiles</Link> : null}
     {!deviceId && <CircleCiSummaryCard />}
   </section>
 }

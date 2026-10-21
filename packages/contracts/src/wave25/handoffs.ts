@@ -1,3 +1,4 @@
+import { coordinationBusinessOutput, type CoordinationResultContext } from '../coordinationResult.js'
 import { WorkHandoffRoutingSchema, WorkHandoffDataSchema } from '../workflowHierarchy.js'
 import { z } from 'zod'
 import { ExecutionResultSchema } from '../index.js'
@@ -46,6 +47,8 @@ export const WorkActivationIdentitySchema = z.object({
     z.object({ kind: z.literal('work_request'), requestId: GraphIdSchema }).strict(),
     z.object({ kind: z.literal('work_return'), returnId: GraphIdSchema }).strict(),
     z.object({ kind: z.literal('limit_denial'), denialId: GraphIdSchema }).strict(),
+    z.object({ kind: z.literal('hierarchy_group'), groupId: GraphIdSchema }).strict(),
+    z.object({ kind: z.literal('hierarchy_direction'), directionId: GraphIdSchema }).strict(),
   ]),
 }).strict()
 
@@ -60,6 +63,8 @@ export const WorkRequestSchema = z.object({
 }).strict().refine((value) => value.requesterNodeId !== value.destinationNodeId, 'HANDOFF_SELF_REQUEST')
 export type WorkRequest = z.infer<typeof WorkRequestSchema>
 
+export const WORK_RETURN_MAX_BYTES = 64 * 1024
+
 export const WorkReturnSchema = z.object({
   scope: WorkHandoffScopeSchema, returnId: GraphIdSchema, requestId: GraphIdSchema,
   sourceActivationId: GraphIdSchema, sourceExecutionId: GraphIdSchema, requesterActivationId: GraphIdSchema,
@@ -71,9 +76,61 @@ export const WorkReturnSchema = z.object({
     context.addIssue({ code: 'custom', path: ['continuationActivationId'], message: 'HANDOFF_RETURN_CONTINUATION_CONFLICT' })
   }
   if (value.latestDeliverable === null) context.addIssue({ code: 'custom', path: ['latestDeliverable'], message: 'HANDOFF_DELIVERABLE_REQUIRED' })
-  try { canonicalGraphJson(value, 64 * 1024) } catch { context.addIssue({ code: 'custom', message: 'HANDOFF_RETURN_TOO_LARGE' }) }
+  try { canonicalGraphJson(value, WORK_RETURN_MAX_BYTES) } catch { context.addIssue({ code: 'custom', message: 'HANDOFF_RETURN_TOO_LARGE' }) }
 })
 export type WorkReturn = z.infer<typeof WorkReturnSchema>
+
+/** One finite batch owns both its child requests and the reserved parent summary.
+ * State is persisted separately; the membership and original ancestry never change. */
+export const HierarchyWorkGroupSchema = z.object({
+  scope: WorkHandoffScopeSchema, groupId: GraphIdSchema,
+  parentActivationId: GraphIdSchema, parentExecutionId: GraphIdSchema, parentNodeId: GraphIdSchema,
+  continuationActivationId: GraphIdSchema, sourceResultDigest: GraphDigestSchema,
+  parentRequestId: GraphIdSchema.optional(),
+  memberRequestIds: z.array(GraphIdSchema).min(1).max(1000),
+  createdAt: TimestampSchema,
+}).strict().superRefine((group, context) => {
+  if (group.parentActivationId === group.continuationActivationId
+    || new Set(group.memberRequestIds).size !== group.memberRequestIds.length) {
+    context.addIssue({ code: 'custom', message: 'HIERARCHY_GROUP_IDENTITY_CONFLICT' })
+  }
+})
+export type HierarchyWorkGroup = z.infer<typeof HierarchyWorkGroupSchema>
+
+/** A real held root activation; the source is valid native evidence, not a final acceptance. */
+export const HierarchyDirectionSchema = z.object({
+  scope: WorkHandoffScopeSchema, directionId: GraphIdSchema, workflowNodeId: GraphIdSchema,
+  sourceActivationId: GraphIdSchema, sourceExecutionId: GraphIdSchema, sourceResultDigest: GraphDigestSchema,
+  heldActivationId: GraphIdSchema, heldExecutionId: GraphIdSchema,
+  summary: z.string().trim().min(1).max(600), remainingFindingsCount: z.number().int().min(1).max(1000),
+  createdAt: TimestampSchema,
+}).strict().refine(value => value.sourceActivationId !== value.heldActivationId
+  && value.sourceExecutionId !== value.heldExecutionId, 'HIERARCHY_DIRECTION_IDENTITY_CONFLICT')
+export type HierarchyDirection = z.infer<typeof HierarchyDirectionSchema>
+
+/** Per-child business data is distinct from the digest of the accepted source result. */
+export const HierarchyWorkTaskSchema = z.object({
+  groupId: GraphIdSchema, outcome: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/),
+  data: z.json(), digest: GraphDigestSchema,
+}).strict()
+export type HierarchyWorkTask = z.infer<typeof HierarchyWorkTaskSchema>
+
+/** New continuations carry the child's business result under the activation input limit.
+ * Optional fields preserve immutable continuation inputs admitted before result expansion. */
+export const HierarchyWorkReturnInputSchema = z.object({
+  requestId: GraphIdSchema, destinationNodeId: GraphIdSchema, returnId: GraphIdSchema,
+  sourceActivationId: GraphIdSchema, sourceExecutionId: GraphIdSchema, resultDigest: GraphDigestSchema,
+  outcome: z.enum(['accepted', 'needs_changes']), continuationActivationId: GraphIdSchema.optional(),
+  summary: z.string().min(1).max(600).refine(value => [...value].length <= 300, 'HIERARCHY_SUMMARY_TOO_LONG'),
+  remainingFindingsCount: z.number().int().min(0).max(1000),
+  latestDeliverable: z.json().optional(), remainingFindings: z.array(z.json()).max(1000).optional(),
+}).strict().refine(value => (value.outcome === 'needs_changes') === (value.continuationActivationId !== undefined),
+  'HANDOFF_RETURN_CONTINUATION_CONFLICT')
+export const HierarchyWorkFailureInputSchema = z.object({
+  requestId: GraphIdSchema, destinationNodeId: GraphIdSchema, executionId: GraphIdSchema,
+  outcome: z.enum(['failed', 'canceled']), code: z.string().min(1).max(160),
+  summary: z.string().min(1).max(600).refine(value => [...value].length <= 300, 'HIERARCHY_SUMMARY_TOO_LONG'),
+}).strict()
 
 export const WorkLimitDenialSchema = z.object({
   scope: WorkHandoffScopeSchema, denialId: GraphIdSchema, requestId: GraphIdSchema,
@@ -138,7 +195,8 @@ export const WorkActivationInputSchema = z.object({
   work: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('entry'), activation: WorkActivationIdentitySchema }).strict(),
     z.object({ kind: z.literal('work_request'), activation: WorkActivationIdentitySchema,
-      request: WorkRequestSchema, acceptedSourceResult: ExecutionResultSchema }).strict(),
+      request: WorkRequestSchema, acceptedSourceResult: ExecutionResultSchema,
+      task: HierarchyWorkTaskSchema.optional() }).strict(),
     z.object({ kind: z.literal('work_return'), activation: WorkActivationIdentitySchema,
       returned: WorkReturnSchema, acceptedSourceResult: ExecutionResultSchema,
       returns: z.array(z.object({ returned: WorkReturnSchema, acceptedSourceResult: ExecutionResultSchema,
@@ -152,6 +210,13 @@ export const WorkActivationInputSchema = z.object({
     z.object({ kind: z.literal('join'), activation: WorkActivationIdentitySchema,
       sources: z.array(z.object({ request: WorkRequestSchema,
         acceptedSourceResult: ExecutionResultSchema }).strict()).min(1).max(1000) }).strict(),
+    z.object({ kind: z.literal('hierarchy_group'), activation: WorkActivationIdentitySchema,
+      group: HierarchyWorkGroupSchema,
+      returns: z.array(HierarchyWorkReturnInputSchema).max(1000),
+      failures: z.array(HierarchyWorkFailureInputSchema).max(1000),
+    }).strict(),
+    z.object({ kind: z.literal('hierarchy_direction'), activation: WorkActivationIdentitySchema,
+      direction: HierarchyDirectionSchema }).strict(),
   ]),
 }).strict().superRefine((value, context) => {
   const { work } = value
@@ -180,7 +245,9 @@ export const WorkActivationInputSchema = z.object({
       || work.sources.some((item) => item.request.destinationActivationId !== work.activation.activationId))) {
     context.addIssue({ code: 'custom', path: ['work'], message: 'WORK_ACTIVATION_INPUT_ANCESTRY_CONFLICT' })
   }
-  if (work.kind !== 'entry' && work.kind !== 'join' && work.acceptedSourceResult.outcome !== 'succeeded'
+  if (work.kind !== 'entry' && work.kind !== 'join' && work.kind !== 'hierarchy_group'
+    && work.kind !== 'hierarchy_direction'
+    && work.acceptedSourceResult.outcome !== 'succeeded'
     || work.kind === 'join' && work.sources.some((item) => item.acceptedSourceResult.outcome !== 'succeeded')) {
     context.addIssue({ code: 'custom', path: ['work', 'acceptedSourceResult'], message: 'WORK_INPUT_SOURCE_NOT_ACCEPTED' })
   }
@@ -204,10 +271,38 @@ export const WorkActivationInputSchema = z.object({
     || item.result.outcome !== 'failed' && item.result.outcome !== 'canceled')) {
     context.addIssue({ code: 'custom', path: ['work', 'failures'], message: 'WORK_RETURN_GROUP_CONFLICT' })
   }
+  if (work.kind === 'hierarchy_group') validateHierarchyGroupInput(value, work, context)
+  if (work.kind === 'hierarchy_direction' && (work.activation.cause.kind !== 'hierarchy_direction'
+    || work.activation.cause.directionId !== work.direction.directionId
+    || work.activation.activationId !== work.direction.heldActivationId
+    || work.activation.workflowNodeId !== work.direction.workflowNodeId
+    || canonicalGraphJson(work.activation.scope) !== canonicalGraphJson(work.direction.scope)
+    || value.parentRequest !== undefined)) {
+    context.addIssue({ code: 'custom', path: ['work'], message: 'HIERARCHY_DIRECTION_INPUT_CONFLICT' })
+  }
   try { canonicalGraphJson(value, 4 * 1024 * 1024) }
   catch { context.addIssue({ code: 'custom', message: 'WORK_ACTIVATION_INPUT_TOO_LARGE' }) }
 })
 export type WorkActivationInput = z.infer<typeof WorkActivationInputSchema>
+
+function validateHierarchyGroupInput(value: { parentRequest?: WorkRequest | undefined },
+  work: { activation: z.infer<typeof WorkActivationIdentitySchema>; group: HierarchyWorkGroup;
+    returns: z.infer<typeof HierarchyWorkReturnInputSchema>[];
+    failures: z.infer<typeof HierarchyWorkFailureInputSchema>[] }, context: z.RefinementCtx): void {
+  const { group, activation } = work
+  const scope = canonicalGraphJson(activation.scope)
+  const all = [...work.returns, ...work.failures]
+  const ids = all.map(item => item.requestId)
+  const badReturn = work.returns.some(returned => returned.outcome === 'needs_changes'
+    && returned.continuationActivationId !== activation.activationId)
+  if (activation.cause.kind !== 'hierarchy_group' || activation.cause.groupId !== group.groupId
+    || group.continuationActivationId !== activation.activationId || group.parentNodeId !== activation.workflowNodeId
+    || canonicalGraphJson(group.scope) !== scope || group.parentRequestId !== value.parentRequest?.requestId
+    || ids.length !== group.memberRequestIds.length || new Set(ids).size !== ids.length
+    || group.memberRequestIds.some(id => !ids.includes(id)) || badReturn) {
+    context.addIssue({ code: 'custom', path: ['work'], message: 'HIERARCHY_GROUP_INPUT_CONFLICT' })
+  }
+}
 
 /** A typed native decision; the server resolves and validates saved routes. */
 export const WorkHandoffResultSchema = z.object({
@@ -221,10 +316,10 @@ export const WorkHandoffResultSchema = z.object({
 export type WorkHandoffResult = z.infer<typeof WorkHandoffResultSchema>
 
 /** Parse only the exact native result carrier; route IDs are resolved server-side. */
-export function parseWorkHandoffResult(result: unknown): WorkHandoffResult {
+export function parseWorkHandoffResult(result: unknown, context?: CoordinationResultContext): WorkHandoffResult {
   const accepted = ExecutionResultSchema.parse(result)
   if (accepted.outcome !== 'succeeded') throw new Error('HANDOFF_RESULT_NOT_SUCCESSFUL')
-  let output: unknown = accepted.output
+  let output: unknown = context ? coordinationBusinessOutput(accepted.output, context) : accepted.output
   if (output !== null && typeof output === 'object' && !Array.isArray(output)
     && Object.keys(output).length === 1 && 'text' in output && typeof output.text === 'string') output = output.text
   if (typeof output === 'string') {
@@ -235,7 +330,7 @@ export function parseWorkHandoffResult(result: unknown): WorkHandoffResult {
 }
 
 /** Artifact associations share the handoff envelope; publication is checked separately. */
-export function parseWorkHandoffArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1):
+export function parseWorkHandoffArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1, context?: CoordinationResultContext):
   WorkHandoffResult & { artifactOutputs: WorkflowArtifactResultV1 } {
   const accepted = ExecutionResultSchema.parse(result)
   const output = accepted.output
@@ -243,7 +338,7 @@ export function parseWorkHandoffArtifactResult(result: unknown, declaration: Wor
     || Object.keys(output).length !== 1 || !('text' in output) || typeof output.text !== 'string') {
     throw new Error('WORKFLOW_ARTIFACT_NATIVE_TEXT_REQUIRED')
   }
-  const envelope = parseWorkHandoffResult(accepted)
+  const envelope = parseWorkHandoffResult(accepted, context)
   const artifactOutputs = WorkflowArtifactResultV1Schema.parse(envelope.artifactOutputs)
   const saved = WorkflowArtifactOutputsV1Schema.parse(declaration)
   const keys = new Set(artifactOutputs.outputs.map((item) => item.outputKey))

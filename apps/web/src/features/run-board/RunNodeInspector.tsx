@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import type { RunBoardNodeSnapshot } from '@foreman-code/contracts/run-snapshots'
 import type { RepeatGraphScopeV3, RunExecutionSummary } from '@foreman-code/contracts/wave25'
+import { agentProductRoleLabel, type WorkflowHierarchyReadResult } from '@foreman-code/contracts'
 import { useHarnessSessionEpoch } from '../../shared/api/harnessSettings'
 import { sessionIsSwitching } from '../../shared/api/sessionBoundary'
 import { ApiError } from '../../shared/api/client'
@@ -29,13 +30,20 @@ function matchesNode(node: RunBoardNodeSnapshot, execution: RunExecutionSummary)
     && node.agentConfigurationVersionId === execution.agentConfigurationVersionId
 }
 
-export function RunNodeInspector({ selection, snapshot, nodeId, executionId, onInspect }: {
+export function RunNodeInspector({ selection, snapshot, nodeId, executionId, onInspect, hierarchy }: {
   selection: SelectedRunState; snapshot: AvailableRunBoardSnapshot; nodeId: string;
   executionId?: string; onInspect(nodeId?: string, executionId?: string): void
+  hierarchy?: WorkflowHierarchyReadResult
 }) {
   useHarnessSessionEpoch()
   const client = useQueryClient()
   const node = snapshot.nodes.find(item => item.id === nodeId)
+  const saved = hierarchy?.workflowVersionId === snapshot.workflowVersionId && hierarchy.run?.runId === snapshot.runId
+    && hierarchy.workspaceId === snapshot.workspaceId && hierarchy.workflowId === snapshot.workflowId ? hierarchy : undefined
+  const identity = node?.kind !== 'job' && node ? saved?.agents.find(agent => agent.workflowNodeId === nodeId
+    && agent.agentId === node.agentId && agent.configurationVersionId === node.agentConfigurationVersionId) : undefined
+  const parentId = saved?.hierarchy?.parents.find(member => member.workflowNodeId === nodeId)?.parentNodeId
+  const parent = parentId ? snapshot.nodes.find(item => item.id === parentId) : undefined
   const scope: RepeatGraphScopeV3 = { workspaceId: snapshot.workspaceId, workflowId: snapshot.workflowId,
     runId: snapshot.runId, workflowVersionId: snapshot.workflowVersionId, executionSemanticsVersion: 3 }
   const queryKey = [...runNodeInspectionKey(selection), nodeId, 'executions']
@@ -59,6 +67,12 @@ export function RunNodeInspector({ selection, snapshot, nodeId, executionId, onI
     <header><h2>{node?.name ?? nodeId}</h2><span>Read only</span>
       <Button size="sm" onClick={() => onInspect()}>Close inspector</Button></header>
     {!node ? <p role="status">This node is not in the saved Run.</p> : <>
+      {node.kind !== 'job' ? <dl aria-label="Saved Agent identity">
+        <dt>Role</dt><dd>{identity ? agentProductRoleLabel(identity.productRole) : 'Unavailable in this saved version'}</dd>
+        <dt>Reports to</dt><dd>{!saved ? 'Unavailable in this saved version' : saved.hierarchy ? parent?.name ?? (saved.hierarchy.masterNodeId === nodeId ? 'None (Master)' : 'Unavailable') : 'No Master hierarchy in this saved version'}</dd>
+        <dt>Agent configuration</dt><dd><code>{node.agentConfigurationVersionId}</code></dd>
+        <dt>Run</dt><dd><code>{snapshot.runId}</code></dd><dt>Saved workflow</dt><dd><code>{snapshot.workflowVersionId}</code></dd>
+      </dl> : null}
       {node.kind !== 'job' ? <PinnedProviderAccount binding={snapshot.providerAccountBindings?.[node.id]} label="Saved Run account" /> : null}
       <SelectedNodePlacement selection={selection} nodeId={node.id} />
       {pages.isError && !unavailable ? <p role="status">Execution refresh failed. Showing the last successful read.</p> : null}

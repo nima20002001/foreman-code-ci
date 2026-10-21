@@ -1,3 +1,4 @@
+import { BrowserRuntimeStatusSchema } from './browserTransport.js'
 import { ReadObservationSchema } from './readObservation.js'
 import { OperationalFailureSchema } from './operationalFailures.js'
 import { optionalCommandId } from './management/commands.js'
@@ -20,7 +21,7 @@ const HarnessSelectionSchema = z.array(MaintainedHarnessSchema).min(1).max(2)
   .refine(harnesses => new Set(harnesses).size === harnesses.length, 'Choose each harness once.')
 
 const MaintenanceTaskKindSchema = z.enum([
-  'update-harnesses', 'update-worker', 'update-system', 'restart', 'sync-mcp', 'sync-plugins',
+  'update-harnesses', 'update-worker', 'update-system', 'restart', 'sync-mcp', 'sync-plugins', 'repair-browser',
 ])
 
 /** A user-level MCP server definition. Secret values are never copied: only environment variable names and URLs. */
@@ -49,6 +50,7 @@ export const MaintenanceTaskStartSchema = z.discriminatedUnion('kind', [
   // Automatic convergence preserves the updater's failure guard; explicit Retry defaults to true.
   z.object({ kind: z.literal('update-worker'), retry: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('update-system') }).strict(),
+  z.object({ kind: z.literal('repair-browser') }).strict(),
   z.object({ kind: z.literal('restart') }).strict(),
   // An omitted harness is unavailable; an empty list is a successfully read empty catalog.
   z.object({ kind: z.literal('sync-mcp'), servers: z.object({ codex: z.array(SyncedMcpServerSchema).max(100).optional(),
@@ -133,6 +135,7 @@ export const MaintenanceStatusSchema = z.object({
   operationalFailures: z.array(OperationalFailureSchema).optional(),
   services: z.array(ServiceHealthSchema).max(50).optional(),
   worker: WorkerUpdateStatusSchema.optional(),
+  browserRuntime: BrowserRuntimeStatusSchema.optional(),
   harnesses: z.array(HarnessVersionSchema).max(2),
   system: z.object({
     /** Pending OS upgrades, including APT-held and phased updates; null when the count cannot be verified. */
@@ -220,6 +223,7 @@ export const ComputerMaintenanceStartInputSchema = z.object({
     z.object({ kind: z.literal('update-harnesses'), harnesses: HarnessSelectionSchema }).strict(),
     z.object({ kind: z.literal('update-worker') }).strict(),
     z.object({ kind: z.literal('update-system') }).strict(),
+  z.object({ kind: z.literal('repair-browser') }).strict(),
     z.object({ kind: z.literal('restart') }).strict(),
     z.object({ kind: z.literal('sync-mcp') }).strict(),
     z.object({ kind: z.literal('sync-plugins') }).strict(),

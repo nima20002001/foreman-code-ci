@@ -4,6 +4,7 @@ import {
   sourceVectorIsStale, sourceVectorHasAdvance,
 } from '../conversations/agentChat/activityMerge'
 import { mergeChatMessages } from '../conversations/agentChat/model'
+import { boundedNativeWindow } from '../conversations/delivery/nativeMessageWindow'
 import { mergeOperatorActivity, retainRecentOperatorActivity } from '../../shared/api/operatorActivity'
 
 export function newerOperatorConversationState(current: OperatorConversationState | undefined,
@@ -34,12 +35,14 @@ export function newerOperatorConversationState(current: OperatorConversationStat
     activityNextCursor = retained.activities[0]?.sequence ?? next.activityNextCursor
   }
   const messages = stale || !metadataFresh && accepted === current ? accepted.messages : next.messages
+  const window = boundedNativeWindow(mergeChatMessages(current?.messages ?? [], messages))
   return {
     ...accepted,
     ...(activitySnapshot ? { activitySnapshot } : {}),
     qualificationKey: qualification.qualificationKey,
     responseAvailability: qualification.responseAvailability,
-    messages: mergeChatMessages(current?.messages ?? [], messages).slice(-100),
+    messages: window?.messages ?? accepted.messages,
+    hasEarlierMessages: accepted.hasEarlierMessages || window?.omitted,
     activities: retained.activities,
     activityNextCursor,
   }

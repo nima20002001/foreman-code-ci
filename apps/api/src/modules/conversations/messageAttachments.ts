@@ -1,4 +1,5 @@
-import type pg from 'pg'
+import type { FileQuery } from '../files/repository.js'
+import type { SqlQuery } from '../../infrastructure/transaction.js'
 import { MessageSchema, type ActivitySourceRevision, type Message } from '@foreman-code/contracts'
 import { readClaudeMessagePublications } from '../harnesses/claudeSdk/publications.js'
 import {
@@ -10,7 +11,7 @@ import { readOriginalMessageInputs } from './originalMessageInputs.js'
 import { DomainError } from '../errors.js'
 import { MessagePublicationRefsSchema, mergeMessagePins, readCodexMessagePublications } from './messagePublications.js'
 
-type Queryable = Pick<pg.PoolClient, 'query'>
+type Queryable = SqlQuery
 const StoredMessageSchema = MessageSchema.omit({ attachments: true, originalInput: true }).extend({
   attachmentRefs: MessageAttachmentRefsSchema.optional(), publicationRefs: MessagePublicationRefsSchema.optional(),
 }).strict()
@@ -62,7 +63,7 @@ function metadata(row: AttachmentRow): FileWithRevision {
     state: fileStateAt(value.file, row.read_at.toISOString()) } })
 }
 
-async function readPins(query: Queryable, conversationId: string, refs: MessageAttachmentRef[], onFileRevision?: (revision: ActivitySourceRevision) => void) {
+async function readPins(query: FileQuery, conversationId: string, refs: MessageAttachmentRef[], onFileRevision?: (revision: ActivitySourceRevision) => void) {
   if (!refs.length) return new Map<string, FileWithRevision>()
   // The caller bounds message pages; output pins are not subject to the send limit.
   // Deduplicate exact pins, not logical IDs: history can pin different revisions.
@@ -84,7 +85,7 @@ async function readPins(query: Queryable, conversationId: string, refs: MessageA
 /** Called inside the existing admission transaction, after locking the conversation and
  * checking the receipt. No transaction is held across native/byte I/O. Shared lifecycle
  * locks serialize admission with retention/removal/expiry, in a deterministic order. */
-export async function validateMessageAttachments(query: Queryable, conversationId: string, input?: MessageAttachmentRef[]): Promise<void> {
+export async function validateMessageAttachments(query: FileQuery, conversationId: string, input?: MessageAttachmentRef[]): Promise<void> {
   const refs = MessageAttachmentRefsSchema.parse(input ?? [])
   if (!refs.length) return // Text-only paths don't depend on the file migration.
   const locked = await query.query<{ file_id: string }>(`select f.file_id from files f

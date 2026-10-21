@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { IdSchema, TimestampSchema } from './schemaPrimitives.js';
 
+/** Navigation only; the manager resolves the selected computer's current registered identity. */
+export const BrowserProfilesSettingsSearchSchema = z.object({
+  mainId: IdSchema.optional(), computer: z.enum(['main', 'device']).optional(), deviceId: IdSchema.optional(),
+}).strict().refine(value => value.computer === 'device' ? !!value.deviceId : !value.deviceId, {
+  path: ['deviceId'], message: 'Choose the exact device for a device filter.',
+});
+export type BrowserProfilesSettingsSearch = z.infer<typeof BrowserProfilesSettingsSearchSchema>;
+
 export const BrowserProfileOriginSchema = z.string().url().refine((origin) => {
   try {
     const parsed = new URL(origin);
@@ -80,7 +88,7 @@ export const BrowserProfileSyncTargetSchema = z.object({
   snapshot: BrowserSnapshotIdentitySchema.nullable(),
   state: z.enum(['queued','transferring','waiting_idle','applying','up_to_date',
     'failed','offline','excluded']),
-  exclusion: z.enum(['local_only','local_override','source']).nullable(),
+  exclusion: z.enum(['local_only','local_override','source','removed']).nullable(),
   reason: z.string().nullable(), updatedAt: TimestampSchema,
 }).strict().superRefine((target, context) => {
   if (target.snapshot && target.snapshot.profileId !== target.profileId) context.addIssue({ code: 'custom', path: ['snapshot'], message: 'Snapshot must identify this profile.' });
@@ -88,7 +96,7 @@ export const BrowserProfileSyncTargetSchema = z.object({
   if ((target.state === 'excluded') !== (target.exclusion !== null)) context.addIssue({ code: 'custom', path: ['exclusion'], message: 'Only excluded targets carry an exclusion.' });
   if ((target.state === 'failed' || target.state === 'excluded') && !target.reason?.trim()) context.addIssue({ code: 'custom', path: ['reason'], message: 'Failure and exclusion require an explanation.' });
 });
-export const BrowserProfileSyncJobSchema = z.object({
+const BrowserProfileSyncJobObjectSchema = z.object({
   id: IdSchema, commandId: IdSchema,
   state: z.enum(['queued','running','completed','partial','failed']),
   profiles: z.array(z.object({ profileId: IdSchema, sourceComputerId: IdSchema,
@@ -98,7 +106,9 @@ export const BrowserProfileSyncJobSchema = z.object({
   targets: z.array(BrowserProfileSyncTargetSchema),
   revision: z.number().int().nonnegative(),
   createdAt: TimestampSchema, updatedAt: TimestampSchema,
-}).strict().superRefine((job, context) => {
+}).strict();
+
+function validateSyncAssociations(job: z.infer<typeof BrowserProfileSyncJobObjectSchema>, context: z.RefinementCtx) {
   const fail = (message: string) => context.addIssue({ code: 'custom', message });
   const profiles = new Map(job.profiles.map((profile) => [profile.profileId, profile]));
   if (profiles.size !== job.profiles.length) fail('Sync profiles must be unique.');
@@ -117,11 +127,25 @@ export const BrowserProfileSyncJobSchema = z.object({
     if (target.snapshot && (!profile?.manifest || !sameBrowserSnapshot(target.snapshot, profile.manifest.snapshot))) fail('Target and manifest must identify the exact same snapshot.');
     if (target.exclusion === 'source' && target.computerId !== profile?.sourceComputerId) fail('Source exclusion must identify the designated source.');
   }
+}
+
+export const BrowserProfileSyncJobSchema = BrowserProfileSyncJobObjectSchema.superRefine((job, context) => {
+  validateSyncAssociations(job, context);
+  const fail = (message: string) => context.addIssue({ code: 'custom', message });
   const eligible = job.targets.filter((target) => target.state !== 'excluded');
   if (job.state === 'completed' && (eligible.some((target) => target.state !== 'up_to_date')
     || job.profiles.some((profile) => profile.state !== 'published' && profile.state !== 'excluded'))) fail('Completed jobs require every eligible profile and target to finish.');
   if (job.state === 'partial' && (!eligible.some((target) => target.state === 'failed') || !eligible.some((target) => target.state === 'up_to_date'))) fail('Partial jobs require both a failed and a completed eligible target.');
-}); // Read endpoints page profiles/targets; do not fetch all on computer lists.
+});
+
+/** State describes the whole job; rows contain this page and each target's associated profile. */
+export const BrowserProfileSyncPageSchema = z.object({
+  job: BrowserProfileSyncJobObjectSchema.superRefine(validateSyncAssociations),
+  nextProfileCursor: z.string().nullable(),
+  nextTargetCursor: z.string().nullable(),
+}).strict();
+export type BrowserProfileSyncPage = z.infer<typeof BrowserProfileSyncPageSchema>;
+
 
 
 export type NodeBrowserSettings = z.infer<typeof NodeBrowserSettingsSchema>;

@@ -1,4 +1,5 @@
-import type { ExecutionResult, HarnessExecution } from '@foreman-code/contracts'
+import { workflowResultContext } from './resultContext.js'
+import type { ExecutionResult, HarnessExecution, ResultProtocol } from '@foreman-code/contracts'
 import { canonicalGraphJson, type OutputReferenceKind, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
 import { deliverableFailure, deliverableVerdict, type DeliverableContract } from '../interactions/deliverable.js'
 import { assertGraphTransaction, type GraphTransactionSql } from '../run-graph/connection.js'
@@ -32,23 +33,25 @@ export async function referencesCreatedByExecution(db: Queryable, kind: OutputRe
 
 /** The deliverable contract of one workflow Agent activation; none for interval checks or Job nodes. */
 export function workflowDeliverableContract(version: WorkflowVersionV3, execution: HarnessExecution,
-  referencesExist: DeliverableContract['referencesExist']): DeliverableContract | undefined {
+  referencesExist: DeliverableContract['referencesExist'], resultProtocol?: ResultProtocol): DeliverableContract | undefined {
   const node = version.definition.nodes.find(item => item.id === execution.workflowNodeId)
-  if (!node || node.kind === 'job' || repeatTickIndex(execution.input) !== undefined) return undefined
+  if (!node || node.kind === 'job') return undefined
+  const coordination = workflowResultContext(version, { ...execution, resultProtocol: resultProtocol ?? execution.resultProtocol })
+  if (repeatTickIndex(execution.input) !== undefined && !coordination) return undefined
   const repeatExit = version.definition.repeat?.blocks.some(block => block.exitNodeId === node.id) ?? false
   return {
-    source: version.definition.handoffs || repeatExit ? 'latestDeliverable' : node.choice || node.artifactOutputs ? 'data' : 'text',
-    outputSchema: node.outputSchema, referencesExist,
+    source: version.definition.handoffs || repeatExit ? 'latestDeliverable' : coordination || node.choice || node.artifactOutputs ? 'data' : 'text',
+    outputSchema: node.outputSchema, referencesExist, ...(coordination ? { coordination } : {}),
   }
 }
 
 /** Validate a terminal deliverable once per transaction, shared by normalization and native verification. */
 export function workflowDeliverableFailure(db: Queryable, version: WorkflowVersionV3,
-  execution: HarnessExecution): Promise<ExecutionResult | undefined> {
+  execution: HarnessExecution, resultProtocol?: ResultProtocol): Promise<ExecutionResult | undefined> {
   if (execution.state !== 'completed' || execution.result?.outcome !== 'succeeded') return Promise.resolve(undefined)
   const read = async () => {
     const contract = workflowDeliverableContract(version, execution,
-      (kind, values) => referencesCreatedByExecution(db, kind, values, version.workspaceId, execution.id))
+      (kind, values) => referencesCreatedByExecution(db, kind, values, version.workspaceId, execution.id), resultProtocol)
     const verdict = contract && await deliverableVerdict(execution.result!, contract)
     return verdict ? deliverableFailure(verdict) : undefined
   }
@@ -59,7 +62,7 @@ export function workflowDeliverableFailure(db: Queryable, version: WorkflowVersi
     verdicts = new Map()
     terminalVerdicts.set(db, verdicts)
   }
-  const key = canonicalGraphJson([version.id, execution])
+  const key = canonicalGraphJson([version.id, execution, resultProtocol ?? null])
   let verdict = verdicts.get(key)
   if (!verdict) {
     verdict = read()

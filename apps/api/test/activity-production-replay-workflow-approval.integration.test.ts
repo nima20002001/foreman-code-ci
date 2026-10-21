@@ -121,7 +121,8 @@ describe.skipIf(!postgresEnabled)('Production activity replay: workflow-approval
         expect(delivered.activity).toMatchObject({ answerRecorded: true, nativeDelivery: 'delivered',
           workerAcknowledgment: 'unknown', response: { available: false } })
         f.replay.commandCompleted(nativeSessionId, nativeTurnId)
-        f.replay.complete(nativeSessionId, nativeTurnId, 'recorded post-approval final')
+        f.replay.complete(nativeSessionId, nativeTurnId, JSON.stringify({ data: 'recorded post-approval final',
+          summary: 'Completed after approval.', board: { kind: 'none', reason: 'no_access' } }))
       })(),
     ])
     expect(answer.statusCode, answer.body).toBe(200)

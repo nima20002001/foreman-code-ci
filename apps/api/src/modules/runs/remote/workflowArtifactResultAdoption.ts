@@ -1,20 +1,21 @@
-import { parseWorkHandoffArtifactResult } from '@foreman-code/contracts/wave25'
 import { isDeepStrictEqual } from 'node:util'
-import { HarnessExecutionSchema, type HarnessExecution } from '@foreman-code/contracts'
+import { HarnessExecutionSchema, type HarnessExecution, type ResultProtocol } from '@foreman-code/contracts'
 import { REMOTE_NATIVE_SOURCE_LIMIT } from '@foreman-code/contracts/remote-workflow-physical'
 import { ArtifactAttemptSchema } from '@foreman-code/contracts/artifact-edges'
 import { remoteWorkflowHasTurn, remoteWorkflowTurnId, type RemoteOperationReceipt } from '@foreman-code/contracts/remote-execution'
 import { WorkflowVersionV3Schema, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
-import { parseWorkflowArtifactResult, type WorkflowArtifactResultV1 } from '@foreman-code/contracts/workflow-artifact-result'
+import type { WorkflowArtifactResultV1 } from '@foreman-code/contracts/workflow-artifact-result'
 import type { AcceptedArtifactPublication } from '../../files/distributed/publication.js'
 import { DomainError } from '../../errors.js'
 import { assertOriginalWorkflowTerminal } from '../../interactions/workflowTerminalSource.js'
 import { assertRepeatExecution, repeatDigest, repeatExecutionIdentity } from '../repeatResolution.js'
 import type { WorkflowNativeProofRecord } from '../workflowNativeProof.js'
 import type { NativeArtifactOutputs, NativeArtifactOutput } from './nativeArtifactOutputs.js'
+import { workflowArtifactResult } from '../workflowCoordinationResult.js'
 
 export interface VerifiedWorkflowArtifactSource {
   version: WorkflowVersionV3
+  resultProtocol?: ResultProtocol | undefined
   execution: HarnessExecution
   proof: WorkflowNativeProofRecord
   sourceDigest: string
@@ -50,7 +51,7 @@ export class WorkflowArtifactResultAdoption {
     const original = await this.source.readVerified(structuredClone(accepted))
     // Snapshot before an authority await; a producer cannot change the value
     // being validated while a current-grant/ownership check is in flight.
-    const snapshot = structuredClone({ version: original.version, execution: original.execution,
+    const snapshot = structuredClone({ version: original.version, resultProtocol: original.resultProtocol, execution: original.execution,
       proof: original.proof, sourceDigest: original.sourceDigest, remote: original.remote })
     await original.assertCurrent()
     const { proof } = snapshot
@@ -82,13 +83,7 @@ export class WorkflowArtifactResultAdoption {
     assertOriginalWorkflowTerminal(execution, proof.session, history, correlationId)
     let mappings: WorkflowArtifactResultV1['outputs']
     try {
-      if (version.definition.handoffs) {
-        mappings = parseWorkHandoffArtifactResult(terminal.result, node.artifactOutputs).artifactOutputs.outputs
-      } else if (node.choice) {
-        mappings = parseWorkflowArtifactResult(terminal.result, node.artifactOutputs, node.choice).artifactOutputs.outputs
-      } else {
-        mappings = parseWorkflowArtifactResult(terminal.result, node.artifactOutputs).artifactOutputs.outputs
-      }
+      mappings = workflowArtifactResult(terminal.result, version, node.id, snapshot.resultProtocol).outputs
     } catch {
       // Parser details can contain model text. Surface a stable domain error.
       throw new DomainError('WORKFLOW_ARTIFACT_RESULT_INVALID', 'The original native result does not satisfy its saved artifact output contract.', 409)

@@ -100,6 +100,13 @@ export function createNextDraftApi(client: ApiClient = apiClient) {
   const applyAgents = createDraftAgentWriter(client)
   return {
     open, get,
+    /** Install a fresh comparison base only after the caller durably retained the original form. */
+    acceptContext(context: AuthoringContext) {
+      const draft = GraphDraftV3Schema.parse(context.draft)
+      const savedDraft = GraphDraftV3Schema.parse(context.savedDraft ?? context.draft)
+      assertScope(savedDraft, draft.workspaceId, draft.workflowId, draft.id)
+      opened.set(key(draft.workspaceId, draft.workflowId), { draft, savedDraft, savedRevision: savedDraft.publishedRevision ?? savedDraft.revision })
+    },
     discardLocal(workspaceId: string, workflowId: string) {
       const entry = opened.get(key(workspaceId, workflowId))
       if (entry) opened.set(key(workspaceId, workflowId), { ...entry, draft: entry.savedDraft })
@@ -137,7 +144,7 @@ export function createNextDraftApi(client: ApiClient = apiClient) {
       return assertIntentScope(await client.request(route(CURRENT_WORKFLOW_ROUTES.edits, input.workspaceId, input.workflowId),
         GraphEditReadResultV3Schema, { method: 'POST', body: input }), input)
     },
-    async context(workspaceId: string, workflowId: string, options?: RequestOptions, reload = false): Promise<AuthoringContext> {
+    async context(workspaceId: string, workflowId: string, options?: RequestOptions, reload = false, freshDraftId?: string): Promise<AuthoringContext> {
       for (let attempt = 0; attempt < 3; ++attempt) {
         const before = await load(workspaceId, workflowId, options)
         const agents = await client.listManagedAgents(workspaceId, options)
@@ -157,8 +164,11 @@ export function createNextDraftApi(client: ApiClient = apiClient) {
             opened.set(key(workspaceId, workflowId), refreshed)
             return { draft: refreshed.draft, savedDraft: refreshed.savedDraft, agents: agents.items }
           }
-          opened.set(key(workspaceId, workflowId), after)
-          return { draft: after.draft, savedDraft: after.savedDraft, agents: agents.items }
+          const fresh = freshDraftId ? { ...after, draft: { ...after.draft, id: freshDraftId },
+            savedDraft: { ...after.savedDraft, id: freshDraftId } } : after
+          // A comparison read must not replace the live transport base on a later storage failure.
+          if (!freshDraftId) opened.set(key(workspaceId, workflowId), fresh)
+          return { draft: fresh.draft, savedDraft: fresh.savedDraft, agents: agents.items }
         }
       }
       throw new ApiError({ code: 'GRAPH_CHANGING', message: 'The saved workflow changed while loading. Retry after the current edit.' }, 409)
@@ -228,7 +238,8 @@ export function createNextDraftApi(client: ApiClient = apiClient) {
   }
 }
 export const nextDraftApi = createNextDraftApi()
-export type NextDraftApi = ReturnType<typeof createNextDraftApi>
+export type NextDraftApi = Omit<ReturnType<typeof createNextDraftApi>, 'acceptContext'>
+  & Partial<Pick<ReturnType<typeof createNextDraftApi>, 'acceptContext'>>
 
 /** Structural form errors are local. Executability, authorization and all native policy remain server-authoritative. */
 export function assertDraftSubmission(graph: NextDraftContext['draft']['graph'], operations: unknown[]) {
@@ -280,6 +291,7 @@ function createDraftAgentWriter(client: ApiClient) {
         const body = {
           ...(edit.rename ? { name: edit.rename.name } : {}),
           ...(edit.configure ? { configuration: SupportedHarnessConfigurationSchema.parse(edit.configure.configuration), prompt: edit.configure.prompt,
+            ...(edit.configure.productRole ? { productRole: edit.configure.productRole } : {}),
             assignedSkills: edit.configure.assignedSkills, description: edit.configure.description ?? null,
             ...(edit.configure.graphqlTools ? { graphqlTools: edit.configure.graphqlTools } : {}),
             ...(edit.configure.nativeTools ? { nativeTools: edit.configure.nativeTools } : {}),

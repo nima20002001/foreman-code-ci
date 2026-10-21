@@ -28,7 +28,8 @@ export function useDraftUnsavedGuard({ draftKey, edit, editIntent, saveActions, 
         || scheduleWrite.pending || scheduleWrite.unconfirmed) return false
       try { storeEditSnapshot(draftKey, current); return true } catch { return false }
     },
-    dirty: nextDraftDirty(edit) || edit.busy || !!pendingStart || editIntent.locked || scheduleWrite.pending || scheduleWrite.unconfirmed,
+    dirty: nextDraftDirty(edit) || !!Object.keys(edit.workflowForms ?? {}).length || edit.busy
+      || !!pendingStart || editIntent.locked || scheduleWrite.pending || scheduleWrite.unconfirmed,
     busy: edit.busy || reloading || starting || editIntent.mutation.isPending || scheduleWrite.pending,
     uncertain: edit.error?.uncertain || !!pendingStart || editIntent.intent?.state === 'uncertain' || scheduleWrite.unconfirmed,
     error: edit.error?.message ?? localError,

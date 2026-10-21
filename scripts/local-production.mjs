@@ -20,6 +20,7 @@ import {
   needsStartupConfiguration, recordStartupConfiguration, withProductionSourceSnapshot, buildProductionSource,
   readPendingMigrations, runReleaseCutover, recoverReleaseCutover,
   measureProductionStep, installProductionDependencies,
+  stageProductionBrowserRuntime, productionBrowserRuntimeLifecycle,
 } from './local-production-runtime.mjs'
 
 const source = fileURLToPath(new URL('../', import.meta.url))
@@ -98,7 +99,7 @@ async function stageRelease({ source: buildSource, commit }, runBuild, previousR
       await copyFile(join(buildSource, 'packages/contracts/src', name), join(contractsSource, name))
     }
     await mkdir(join(release, 'apps/worker/src'), { recursive: true })
-    for (const name of ['service.mjs', 'diagnostics.mjs', 'harnessPath.mjs']) {
+    for (const name of ['service.mjs', 'diagnostics.mjs', 'harnessPath.mjs', 'browserRuntimeInstall.mjs']) {
       await copyFile(join(buildSource, 'apps/worker/src', name), join(release, 'apps/worker/src', name))
     }
     const { stdout: remote } = await capture('git', ['remote', 'get-url', 'origin'], { cwd: buildSource })
@@ -111,6 +112,7 @@ async function stageRelease({ source: buildSource, commit }, runBuild, previousR
     await measureProductionStep('Worker artifacts', () => buildWorkerReleaseArtifacts({ repository: buildSource, expectedCommit: commit,
       directory: join(release, 'worker-artifacts'), productManifestPath: join(release, 'package.json'),
       previousDirectory: previousRelease ? join(previousRelease, 'worker-artifacts') : undefined, run: runBuild }))
+    await measureProductionStep('Managed browser runtime', () => stageProductionBrowserRuntime({ release, appRoot: app }))
     const provenance = { api: commit, web: commit, contracts: commit, worker: commit }
     await publish(join(release, 'source.json'), JSON.stringify(provenance) + '\n')
     return release
@@ -221,8 +223,10 @@ async function activateRelease(release) {
   }
 }
 
-function cutoverSteps(environment, { firstInstall = false } = {}) {
+function cutoverSteps(environment, { firstInstall = false, drainTimeoutMs } = {}) {
+  const browserRuntime = productionBrowserRuntimeLifecycle({ appRoot: app, stateDirectory: state, drainTimeoutMs })
   return {
+    browserRuntime,
     pendingMigrations: release => readPendingMigrations(release, environment.DATABASE_URL),
     stop: () => run('/usr/bin/systemctl', ['--user', 'stop', units.api]),
     migrate: release => run(join(release, 'node'), ['dist/cli/migrate.js'], {
@@ -236,7 +240,7 @@ function cutoverSteps(environment, { firstInstall = false } = {}) {
     activate: activateRelease,
     enable: () => enableProductionServices(run, [units.database, units.api], { firstInstall }),
     start: () => run('/usr/bin/systemctl', ['--user', 'start', units.api]),
-    ready: release => waitForReady({ selectedRelease: release }),
+    ready: async release => { await waitForReady({ selectedRelease: release }); await browserRuntime.verify(release) },
     checkReady: (release, { start, rollback }) => waitForReady({ selectedRelease: release,
       start, smoke: () => runAuthenticatedCiSmoke(release, environment), rollback }),
   }
@@ -281,7 +285,7 @@ async function finishInstallation({ release, previousRelease, firstInstall, envi
     const cutover = async () => {
       cutoverBegan = true
       await runReleaseCutover({ release, previousRelease, stateFile: deploymentFile,
-        steps: cutoverSteps(environment, { firstInstall }) })
+        steps: cutoverSteps(environment, { firstInstall, drainTimeoutMs: timeoutMs }) })
     }
     if (previousRelease) {
       await readActiveRuns(release, environment.DATABASE_URL, async query => {
@@ -290,6 +294,8 @@ async function finishInstallation({ release, previousRelease, firstInstall, envi
       })
     } else await cutover()
     await recordStartupConfiguration(startupFile)
+    try { await productionBrowserRuntimeLifecycle({ appRoot: app, stateDirectory: state }).prune() }
+    catch (error) { console.warn(`Browser runtime cleanup will retry on the next install: ${error.message}`) }
     const pruned = await pruneReleases(join(app, 'releases'), [release, previousRelease])
     if (pruned.length) console.log(`Removed ${pruned.length} old release(s); kept the current and previous release.`)
     const kept = (await readdir(join(app, 'releases'))).filter(name => name.startsWith('release-')).map(name => join(app, 'releases', name))

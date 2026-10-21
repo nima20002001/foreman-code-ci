@@ -1,6 +1,8 @@
 import { matchingChatResponseAcknowledgment, AcceptedChatResponseControlSchema } from '@foreman-code/contracts/interaction-activity'
 import type pg from 'pg'
-import { DurableInteractionSchema, PendingNativeInteractionSchema, type ApprovalResponseOption, type NativeSessionReference } from '@foreman-code/contracts'
+import { DurableInteractionSchema, PendingNativeInteractionSchema, type ApprovalResponseOption, type NativeSessionReference,
+  type CoordinatorConsultationBinding } from '@foreman-code/contracts'
+import { readCoordinatorCredentialAuthority } from '../../access/consultationAuthority.js'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { currentOperatorAuthority } from '../../access/runAuthority.js'
 import { requireAuthorization } from '../../access/policy.js'
@@ -14,7 +16,8 @@ import { ClaudeInteractionBridge, type ClaudeCallbackIdentity, type ClaudeIntera
 import type { ClaudeHarnessConfiguration } from '@foreman-code/contracts/claude'
 
 export type ClaudeDomainBinding =
-  | { kind: 'workflow'; runId: string; executionId: string; attempt: number; getOwner(): RunOwnership | undefined }
+  | { kind: 'workflow'; runId: string; executionId: string; attempt: number;
+      consultation?: CoordinatorConsultationBinding; getOwner(): RunOwnership | undefined }
   | { kind: 'operator'; conversationId: string; controlPrincipalId?: string; observationPrincipalId?: string; repository: Pick<PostgresOperatorConversationRepository, 'pending'> }
   | { kind: 'agent'; conversationId: string; workspaceId: string; controlPrincipalId?: string; observationPrincipalId?: string; repository: Pick<PostgresAgentChatRepository, 'pending'> }
 export interface ClaudeCurrentCallbackOwner {
@@ -43,11 +46,31 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
   }
   bind(bridge: ClaudeInteractionBridge): void { if (this.bridge) denied(); this.bridge = bridge }
 
+  /** The native idle-session rebind validates the transition before selecting this subject. */
+  async rebindConsultation(consultation?: CoordinatorConsultationBinding): Promise<void> {
+    if (this.binding.kind !== 'workflow') return denied()
+    if (consultation) await this.consultationAdmission(this.database, consultation)
+    if (consultation) this.binding.consultation = structuredClone(consultation)
+    else delete this.binding.consultation
+  }
+
+  private async consultationAdmission(database: Database, binding: CoordinatorConsultationBinding) {
+    if (this.binding.kind !== 'workflow') return denied()
+    const current = await readCoordinatorCredentialAuthority(database, binding)
+    if (binding.runId !== this.binding.runId || current.source_execution_id !== this.binding.executionId
+      || current.execution.attempt !== this.binding.attempt) return denied()
+    return current
+  }
+
   /** HRT calls this on the admitted turn/technical attempt before constructing SDK callbacks. */
   async callbackAdmission(): Promise<{ ownerPrincipalId: string; attemptId: string }> {
     if (this.binding.kind === 'workflow') {
       const owner = this.binding.getOwner()
-      if (!owner || owner.runId !== this.binding.runId) denied()
+      if (!owner || owner.runId !== this.binding.runId) {
+        // A settled mailbox revokes its subject even after the native owner entry has been released.
+        if (this.binding.consultation) await this.consultationAdmission(this.database, this.binding.consultation)
+        denied()
+      }
       owner.assertOwned()
       await owner.readOneShotFence(owner.client)
       const admission = await this.workflowAdmission(owner.client)
@@ -89,13 +112,18 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
 
   private async workflowAdmission(database: Database): Promise<{ ownerPrincipalId: string; attemptId: string }> {
     if (this.binding.kind !== 'workflow') return denied()
-    const current = await credentialAuthority(database, this.binding.executionId, 'workflow')
-    if (current.run.id !== this.binding.runId || current.execution.attempt !== this.binding.attempt) denied()
+    const consultation = this.binding.consultation
+    const current = consultation ? await this.consultationAdmission(database, consultation)
+      : await credentialAuthority(database, this.binding.executionId, 'workflow')
+    const run = 'run' in current ? current.run : { id: current.run_id,
+      workspaceId: current.workspace_id, workflowId: current.workflow_id }
+    if (run.id !== this.binding.runId || current.execution.attempt !== this.binding.attempt) denied()
     const row = (await database.query<{ principal_id: string }>("select record->>'authorizationPrincipalId' as principal_id from runs where id=$1", [this.binding.runId])).rows[0]
     if (!row?.principal_id) denied()
     const principal = (await currentOperatorAuthority(database, row.principal_id)).principal
-    requireAuthorization(principal, 'runs:start', { workspaceId: current.run.workspaceId, workflowId: current.run.workflowId })
-    return { ownerPrincipalId: row.principal_id, attemptId: String(current.execution.attempt) }
+    requireAuthorization(principal, 'runs:start', { workspaceId: run.workspaceId, workflowId: run.workflowId })
+    return { ownerPrincipalId: row.principal_id,
+      attemptId: consultation ? `consultation:${consultation.consultationId}` : String(current.execution.attempt) }
   }
   private async chat(expectedRequestId?: string): Promise<ChatRow> {
     if (this.binding.kind === 'workflow') return denied()
@@ -122,8 +150,14 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
     if (!actual || actual.nativeMessageId !== identity.nativeMessageId || actual.generation !== identity.generation
       || actual.nativeSessionId !== identity.nativeSessionId || actual.clientCorrelationId !== identity.clientCorrelationId) denied()
     if (this.binding.kind === 'workflow') {
-      const current = await credentialAuthority(this.database, this.binding.executionId, 'workflow')
-      if (current.nativeSessionId !== identity.nativeSessionId || actual.clientCorrelationId !== `execution:${this.binding.executionId}`) denied()
+      if (this.binding.consultation) {
+        const current = await this.consultationAdmission(this.database, this.binding.consultation)
+        if (current.execution.nativeSessionId !== identity.nativeSessionId
+          || actual.clientCorrelationId !== `consultation:${this.binding.consultation.consultationId}`) denied()
+      } else {
+        const current = await credentialAuthority(this.database, this.binding.executionId, 'workflow')
+        if (current.nativeSessionId !== identity.nativeSessionId || actual.clientCorrelationId !== `execution:${this.binding.executionId}`) denied()
+      }
     } else {
       const row = await this.chat(identity.attemptId), receipt = row.payload.nativeSubmission
       if (!receipt || receipt.kind !== 'message' || row.native_session_id !== identity.nativeSessionId
@@ -133,6 +167,7 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
   }
   async deliveryPersisted(identity: ClaudeCallbackIdentity, optionId: string): Promise<boolean> {
     if (this.binding.kind === 'workflow') {
+      if (this.binding.consultation) return false
       const rows = (await this.database.query<{ record: unknown }>(`select record from durable_interactions
         where execution_id=$1 and native_session_id=$2 and native_request_id=$3 and record->>'deliveryState'='delivered'`,
       [this.binding.executionId, identity.nativeSessionId, identity.nativeRequestId])).rows
@@ -169,6 +204,9 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
   async request(identity: ClaudeCallbackIdentity, toolName: string, _input: Record<string, unknown>, signal: AbortSignal): Promise<ClaudeInteractionAnswer> {
     await this.validate(identity)
     signal.throwIfAborted()
+    if (this.binding.kind === 'workflow' && this.binding.consultation) return {
+      outcome: 'deny', reason: 'A coordinator consultation cannot publish or answer workflow approval requests.',
+    }
     if (toolName === 'AskUserQuestion') return { outcome: 'deny', reason: 'Structured native question answers are not supported by the current persisted response contract.' }
     if (!this.bridge) denied()
     // Workflow requests are published ONLY by the owned history observer/original-source update.
@@ -198,6 +236,7 @@ export class PostgresClaudeInteractionAuthority implements ClaudeInteractionAuth
   }
   async validateResponse(identity: ClaudeCallbackIdentity, answer: ClaudeInteractionAnswer): Promise<void> {
     await this.validate(identity)
+    if (this.binding.kind === 'workflow' && this.binding.consultation) denied('CLAUDE_RESPONSE_CONTRACT_UNSUPPORTED')
     const optionId = answer.outcome
     if (!['allow_once', 'deny', 'cancel'].includes(optionId)) denied('CLAUDE_RESPONSE_CONTRACT_UNSUPPORTED')
     if (this.binding.kind === 'workflow') {

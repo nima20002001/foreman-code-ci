@@ -3,7 +3,7 @@ import type { JobWorkflowAdmissionReference } from '@foreman-code/contracts/job-
 import { createContext, forwardRef, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Background, ConnectionMode, ReactFlow, type Edge, type EdgeProps, type NodeChange, type NodeProps } from '@xyflow/react'
 import { WorkflowRelationshipSchema, type WorkflowDefinitionV3, type WorkflowRelationship } from '@foreman-code/contracts/wave25'
-import type { Agent } from '@foreman-code/contracts'
+import { isHierarchyReportingRoute, type Agent } from '@foreman-code/contracts'
 import { AgentNodeView, AgentPopover, Dialog, IconButton, Icon, type AgentPanel } from '../../../shared/ui/nocturne'
 import { AgentChatWindowLayer } from '../../conversations/agentChat/AgentChatWindows'
 import { useChatWindowsStore } from '../../conversations/agentChat/agentChatWindows'
@@ -28,12 +28,13 @@ import { SelectedRunCanvas } from '../../workflow-board/inspect/SelectedRunCanva
 import { CiServerNode, type CiServerFlowNode } from '../../workflow-board/inspect/CiServer'
 import { CI_SERVER_NODE_ID } from '../../workflow-board/inspect/ciServer'
 import { useBoardCiServer } from '../../workflow-board/inspect/useBoardCiServer'
+import { HierarchyCanvasControls, useCollapsedWorkers } from '../../workflow-hierarchy/HierarchyCanvasControls'
 import '@xyflow/react/dist/style.css'
 
 export type OpenAgentPanel = { nodeId: string; panel: AgentPanel }
 export type AgentPanels = { chatHasHeader?: boolean; chat: ReactNode; settings: ReactNode; info: ReactNode }
 /** A selected Run supplies its pinned identity, including nodes no longer present in the draft. */
-export type PinnedPanelNode = {kind?:'agent';agentId:string;name:string;role?:string;runLabel?:string}|{kind:'job';jobDefinitionId:string;jobDefinitionRevision:number;jobDefinitionVersionId:string;name:string;workflowExecution?:JobWorkflowAdmissionReference}
+export type PinnedPanelNode = {kind?:'agent';agentId:string;name:string;role?:string;runLabel?:string;reportingParent?:string}|{kind:'job';jobDefinitionId:string;jobDefinitionRevision:number;jobDefinitionVersionId:string;name:string;workflowExecution?:JobWorkflowAdmissionReference}
 export type AgentPanelRenderer = (nodeId: string, pinned?: PinnedPanelNode) => AgentPanels
 type Canvas = {
   draftKey: string
@@ -86,6 +87,7 @@ const DraftAgent = memo(function DraftAgent({ id, data, selected, width, height 
 })
 
 type DraftEdge = Edge<{ kind: WorkflowRelationship['kind']; bend: number;
+  reportingParent?: string;
   remove: () => void; removeLabel: string; removalDisabled: boolean;
   workPolicy: boolean; maxWorkHandoffsPerRun?: number; draftChanged: boolean; disabled: boolean;
   onApplyLimit?: (value?: number) => void }>
@@ -101,7 +103,7 @@ const TypedEdge = memo(function TypedEdge({ id, source, target, data, selected }
     onFocus={() => setFocused(true)} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget as globalThis.Node | null)) setFocused(false)
     }}>
-    <SignalEdgeShape id={id} curve={curve} kind={data?.kind} />
+    <SignalEdgeShape id={id} curve={curve} kind={data?.kind} reportingParent={data?.reportingParent} />
     {visible ? <rect className="board-edge-hover-bridge" x={curve.mid.x - 18} y={curve.mid.y - 36}
       width={36} height={48} /> : null}
     <foreignObject data-visible={visible} className="board-edge-remove nodrag nopan" x={curve.mid.x - 18} y={curve.mid.y - 36} width={36} height={36}>
@@ -157,6 +159,7 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
   open, setOpen = () => undefined, panels = () => ({ chat: null, settings: null, info: null }), children }, ref) {
   const board = useWorkflowBoard()
   const selectedRun = board?.run
+  const collapsed = useCollapsedWorkers(draftKey, graph.hierarchy)
   const responsive = useResponsiveGraphViewport<GraphNode | CiServerFlowNode, DraftEdge>({ enabled: !selectedRun })
   const [project] = useState(() => createGraphTopologyProjector())
   const topology = useMemo(() => project(graph, agents), [project, graph, agents])
@@ -165,7 +168,8 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
   const [connecting, setConnecting] = useState(false)
   // Every Board shows the CI server automatically; it is never a workflow node and cannot be added by hand.
   const ci = useBoardCiServer({ nodes, names: noNames, workflow: { workspaceId: graph.workspaceId, workflowId: graph.id } })
-  const flowNodes = useMemo<(GraphNode | CiServerFlowNode)[]>(() => [...nodes, ci.node], [nodes, ci.node])
+  const flowNodes: (GraphNode | CiServerFlowNode)[] = [...nodes.filter(node => !collapsed.has(node.id)).map(node =>
+    board?.teamNodeId === node.id ? { ...node, selected: true } : node), ci.node]
   const selectedIds = useGraphPresentation((state) => state.selectedNodeIds)
   const presentation = useGraphPresentationStore()
   useLayoutEffect(() => { setNodes(adapter.reconcile(topology.nodes, selectedIds)) }, [adapter, topology.nodes, selectedIds])
@@ -192,10 +196,13 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
     return relationshipLines(graph.edges).lines.map(({ members, ...edge }) => {
       const pair = JSON.stringify([edge.source, edge.target].sort()), count = counts.get(pair) ?? 0
       counts.set(pair, count + 1)
-      const kindLabel = members.length > 1 ? 'Handoff · approval' : edge.kind === 'approval' ? 'Approval' : 'Handoff'
+      const reporting = isHierarchyReportingRoute(graph.hierarchy, edge)
+      const workLabel = reporting ? 'Orchestrates' : 'Handoff'
+      const kindLabel = members.length > 1 ? `${workLabel} · approval` : edge.kind === 'approval' ? 'Approval' : workLabel
       return { ...edge, type: 'typed', sourceHandle: 'right', targetHandle: 'left',
         ariaLabel: `${kindLabel} from ${nodeTitle(graph, edge.source)} to ${nodeTitle(graph, edge.target)}${edge.label ? `: ${edge.label}` : ''}`,
         data: { kind: edge.kind, bend: edgeBend(count, edge.source < edge.target),
+          reportingParent: reporting ? nodeTitle(graph, edge.source) : undefined,
           remove: () => change((value) => removeRelationship(value, edge.id)),
           removeLabel: `Remove ${edge.kind === 'approval' ? 'approval' : 'handoff'} from ${nodeTitle(graph, edge.source)} to ${nodeTitle(graph, edge.target)}`,
           removalDisabled, workPolicy: Boolean(graph.handoffs && edge.kind === 'execution'),
@@ -264,7 +271,8 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
     <div ref={responsive.containerRef} className={`next-draft-canvas board-draft-canvas${connecting ? ' is-connecting' : ''}`} style={selectedRun ? { display: 'none' } : undefined} aria-hidden={!!selectedRun} inert={!!selectedRun} aria-label="Editable workflow graph">
       {/* While a Run is shown, the draft's data stays mounted but its flow does not: a hidden
           flow measures a zero-size box and would come back empty on Return to draft. */}
-      {selectedRun ? null : <ReactFlow<GraphNode | CiServerFlowNode, DraftEdge> nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+      {selectedRun ? null : <ReactFlow<GraphNode | CiServerFlowNode, DraftEdge> nodes={flowNodes}
+        edges={edges.filter(edge => !collapsed.has(edge.source) && !collapsed.has(edge.target))} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
         onNodesChange={onNodesChange} connectionMode={ConnectionMode.Loose} connectionRadius={120} deleteKeyCode={null}
         fitView fitViewOptions={fitViewOptions} proOptions={proOptions} minZoom={RESPONSIVE_MIN_ZOOM} maxZoom={1.6} onInit={responsive.onInit}
         onMove={responsive.onMove}
@@ -282,12 +290,13 @@ export const DraftCanvas = forwardRef<DraftCanvasHandle, {
         <Background color="var(--border)" gap={24} size={1} />
       </ReactFlow>}
       {children}
+      <HierarchyCanvasControls scope={draftKey} hierarchy={graph.hierarchy} name={nodeId => nodeTitle(graph, nodeId)} onTeam={board?.selectTeam} />
       {selectedRun || board?.selectSidePanel ? null : <AgentChatWindowLayer scope={chatScope} content={chatWindow} />}
       <WorkflowAgentPanel panels={panels} chatScope={chatScope} active={!selectedRun && board?.authoringActive !== false}
         nodes={graph.nodes.map(node => ({ id: node.id, name: nodeTitle(graph, node.id) }))}
         findNode={nodeId => graph.nodes.some(node => node.id === nodeId) ? undefined : false} />
     </div>
-    {selectedRun ? null : ci.dialog}
+    {selectedRun || board?.canvasVisible === false || board?.authoringActive === false || board?.memoryOpen ? null : ci.dialog}
     {selectedRun ? <SelectedRunCanvas key={JSON.stringify(selectedRun)} scope={selectedRun} panels={panels} layout={topology.nodes} geometry={geometry} /> : null}
   </CanvasContext.Provider>
 })

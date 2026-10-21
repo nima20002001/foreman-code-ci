@@ -6,6 +6,7 @@ import { assertSession, sessionGeneration } from '../../../shared/api/sessionBou
 import { queryKeys } from '../../../shared/api/query'
 import { useGraphDraftStore } from '../store'
 import { boardDraftContextKey } from '../../workflow-board/keys'
+import { hierarchyKey } from '../../workflow-hierarchy/queries'
 import { acknowledgeAgentEdits, hasAgentEdits, stageAgentEdits, referencedAgentEdits } from './agentEdits'
 import { draftOperations, hasLocalChanges, mergeAcknowledgement } from './model'
 import { readBoardStart } from '../../workflow-board/startOutbox'
@@ -58,7 +59,7 @@ export function acknowledgeEditIntentSnapshot(draftKey: string, current: NextDra
     && sameAuthoredWorkflow(current.graph, intent.stagedDraft.graph)
     && sameWorkflowValue(current.agentEdits ?? {}, remoteAgents(intent))
   const cleanRemoteForm = !hasLocalChanges(current.context, current.graph) && !hasAgentEdits(current)
-    && !Object.keys(current.agentForms ?? {}).length
+    && !Object.keys(current.agentForms ?? {}).length && !Object.keys(current.workflowForms ?? {}).length
   // A terminal command may be shared across tabs, but its saved revision is not.
   // Keep an independently-diverged unsent form pinned to its original base so
   // its next Stage receives the authoritative stale-revision conflict.
@@ -154,6 +155,7 @@ export function useGraphEditIntent(draftKey: string, edit: NextDraftEdit) {
       if (ownOutbox) acknowledgeEditOutbox(draftKey, intent.stageCommandId)
       setOutboxPending(!!readEditOutbox(draftKey))
       if (intent.state === 'saved') void Promise.all([
+        queryClient.invalidateQueries({ queryKey: hierarchyKey({ workspaceId, workflowId }), exact: true }),
         queryClient.invalidateQueries({ queryKey: boardDraftContextKey(workspaceId, workflowId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.managedWorkflows(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.managedWorkflow(workspaceId, workflowId) }),
@@ -168,7 +170,7 @@ export function useGraphEditIntent(draftKey: string, edit: NextDraftEdit) {
       // Fresh/reopened clean boards show the exact private payload. Never
       // overwrite another tab's/newer unsent form or replace its revision base.
       if (!hasLocalChanges(current.context, current.graph) && !hasAgentEdits(current)
-        && !Object.keys(current.agentForms ?? {}).length && remoteBaseMatches(current, intent)) {
+        && !Object.keys(current.agentForms ?? {}).length && !Object.keys(current.workflowForms ?? {}).length && remoteBaseMatches(current, intent)) {
         useGraphDraftStore.getState().updateNextDraft(draftKey, (state) => ({ ...state,
           graph: preserveWorkflowGeometry(submittedGraph, state.graph),
           agentEdits: submittedAgents,

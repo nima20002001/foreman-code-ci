@@ -10,6 +10,7 @@ const OUTPUT_DEFAULT_RULE = 'plain final answer not blank; handoff or repeat-exi
 const OUTPUT_NATIVE_STRUCTURED = 'Codex turn outputSchema for plain-answer nodes whose schema is strict (object root, additionalProperties false and every property required); otherwise validation and repair only' as const
 import { CommandIdSchema, ExpectedRevisionSchema, WorkflowCreateInputSchema, ManagedAgentSchema } from '../management/index.js'
 import { GraphIdSchema } from './graphPrimitives.js'
+import { IdSchema } from '../schemaPrimitives.js'
 import { WorkflowDefinitionV3Schema, WorkflowVersionV3Schema } from './saved.js'
 import { sameExecutableWorkflow } from './meaningfulEdit.js'
 
@@ -64,6 +65,7 @@ export const CurrentWorkflowSavedSchema = z.object({
   }
 })
 export const CurrentWorkflowSaveResultSchema = z.object({ value: CurrentWorkflowSavedSchema, replayed: z.boolean() }).strict()
+export const WorkflowHierarchyUpdateResultSchema = CurrentWorkflowSaveResultSchema.extend({ commandId: IdSchema }).strict()
 export const CurrentWorkflowReadInputSchema = z.object({
   workspaceId: GraphIdSchema, workflowId: GraphIdSchema,
   // Omit for the current saved version; supply for exact immutable history.

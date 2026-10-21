@@ -15,8 +15,10 @@ import { server } from '../mocks/server'
 import { setMockScenario } from '../shared/mocks/scenarios'
 import { mainRoot } from '../features/settings/workspaceBoundLocation.fixtures'
 import { mockRuntimeIdentity } from '../shared/mocks/handlers'
+import { CollaborationUIProvider, type CollaborationUISlots } from '../shared/ui/collaborationSlots'
+import { deviceId, deviceTarget, mainId, mainTarget, registration } from '../features/computers/computersTestFixture'
 
-function renderRoute(path: string) {
+function renderRoute(path: string, slots?: CollaborationUISlots) {
   const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return {
@@ -24,7 +26,7 @@ function renderRoute(path: string) {
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CollaborationUIProvider value={slots}><RouterProvider router={router} /></CollaborationUIProvider>
       </QueryClientProvider>,
     ),
   }
@@ -94,6 +96,61 @@ describe('workspace section routes', () => {
         disconnect() {}
       },
     )
+  })
+
+  it.each(['/workspaces/workspace-1', '/workspaces/workspace-1/memory'])('opens %s as the separate workspace Memory board and keeps section navigation', async path => {
+    const workspaceMemoryBoard = vi.fn(({ workspaceId }: { workspaceId: string }) => <div data-testid="workspace-memory-body">Memory for {workspaceId}</div>)
+    const workflow = vi.fn(() => ({ memoryBoard: () => <p>Workflow-only modal</p> })), browserProfiles = vi.fn(() => <p>Profile manager</p>)
+    const { router, queryClient, unmount } = renderRoute(path, { workspaceMemoryBoard, workflow, browserProfiles })
+    expect(await screen.findByTestId('workspace-memory-body')).toHaveTextContent('workspace-1')
+    expect(screen.getAllByTestId('workspace-memory-body')).toHaveLength(1)
+    expect(screen.queryByRole('dialog', { name: 'Memory board' })).not.toBeInTheDocument()
+    expect(workspaceMemoryBoard).toHaveBeenLastCalledWith({ workspaceId: 'workspace-1' })
+    const sections = within(screen.getByRole('navigation', { name: 'Workspace sections' }))
+    expect(sections.getByRole('link', { name: 'Memory board' })).toHaveAttribute('aria-current', 'page')
+    expect(sections.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/workspaces/workspace-1/settings')
+    await userEvent.click(sections.getByRole('link', { name: 'Workflows' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/workspaces/workspace-1/workflows'))
+    expect(screen.queryByTestId('workspace-memory-body')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Memory board' }))
+    expect(await screen.findByTestId('workspace-memory-body')).toBeVisible()
+    expect(workflow).not.toHaveBeenCalled(); expect(browserProfiles).not.toHaveBeenCalled()
+    unmount(); queryClient.clear()
+  })
+
+  it('opens Browser profiles as its own settings page and preserves an exact registered computer filter', async () => {
+    server.use(http.get('*/api/devices/main', () => HttpResponse.json({ mainId, mainPublicKey: 'fixture-key', mainPublicKeyFingerprint: 'a'.repeat(64) })),
+      http.get('*/api/devices', () => HttpResponse.json({ devices: [registration] })))
+    const browserProfiles = vi.fn((scope: Parameters<NonNullable<CollaborationUISlots['browserProfiles']>>[0]) =>
+      <p data-testid="profile-manager">{'computer' in scope ? scope.computer?.hostRef.kind ?? 'all' : 'all'} profiles</p>)
+    const { router, queryClient, unmount } = renderRoute(`/settings/browser-profiles?mainId=${mainId}&computer=device&deviceId=${deviceId}`, { browserProfiles })
+    expect(await screen.findByTestId('profile-manager')).toHaveTextContent('device profiles')
+    expect(browserProfiles).toHaveBeenLastCalledWith({ mainId, computer: deviceTarget })
+    expect(screen.getAllByTestId('profile-manager')).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Browser profiles', level: 1 })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Computers', level: 1 })).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Computer' }), 'main')
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ mainId, computer: 'main' }))
+    expect(router.state.location.search).not.toHaveProperty('deviceId')
+    expect(browserProfiles).toHaveBeenLastCalledWith({ mainId, computer: mainTarget })
+    await act(async () => { router.history.back() })
+    await waitFor(() => expect(browserProfiles).toHaveBeenLastCalledWith({ mainId, computer: deviceTarget }))
+    unmount(); queryClient.clear()
+  })
+
+  it.each(['unknown-device', 'different-main'])('keeps an unavailable %s Browser profiles deep link explicit until the person selects a computer', async kind => {
+    server.use(http.get('*/api/devices/main', () => HttpResponse.json({ mainId, mainPublicKey: 'fixture-key', mainPublicKeyFingerprint: 'a'.repeat(64) })),
+      http.get('*/api/devices', () => HttpResponse.json({ devices: [registration] })))
+    const browserProfiles = vi.fn(() => <p>Unexpected retargeted manager</p>)
+    const chosenMain = kind === 'different-main' ? '44444444-4444-4444-8444-444444444444' : mainId
+    const chosenDevice = kind === 'unknown-device' ? '55555555-5555-4555-8555-555555555555' : deviceId
+    const { router, queryClient, unmount } = renderRoute(`/settings/browser-profiles?mainId=${chosenMain}&computer=device&deviceId=${chosenDevice}`, { browserProfiles })
+    await screen.findByText('The selected computer is unavailable. Choose a computer to continue.')
+    expect(browserProfiles).not.toHaveBeenCalled()
+    expect(router.state.location.search).toMatchObject({ mainId: chosenMain, computer: 'device', deviceId: chosenDevice })
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Computer' }), 'main')
+    await waitFor(() => expect(browserProfiles).toHaveBeenLastCalledWith({ mainId, computer: mainTarget }))
+    unmount(); queryClient.clear()
   })
 
   it('opens the workspace card directory as the default view with child menus closed', async () => {
@@ -192,6 +249,7 @@ describe('workspace section routes', () => {
     expect(screen.getByRole('link', { name: 'Harnesses' })).toHaveAttribute('href', '/settings/harnesses')
     expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/settings/agents')
     expect(screen.getByRole('link', { name: 'Workflows' })).toHaveAttribute('href', '/settings/workflows')
+    expect(screen.getByRole('link', { name: 'Browser profiles' })).toHaveAttribute('href', '/settings/browser-profiles')
     expect(screen.queryByRole('link', { name: /Approval/i })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('link', { name: 'Agents' }))

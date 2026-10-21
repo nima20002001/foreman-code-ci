@@ -8,6 +8,7 @@ import {
   type Agent,
   type AgentConfigurationVersion,
   graphqlToolsOutsideRole,
+  newAgentGraphqlTools,
 } from '@foreman-code/contracts'
 import type pg from 'pg'
 import type { HarnessProfileSelection } from '@foreman-code/contracts/harness-registry'
@@ -22,6 +23,7 @@ export function configurationInput(
   workspaceId: string,
   agent: Agent,
   current?: AgentConfigurationVersion,
+  creation = false,
 ) {
   if (agent.harness && agent.harnessConfiguration
     && agent.harness !== agent.harnessConfiguration.harness) {
@@ -35,6 +37,7 @@ export function configurationInput(
   const assignedSkills = agent.assignedSkills ?? current?.assignedSkills ?? []
   const productRole = agent.productRole ?? current?.productRole
   const graphqlTools = agent.graphqlTools ?? current?.graphqlTools
+    ?? (creation && productRole ? newAgentGraphqlTools(productRole) : undefined)
   const nativeTools = Object.hasOwn(agent, 'nativeTools') ? agent.nativeTools : current?.nativeTools
   const nativePolicy = nativeTools ? { nativeTools } : {}
   const harnessProfileSelection = Object.hasOwn(agent, 'harnessProfileSelection') ? agent.harnessProfileSelection : current?.harnessProfileSelection
@@ -138,7 +141,7 @@ export async function saveAgentConfiguration(
   if (!current && (mustExist || existing?.current_configuration_version_id)) {
     throw new DomainError('AGENT_CONFIGURATION_UNAVAILABLE', 'This agent has no persisted configuration to edit.', 409)
   }
-  const nextConfiguration = configurationInput(workspaceId, parsed, current)
+  const nextConfiguration = configurationInput(workspaceId, parsed, current, !existing)
   assertClaudeFullAccess(nextConfiguration.harness)
   if (nextConfiguration.harnessProfileSelection) {
     if (!validateProfileSelection) throw new DomainError('HARNESS_PROFILE_SELECTION_UNAVAILABLE', 'Selected host profile validation is not composed.', 503)

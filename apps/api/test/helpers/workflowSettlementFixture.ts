@@ -19,6 +19,7 @@ import { insertCurrentRunFixture } from './eng04CurrentRunFixture.js'
 import type { currentDatabase } from './eng04CurrentDatabase.js'
 import { writerFixture, type WriterFixture } from '../eng04-writer-fixtures.js'
 import { graphHeaders } from '../eng04-graph-composition-fixture.js'
+import { createWorkflowCollaborationHooks } from '../../src/modules/collaboration/workflowHooks.js'
 
 /** Actual typed Save, canonical publication, owner, repository and completion
  * writer. The test supplies native terminals and doubles physical closure only. */
@@ -56,6 +57,7 @@ export async function workflowSettlementFixture(db: Awaited<ReturnType<typeof cu
       const publication = await openRepeatCanonicalPublicationLocked(sql, lockedScope, owner!)
       return {
         run: storedRun,
+        collaboration: createWorkflowCollaborationHooks(),
         assertAuthorityLocked: async () => { owner!.assertOwned() },
         assertAdmissionLocked: async () => { owner!.assertOwned() },
         assertSettlementLocked: async () => { owner!.assertOwned() },

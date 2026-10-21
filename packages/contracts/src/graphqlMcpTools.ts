@@ -1,4 +1,4 @@
-import { COLLABORATION_AGENT_TOOLS, isCollaborationAgentTool } from './collaborationTools.js';
+import { COLLABORATION_AGENT_TOOLS, isCollaborationAgentTool, memoryBoardTools, newAgentMemoryBoardAccess } from './collaborationTools.js';
 export * from './collaborationTools.js';
 import { type WorkflowAgentProductRole, agentProductRoleLabel } from './agentIdentity.js';
 import { z } from "zod";
@@ -27,7 +27,7 @@ const LEGACY_GRAPHQL_AGENT_TOOLS = {
     roles: ['master', 'orchestrator', 'coder'],
   },
   'files.reference_read': {
-    label: 'Read a reference', description: 'Read up to 64 KiB of an inherited reference using fileId and revisionId. Permanent references are read-only.',
+    label: 'Read a reference', description: 'Read up to 64 KiB of an inherited reference or an attachment admitted to this exact execution or consultation, using fileId and revisionId. Reading grants no file mutations.',
     roles: ['master', 'orchestrator', 'coder'],
   },
   context_get: { label: "Read run context", description: "Its own identity, role, scope and enabled tools.", roles: ["master", "orchestrator", "coder"] },
@@ -134,6 +134,11 @@ export function graphqlRoleTools(role: WorkflowAgentProductRole, implementedColl
   return GraphqlAgentToolSchema.options.filter((tool) => graphqlToolRoles(tool).includes(role)
     && !GRAPHQL_INTERVAL_TOOLS.includes(tool)
     && (!isCollaborationAgentTool(tool) || implementedCollaborationTools.includes(tool)));
+}
+
+/** Copy only into a newly created Agent. Old absent tool choices retain their legacy meaning. */
+export function newAgentGraphqlTools(role: WorkflowAgentProductRole): GraphqlAgentTool[] {
+  return [...graphqlRoleTools(role), ...memoryBoardTools(newAgentMemoryBoardAccess(role))];
 }
 
 /** Tools named here that the role can never use. */

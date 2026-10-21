@@ -9,10 +9,11 @@ import {
   type McpCredentialArrangement,
   type ScopedMcpDetection,
   type PairedMcpEndpoint,
+  type NativeSessionReference,
   PairedMcpEndpointSchema,
 } from '@foreman-code/contracts'
 import type pg from 'pg'
-import type { ChildProcessEnvironment } from './port.js'
+import type { ChildProcessEnvironment, NativeHarnessSessionManager } from './port.js'
 
 import type { IssuedWorkerCredential, WorkerCredentialService } from '../access/workerCredentials.js'
 import { WORKER_CREDENTIAL_EXPIRY_MARGIN_MS } from '../access/credentialLifetime.js'
@@ -277,13 +278,18 @@ export class WorkerLaunchCredentialService implements ExecutionCredentialProvide
     const credentials = this.credentials as WorkerCredentialService & {
       revokeSupersededForExecution?(executionId: string): Promise<number>
     }
-    if (credentials.revokeSupersededForExecution) await credentials.revokeSupersededForExecution(input.executionId)
-    else await credentials.revokeForExecution(input.executionId)
+    if (input.purpose !== 'consultation') {
+      if (credentials.revokeSupersededForExecution) await credentials.revokeSupersededForExecution(input.executionId)
+      else await credentials.revokeForExecution(input.executionId)
+    }
     input.signal?.throwIfAborted()
     // The engine retains the returned credential before its final launch check,
     // including an abort that races issuance, and always performs terminal cleanup.
-    const credential = await (input.purpose === 'reviewer'
-      ? credentials.issueForReviewer(input.executionId) : credentials.issueForExecution(input.executionId))
+    if (input.purpose === 'consultation' && !input.consultation) {
+      throw new DomainError('CONSULTATION_CREDENTIAL_UNAVAILABLE', 'The exact consultation source binding is required.', 409)
+    }
+    const credential = await (input.purpose === 'consultation' ? credentials.issueForConsultation(input.consultation!)
+      : input.purpose === 'reviewer' ? credentials.issueForReviewer(input.executionId) : credentials.issueForExecution(input.executionId))
     if (input.signal?.aborted) {
       await this.credentials.revoke(credential)
       input.signal.throwIfAborted()
@@ -293,6 +299,16 @@ export class WorkerLaunchCredentialService implements ExecutionCredentialProvide
 
   renew(executionId: string, credential: Pick<IssuedWorkerCredential, 'principalId'>): Promise<string> {
     return this.credentials.renewForExecution(executionId, credential)
+  }
+
+  restoreConsultation(binding: import('@foreman-code/contracts').CoordinatorConsultationBinding,
+    environment: ChildProcessEnvironment): Promise<IssuedWorkerCredential> {
+    return this.credentials.restoreForConsultation(binding, environment)
+  }
+
+  renewConsultation(binding: import('@foreman-code/contracts').CoordinatorConsultationBinding,
+    credential: Pick<IssuedWorkerCredential, 'principalId'>): Promise<string> {
+    return this.credentials.renewForConsultation(binding, credential)
   }
 
   revoke(credential: Pick<IssuedWorkerCredential, 'principalId'>): Promise<void> {
@@ -307,7 +323,12 @@ export class WorkerLaunchCredentialService implements ExecutionCredentialProvide
 }
 
 export interface ExecutionCredentialPrepareInput {
-  purpose?: 'reviewer'
+  purpose?: 'reviewer' | 'consultation'
+  consultation?: import('@foreman-code/contracts').CoordinatorConsultationBinding
+  /** The coordinator keeps a resident reviewer's existing process during rebinding. */
+  manager?: NativeHarnessSessionManager
+  /** A retained session uses idle access rebinding instead of pre-input credential refresh. */
+  session?: NativeSessionReference
   executionId: string
   harness: AgentHarness
   workingDirectory: string
@@ -330,8 +351,12 @@ export interface ExecutionCredentialProvider {
   prepare(input: ExecutionCredentialPrepareInput): Promise<PreparedExecutionCredential>
   /** Verify the retained original environment without issuing another process credential. */
   restore?(executionId: string, environment: ChildProcessEnvironment): Promise<IssuedWorkerCredential>
+  restoreConsultation?(binding: import('@foreman-code/contracts').CoordinatorConsultationBinding,
+    environment: ChildProcessEnvironment): Promise<IssuedWorkerCredential>
   /** Same-token server-side lease renewal. Providers without it must not rotate a busy process. */
   renew?(executionId: string, credential: Pick<IssuedWorkerCredential, 'principalId'>, signal?: AbortSignal): Promise<string>
+  renewConsultation?(binding: import('@foreman-code/contracts').CoordinatorConsultationBinding,
+    credential: Pick<IssuedWorkerCredential, 'principalId'>, signal?: AbortSignal): Promise<string>
   revoke(credential: Pick<IssuedWorkerCredential, 'principalId'>): Promise<void>
   revokeForExecution(executionId: string): Promise<number>
   revokeForRun?(runId: string, client?: pg.PoolClient): Promise<number>

@@ -61,7 +61,7 @@ export async function readAgentChatConfigurationTransition(pool: pg.Pool,
     if (version.workspaceId !== original.workspace_id || version.workflowId !== original.workflow_id
       || !node || node.kind === 'job' || node.agentId !== base.agentId) throw new DomainError(
       'WORKER_CONVERSATION_UNAVAILABLE', 'The saved Run chat node changed.', 409)
-    if (node.skills) base = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id])
+    if (node.skills || node.browser?.enabled) base = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id], node.browser)
   }
   if (!validWorkerConfigurationTransition(previous, next, base, configuration)) throw new DomainError(
     'WORKER_CONVERSATION_UNAVAILABLE', 'The saved Agent chat configuration transition changed.', 409)
@@ -103,11 +103,11 @@ export async function readRunChatSkillsTransition(pool: pg.Pool, original: RunCh
   const version = WorkflowVersionV3Schema.parse(found?.version)
   const node = version.definition.nodes.find(item => item.id === original.workflow_node_id)
   if (version.workspaceId !== original.workspace_id || version.workflowId !== original.workflow_id
-    || !node || node.kind === 'job' || node.agentId !== base.agentId || !node.skills
+    || !node || node.kind === 'job' || node.agentId !== base.agentId || (!node.skills && !node.browser?.enabled)
     || version.agentConfigurationVersionIds[node.agentId] !== base.id) {
     throw new DomainError('WORKER_CONVERSATION_UNAVAILABLE', 'The saved Run chat node changed.', 409)
   }
-  const effective = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id])
+  const effective = configurationWithNodeSkills(base, node.skills, version.nodeSkillSnapshots?.[node.id], node.browser)
   if (!isDeepStrictEqual(configuration, effective) || !validRunChatSkillsTransition(previous, next, base, effective)) {
     throw new DomainError('WORKER_CONVERSATION_UNAVAILABLE', 'The saved Run chat skills changed.', 409)
   }

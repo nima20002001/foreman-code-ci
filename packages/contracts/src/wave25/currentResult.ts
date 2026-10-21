@@ -1,3 +1,4 @@
+import { coordinationBusinessOutput, type CoordinationResultContext } from '../coordinationResult.js'
 import { z } from 'zod'
 import { ChoiceOutcomeSchema, WorkflowChoiceSchema, ExecutionResultSchema, type WorkflowChoice } from '../index.js'
 import { parseWorkflowArtifactResult, type WorkflowArtifactOutputsV1 } from '../workflowArtifactResult.js'
@@ -13,12 +14,12 @@ export const CurrentChoiceResultEnvelopeSchema = z.object({
   try { canonicalGraphJson(value, 64 * 1024) } catch { context.addIssue({ code: 'custom', message: 'accepted result envelope exceeds bounded JSON limits' }) }
 })
 export type CurrentChoiceResultEnvelope = z.infer<typeof CurrentChoiceResultEnvelopeSchema>
-export function parseChoiceResultEnvelope(result: unknown, choice: WorkflowChoice, artifactOutputs?: WorkflowArtifactOutputsV1) {
-  if (artifactOutputs) return parseWorkflowArtifactResult(result, artifactOutputs, choice)
+export function parseChoiceResultEnvelope(result: unknown, choice: WorkflowChoice, artifactOutputs?: WorkflowArtifactOutputsV1, context?: CoordinationResultContext) {
+  if (artifactOutputs) return parseWorkflowArtifactResult(result, artifactOutputs, choice, context)
   canonicalGraphJson(result, 128 * 1024)
   const accepted = ExecutionResultSchema.parse(result)
   if (accepted.outcome !== 'succeeded') throw new Error('CHOICE_RESULT_NOT_SUCCESSFUL')
-  let output: unknown = accepted.output
+  let output: unknown = context ? coordinationBusinessOutput(accepted.output, context) : accepted.output
   if (typeof output === 'string') {
     if (new TextEncoder().encode(output).byteLength > 64 * 1024) throw new Error('CHOICE_RESULT_TOO_LARGE')
     output = JSON.parse(output)

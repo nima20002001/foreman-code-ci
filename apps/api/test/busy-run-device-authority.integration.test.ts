@@ -139,6 +139,26 @@ describe.skipIf(!postgresEnabled)('Worker device requests while the Run is busy'
     expect(lease).toMatchObject({ principalId: worker.id, executionId: intent.executionId, operationId: intent.operationId })
   })
 
+  it('observes grant revocation after repeated reads on the same pooled connection', async () => {
+    const reused = new pg.Pool({ ...pool.options, max: 1 })
+    const endpoint = createExecutionAuthorityExtension(reused,
+      { revalidateRunAuthorization: async () => {} },
+      { assertPinsCurrent: async () => {} } as unknown as AgentPlacementProducer)
+    const read = () => endpoint.handle!({ ...start, action: 'read' }, context())
+    try {
+      for (let index = 0; index < 8; index++) {
+        expect((await read()).payload).toEqual({ version: 1, action: 'read',
+          operationId: intent.operationId, attemptId: intent.attemptId,
+          bindingHash: intent.bindingHash, owner: intent.owner })
+      }
+      await pool.query('update execution_dispatch_owner_grants set revoked=true where operation_id=$1', [intent.operationId])
+      await expect(read()).rejects.toMatchObject({ code: 'REMOTE_AUTHORITY_DENIED' })
+    } finally {
+      await pool.query('update execution_dispatch_owner_grants set revoked=false where operation_id=$1', [intent.operationId])
+      await reused.end()
+    }
+  })
+
   it('reports a database deadline as a retryable device failure', async () => {
     const blocked = ['lock table execution_dispatch_intents in access exclusive mode']
     const authorityFailure = await whileRunBusy(blocked, () => authority.handle!(start, context()).then(() => undefined, error => error))

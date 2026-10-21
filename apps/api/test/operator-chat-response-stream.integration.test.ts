@@ -63,7 +63,9 @@ describe.skipIf(!postgresEnabled)('Operator streaming after a native response', 
       } })
       await emit(native.directory, { method: 'item/agentMessage/delta', params: { threadId, turnId, itemId, delta: text } })
       await vi.waitFor(() => expect(streamed).toContainEqual(expect.objectContaining({
-        type: 'delta', data: expect.objectContaining({ requestId, activityChange: expect.objectContaining({
+        type: 'delta', data: expect.objectContaining({ requestId,
+          message: expect.objectContaining({ content: text, nativeMessageId: itemId }),
+          scopeRevision: expect.any(String), activityChange: expect.objectContaining({
           change: expect.objectContaining({ kind: 'text.append', text, finality: 'provisional' }),
         }) }),
       })), { timeout: 20_000 })

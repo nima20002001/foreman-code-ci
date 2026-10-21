@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import {
-  WorkerConversationCallbackSchema, WorkerConversationRpcRequestSchema,
+  WorkerConversationCallbackSchema,
   type WorkerConversationRpcRequest, type WorkerConversationBinding,
   type WorkerConversationProfileFacts,
   type WorkerClaudeAuthorityRequest,
@@ -16,6 +16,7 @@ import { MainWorkerFiles, type PrepareWorkerFiles } from './mainWorkerFiles.js'
 import { sameConversationForAppAccess } from './conversationAppAccess.js'
 import { definedProperties } from '../definedProperties.js'
 import { componentLogger } from '../diagnostics/logger.js'
+import { prepareWorkerChatFrame } from './nativeChatInput.js'
 import { assertWorkerChatRequestSize } from './chatInputSize.js'
 
 export interface WorkerConversationCallbacks {
@@ -58,9 +59,10 @@ export class MainWorkerConversationBridge {
   capture(input: { request: WorkerConversationRpcRequest; channel: WorkerConversationChannel;
     current(signal?: AbortSignal): Promise<void>; callbacks?: WorkerConversationCallbacks;
     recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string }) {
-    const admissionId = randomUUID()
-    const request = WorkerConversationRpcRequestSchema.parse({ ...structuredClone(input.request), admissionId })
+    const admissionId = input.request.admissionId ?? randomUUID()
+    const request = prepareWorkerChatFrame({ ...structuredClone(input.request), admissionId })
     assertWorkerChatRequestSize(request)
+    if (this.admissions.has(admissionId)) throw new DomainError('CHAT_NATIVE_ADMISSION_CONFLICT', 'This prepared native admission is already active.', 409)
     const admission: Admission = { request, channel: input.channel, current: input.current,
       callbacks: input.callbacks ?? {}, tail: Promise.resolve(), identities: new Map(), closed: false }
     if (input.recoveredSubmission) {

@@ -14,7 +14,7 @@ import { selectedInteractionResponse } from '../../interactions/delivery.js'
 export async function admitRemoteOwnerControl(sql: GraphTransactionSql, owner: RunOwnership,
   binding: AcceptedExecutionBinding, input: RemoteControlInput, claim?: InteractionDeliveryClaim): Promise<RemoteOwnerControl> {
   assertGraphTransaction(sql)
-  if (input.kind === 'stop') return prepareRemoteOwnerControl(sql, owner, binding, input)
+  if (input.kind === 'stop' || input.workflowControl) return prepareRemoteOwnerControl(sql, owner, binding, input)
   if (!claim || claim.mode !== 'submit' || !/^[1-9][0-9]*$/.test(claim.deliveryFence ?? '')
     || !/^(0|[1-9][0-9]*)$/.test(claim.approvalConnectionGeneration ?? '')
     || claim.interaction.runId !== owner.runId || claim.interaction.executionId !== binding.intent.executionId

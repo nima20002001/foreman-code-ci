@@ -9,7 +9,7 @@ import {
 import { NodePlacementField, type NodePlacementOption } from '../node-placement/NodePlacementField'
 import type { AgentForm } from './nextDraft/agentForm'
 import { useUnsavedChanges } from '../../shared/ui/unsavedChanges'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AgentHarnessSchema, CodexSessionCompatibilitySchema, DEFAULT_HARNESS_DEFAULTS, legacyEffortForHarness,
   validateHarnessWorkflowCompatibility, withAdvancedDefaults,
@@ -32,6 +32,10 @@ import './agentSettingsPanel.css'
 type EditableAgentSettingsFormProps = {
   /** Inside an agent popover: the popover owns the title and close button. */
   embedded?: boolean
+  /** Explicit new-Agent authoring uses the same fields before any graph node is staged. */
+  creationLabel?: string
+  additionalDirty?: boolean
+  additionalFields?: ReactNode
   nodePlacement?: SavedNodePlacement
   nodeWorktree?: AgentWorktreeSettings
   workflowWorktree?: WorkflowWorktreeSettings
@@ -62,7 +66,7 @@ type EditableAgentSettingsFormProps = {
   designatedOrchestrator?: boolean
 }
 
-function useAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, creationDefaults, onClose, onSave, retainedForm, onFormChange, onDiscardForm, canResume,
+function useAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, creationDefaults, onClose, onSave, retainedForm, onFormChange, onDiscardForm, canResume, additionalDirty = false,
   nodePlacement, nodeWorktree,
   executionPolicy = { maxNodeExecutions: 1, maxParallelism: 1 },
   workflowApprovalHandler, designatedOrchestrator = false,
@@ -136,7 +140,7 @@ function useAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, creation
   })
   const harnessReason = harnessOptions.find((option) => option.value === configuration.harness)?.reason
   const currentSnapshot = JSON.stringify({ name, prompt, editor, graphqlTools, instructions, skills, placement, branchPrefix })
-  const isDirty = currentSnapshot !== initialSnapshot.current
+  const isDirty = additionalDirty || currentSnapshot !== initialSnapshot.current
   const nameError = fieldMessage(issues, 'name')
   const clearErrors = () => { setError(undefined); setIssues([]) }
   const updateConfiguration = (next: typeof configuration) => {
@@ -176,7 +180,7 @@ function useAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, creation
       setError(nextIssues.length ? 'Review the marked fields before saving.' : errorMessage(failure, 'Agent settings are invalid.'))
     }
   }
-  const leave = useUnsavedChanges({ scope: 'surface', label: 'agent settings', canResume, get dirty() { return currentSnapshot !== initialSnapshot.current },
+  const leave = useUnsavedChanges({ scope: 'surface', label: 'agent settings', canResume, get dirty() { return additionalDirty || currentSnapshot !== initialSnapshot.current },
     error, save, discard: () => { initialSnapshot.current = currentSnapshot; onDiscardForm?.(); onClose() },
   })
   return {
@@ -191,7 +195,7 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
   nodePlacement, nodeWorktree, workflowWorktree, workflowWorktreeLabel, worktreeDisabled,
   placementOptions, placementHidden, placementOptionsState, placementStage,
   executionPolicy = { maxNodeExecutions: 1, maxParallelism: 1 }, workspaceId,
-  workflowApprovalHandler, designatedOrchestrator = false, embedded = false,
+  workflowApprovalHandler, designatedOrchestrator = false, embedded = false, creationLabel, additionalDirty, additionalFields,
 }: EditableAgentSettingsFormProps) {
   const {
     error, issues, view, setView, root, setLocalPlacement, setLocalPrefix, name, prompt, editor, placement,
@@ -202,7 +206,7 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
     agent, initialPrompt, nodeGraphqlTools, creationDefaults, onClose, onRemove, onSave, retainedForm,
     onFormChange, onDiscardForm, canResume, nodePlacement, nodeWorktree, workflowWorktree,
     workflowWorktreeLabel, worktreeDisabled, placementOptions, placementHidden, placementOptionsState,
-    placementStage, executionPolicy, workspaceId, workflowApprovalHandler, designatedOrchestrator, embedded,
+    placementStage, executionPolicy, workspaceId, workflowApprovalHandler, designatedOrchestrator, embedded, additionalDirty,
   })
   return <div ref={root} className={`agent-settings-panel${embedded ? ' agent-settings-panel-embedded' : ''}`}>
     {embedded ? view === 'advanced' ? <header className="agent-settings-heading">
@@ -237,7 +241,11 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
         <HarnessBasicFields value={configuration} issues={issuesAt(issues, ['harness'])} onChange={updateConfiguration}
           accountHost={placement?.hostRef} />
       </div>
+      {creationLabel ? <Textarea label="Initial prompt" aria-label="Initial prompt" className="agent-settings-prompt" rows={3} value={prompt}
+        labelHint={<InfoHint label="Initial prompt">The task this node starts with.</InfoHint>}
+        onChange={event => { setPrompt(event.target.value); clearErrors() }} /> : null}
       <p>Native tools: {nativeToolsSummary(agent.nativeTools)}</p>
+      {additionalFields}
       {Boolean(workspaceId || nodePlacement || placementOptions) && <section className="agent-worktree-fields" aria-label="Worktree">
         <h3>Worktree</h3>
         <Button size="sm" variant="secondary" disabled={worktreeDisabled || (!placement && !branchPrefix)}
@@ -272,15 +280,20 @@ function EditableAgentSettingsForm({ agent, initialPrompt, nodeGraphqlTools, cre
         labelHint={<InfoHint label="Initial prompt">The task this node starts with.</InfoHint>}
         onChange={(event) => { setPrompt(event.target.value); clearErrors() }} />
       <GraphqlToolsFields role={agent.productRole === 'master' ? 'master' : agent.productRole === 'orchestrator' ? 'orchestrator' : 'coder'} defaults={graphqlTools.defaults} override={graphqlTools.override}
+        executionReadOnly={configuration.harness === 'codex' && configuration.sandbox === 'read-only'}
+        readOnly={configuration.harness === 'opencode' || configuration.sandbox === 'read-only'}
         onChange={(defaults, override) => { setGraphqlTools({ ...(defaults ? { defaults } : {}), ...(override ? { override } : {}) }); clearErrors() }} />
       <HarnessConfigurationFields editor={editor} issues={issuesAt(issues, ['harness'])} onChange={(next) => { setEditor(next); clearErrors() }} allowHarnessChange={false} harnessDefaults={providerDefaults} workspaceId={workspaceId} routedApproval={Boolean(workflowApprovalHandler)} allowAutoReview={workflowApprovalHandler === 'orchestrator'} compact advancedOnly />
     </div>}
     {error ? <Alert tone="danger" live title={error} /> : null}
     <footer className="agent-settings-footer">
       {view === 'general' ? <Button size="sm" variant="ghost" className="agent-settings-advanced-link" onClick={() => setView('advanced')} trailing={<Icon name="chevron" size={13} />}>Advanced settings</Button> : null}
-      {onRemove ? embedded ? <Button size="sm" variant="ghost" className="agent-settings-trash" aria-label={`Remove ${agent.name} from workflow`} onClick={onRemove}>Remove from workflow</Button>
-        : <IconButton size="sm" variant="ghost" className="agent-settings-trash" label={`Remove ${agent.name} from workflow`} onClick={onRemove}><Icon name="minus" size={15} /></IconButton> : null}
-      {embedded ? <Button size="sm" variant="primary" className="agent-settings-save" aria-label="Apply agent settings to draft" disabled={!isDirty} onClick={save}>Apply to draft</Button> : null}
+      {onRemove ? embedded ? <Button size="sm" variant="ghost" className="agent-settings-trash" aria-label={`Remove ${agent.name} from workflow`} onClick={() => void leave(onRemove)}>Remove from workflow</Button>
+        : <IconButton size="sm" variant="ghost" className="agent-settings-trash" label={`Remove ${agent.name} from workflow`} onClick={() => void leave(onRemove)}><Icon name="minus" size={15} /></IconButton> : null}
+      {creationLabel ? <Button size="sm" variant="ghost" onClick={() => void leave(onClose)}>Cancel</Button>
+        : embedded ? <Button size="sm" variant="ghost" onClick={() => { onDiscardForm?.(); onClose() }}>Cancel</Button> : null}
+      {embedded ? <Button size="sm" variant="primary" className="agent-settings-save" aria-label={creationLabel ?? 'Apply agent settings to draft'}
+        disabled={!creationLabel && !isDirty} onClick={save}>{creationLabel ?? 'Apply to draft'}</Button> : null}
     </footer>
   </div>
 }

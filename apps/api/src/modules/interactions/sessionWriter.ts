@@ -14,7 +14,8 @@ import type { NativeHarnessEvent, NativeSessionLane, NativeSessionReference } fr
 import type { DeviceHistoryGap } from '@foreman-code/contracts/device-application'
 
 import { DomainError } from '../errors.js'
-import type { NativeHarnessSessionManager, NativeHistory, NativeSessionStart, NativeTurnInput, NativeInitialTurnInput } from '../harnesses/port.js'
+import type { NativeHarnessSessionManager, NativeHistory, NativeSessionStart, NativeTurnInput, NativeInitialTurnInput,
+  NativeSteerInput, NativeCancelInput } from '../harnesses/port.js'
 import { PostgresInteractionCoordinationRepository, type WriterFence } from './coordination.js'
 import { ReviewEvidenceTracker, reviewTurnEvidence, type TurnEvidence } from './reviewerEvidence.js'
 
@@ -233,6 +234,8 @@ export class SingleWriterSessionManager implements NativeHarnessSessionManager {
     signal?: AbortSignal) => AsyncIterable<NativeHarnessEvent[]>
   readonly inspectResponseAvailability?: NonNullable<ResponseAvailabilityInspector['inspectResponseAvailability']>
   readonly originalEnvironment?: NonNullable<NativeHarnessSessionManager['originalEnvironment']>
+  readonly steerTurn?: NonNullable<NativeHarnessSessionManager['steerTurn']>
+  readonly reconcileSteers?: NonNullable<NativeHarnessSessionManager['reconcileSteers']>
 
   constructor(
     private readonly manager: NativeHarnessSessionManager & ResponseAvailabilityInspector,
@@ -243,6 +246,9 @@ export class SingleWriterSessionManager implements NativeHarnessSessionManager {
     this.harness = manager.harness
     if (manager.originalEnvironment) this.originalEnvironment = manager.originalEnvironment.bind(manager)
     if (manager.inspectResponseAvailability) this.inspectResponseAvailability = manager.inspectResponseAvailability.bind(manager)
+    if (manager.steerTurn) this.steerTurn = (session, input, signal) =>
+      this.control(session, signal, owned => manager.steerTurn!(session, input, owned))
+    if (manager.reconcileSteers) this.reconcileSteers = manager.reconcileSteers.bind(manager)
     if (manager.startInitialTurn) {
       this.startInitialTurn = (start, input, signal) => this.initialTurn(start, input, signal)
       this.startInitialTurnBatches = (start, input, signal) => this.initialTurnBatches(start, input, signal)
@@ -751,6 +757,85 @@ export class SingleWriterSessionManager implements NativeHarnessSessionManager {
       await beforeDispatch(ownedSignal)
       ownedSignal.throwIfAborted()
       return this.manager.respond(session, requestId, option, ownedSignal)
+    })
+  }
+
+  private qualifiedControlLease(session: NativeSessionReference, input: NativeCancelInput): SessionWriteLease {
+    const lease = this.capturedLease(session)
+    const providerId = session.harness === 'codex' ? input.nativeTurnId : input.inputMessageId
+    if (!lease || lease.operation || lease.correlationId !== input.ownerRequestId
+      || !providerId || lease.providerId !== providerId || !input.controlCommandId.trim()
+      || input.controlCommandId === input.ownerRequestId
+      || session.harness === 'codex' && input.inputMessageId !== undefined
+      || session.harness !== 'codex' && input.nativeTurnId !== undefined) {
+      throw new DomainError('CHAT_NATIVE_TARGET_CHANGED', 'The exact active native writer is no longer available.', 409)
+    }
+    return lease
+  }
+
+  /** Keep the captured turn across the queue, then recheck its committed command
+   * in the caller's SQL-only fence immediately before the native offer. */
+  steerQualified(session: NativeSessionReference,
+    input: NativeSteerInput & { ownerRequestId: string; controlCommandId: string },
+    beforeDispatch: (signal: AbortSignal) => Promise<void>, signal?: AbortSignal): Promise<{ nativeTurnId: string }> {
+    const target = { ...input, nativeTurnId: input.expectedTurnId }
+    const captured = this.qualifiedControlLease(session, target)
+    if (!this.manager.steerTurn || session.harness !== 'codex' || input.clientCorrelationId !== input.controlCommandId) {
+      throw new DomainError('STEER_UNAVAILABLE', 'This writer has no exact expected-turn steering operation.', 409)
+    }
+    return this.control(session, signal, async owned => {
+      this.assertCapturedLease(session, captured)
+      this.qualifiedControlLease(session, target)
+      await beforeDispatch(owned)
+      owned.throwIfAborted()
+      this.assertCapturedLease(session, captured)
+      this.qualifiedControlLease(session, target)
+      const receipt = await this.manager.steerTurn!(session, input, owned)
+      if (receipt.nativeTurnId !== input.expectedTurnId) throw new DomainError('NATIVE_CONTROL_RECEIPT_CONFLICT',
+        'The provider acknowledged steering for a different native turn.', 409)
+      return receipt
+    })
+  }
+
+  cancelQualified(session: NativeSessionReference, input: NativeCancelInput,
+    beforeDispatch: (signal: AbortSignal) => Promise<void>, signal?: AbortSignal): Promise<boolean> {
+    const captured = this.qualifiedControlLease(session, input)
+    return this.control(session, signal, async owned => {
+      this.assertCapturedLease(session, captured)
+      this.qualifiedControlLease(session, input)
+      await beforeDispatch(owned)
+      owned.throwIfAborted()
+      this.assertCapturedLease(session, captured)
+      this.qualifiedControlLease(session, input)
+      return this.manager.cancelTurn
+        ? this.manager.cancelTurn(session, input, owned)
+        : this.manager.cancel(session, owned, input.nativeTurnId ?? input.inputMessageId)
+    })
+  }
+
+  rebindApplicationAccess(session: NativeSessionReference, start: NativeSessionStart, signal?: AbortSignal): Promise<void> {
+    if (!this.manager.rebindApplicationAccess) throw new DomainError('NATIVE_CREDENTIAL_REBIND_UNAVAILABLE',
+      'The retained native process cannot change its application subject.', 409)
+    return this.withCredentialLease(session, signal ?? AbortSignal.timeout(this.leaseMs), async owned => {
+      const lease = this.capturedLease(session)!
+      await this.requireIdle(this.manager, session, start.correlationId ?? lease.correlationId, lease, owned)
+      await this.manager.rebindApplicationAccess!(session, start, owned)
+      lease.observedStatus = 'idle'
+    })
+  }
+
+  retireTurn(session: NativeSessionReference, correlationId: string) {
+    return this.control(session, undefined, async () => this.manager.retireTurn?.(session, correlationId))
+  }
+
+  closeForResume(session: NativeSessionReference): Promise<void> {
+    return this.withCredentialLease(session, AbortSignal.timeout(this.leaseMs), async owned => {
+      const lease = this.capturedLease(session)!
+      await this.requireIdle(this.manager, session, lease.correlationId, lease, owned)
+      if (this.manager.closeForResume) await this.manager.closeForResume(session)
+      else await this.manager.close(session, owned)
+      lease.observedStatus = 'idle'
+      delete lease.providerId
     })
   }
 

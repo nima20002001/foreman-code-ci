@@ -159,6 +159,7 @@ export class ComputerMaintenance {
       system: { packageUpdates: packageUpdates?.pending ?? null, rebootRequired, sudo, disk },
       tasks: [...this.tasks].reverse(), observedAt: this.ports.now().toISOString(),
       ...(worker ? { worker } : {}),
+      ...(this.ports.browserRuntime ? { browserRuntime: this.ports.browserRuntime.status() } : {}),
     })
   }
 
@@ -350,6 +351,12 @@ export class ComputerMaintenance {
       return result
     }
     switch (request.kind) {
+      case 'repair-browser': {
+        if (!this.ports.browserRuntime) throw new DomainError('BROWSER_RUNTIME_UNAVAILABLE', 'This computer has no browser runtime owner.', 409)
+        const result = await this.ports.browserRuntime.retry()
+        if (!result.ready) throw new DomainError('BROWSER_RUNTIME_UNAVAILABLE', result.reason ?? 'Browser repair did not establish readiness.', 503)
+        return 'Browser runtime is ready.'
+      }
       case 'update-worker': {
         if (!this.ports.workerUpdate) {
           throw new DomainError('WORKER_UPDATE_UNAVAILABLE',

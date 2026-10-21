@@ -1,3 +1,5 @@
+import { settleMemoryRunLocked } from './memoryRunSettlement.js'
+import type { MemoryBoardPort } from '../collaboration/ports.js'
 import { readPublicRunStateLocked } from '../run-graph/publicRunState.js'
 import { publicAttentionTotals, readPublicAttentionCounts } from '../run-graph/currentAttention.js'
 import type pg from 'pg'
@@ -403,7 +405,7 @@ export async function finishWorkflowCleanup(owner: RunOwnership, failed: boolean
 /** Terminalizes only after every selected/unselected admitted attempt has its
  * positive closure or sealed-entry proof. An interrupted/failed parent is not
  * used as a substitute for those proofs. Any failed assertion rolls it all back. */
-export async function settleWorkflowRun(owner: RunOwnership, interrupted = false): Promise<boolean> {
+export async function settleWorkflowRun(owner: RunOwnership, interrupted = false, memoryBoards?: MemoryBoardPort): Promise<boolean> {
   return owner.oneShotConnection().transaction(async (sql) => {
     const { publication, snapshot } = await openWorkflowLifecycleLocked(sql, owner.runId)
     await retainOwner(sql, owner)
@@ -444,6 +446,7 @@ export async function settleWorkflowRun(owner: RunOwnership, interrupted = false
         await sql.query(`update run_work_activations set state='completed'
           where run_id=$1 and state<>'completed'`, [run.id])
       }
+      if (memoryBoards) await settleMemoryRunLocked(sql, memoryBoards, run.id, result)
     })
     beforeGraphCommit(sql, async () => {
       const final = await readAcceptedRepeatRunLocked(sql, run.id)

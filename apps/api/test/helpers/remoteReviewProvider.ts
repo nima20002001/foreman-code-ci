@@ -56,6 +56,8 @@ export async function createRemoteReviewProvider(directory: string, launcher: st
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const script = join(directory, 'provider.mjs')
   await copyFile(new URL('../fixtures/remote-review-codex.mjs', import.meta.url), script)
+  const shell = join(directory, 'remote-review-shell.mjs')
+  await copyFile(new URL('../fixtures/remote-review-shell.mjs', import.meta.url), shell)
   const source = join(directory, 'provider.c')
   const binary = join(directory, 'codex')
   const nodePath = JSON.stringify(process.execPath)
@@ -82,9 +84,14 @@ int main(int argc, char **argv) {
   const failures = preparation.flatMap(result => result.status === 'rejected' ? [result.reason] : [])
   if (failures.length) throw new AggregateError(failures, 'Provider fixture preparation failed.')
   const settings = join(directory, 'settings.json')
+  const sandboxLauncher = require.resolve('@openai/codex/bin/codex.js')
+  const sandboxPayload = await passiveDriverPayloads('codex', sandboxLauncher)
+  if (!sandboxPayload.complete || !sandboxPayload.paths.length) throw new Error('Pinned native sandbox is unavailable.')
+  const sandboxHome = join(directory, 'sandbox-home')
+  await mkdir(sandboxHome, { mode: 0o700 })
   await writeFile(settings, JSON.stringify({ launcher,
-    clientModule: require.resolve('@modelcontextprotocol/client') }), { mode: 0o600 })
-  const payloadPaths = [script, settings, process.execPath,
+    clientModule: require.resolve('@modelcontextprotocol/client'), sandboxLauncher, sandboxHome }), { mode: 0o600 })
+  const payloadPaths = [script, shell, settings, process.execPath, sandboxLauncher, ...sandboxPayload.paths,
     join(directory, 'stable', 'codex_app_server_protocol.schemas.json'),
     join(directory, 'experimental', 'codex_app_server_protocol.schemas.json')]
   const originalBinary = await readFile(binary)

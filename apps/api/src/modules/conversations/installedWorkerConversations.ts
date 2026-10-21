@@ -37,6 +37,7 @@ import { closeRecoveredWorkerSession, workerConversationProcessDigest } from './
 import { recoverWorkerConversation } from './recoverWorkerConversation.js'
 import { join } from 'node:path'
 import { workerConversationAccountOwner } from './workerAccountSession.js'
+import { workerConversationSessionStart } from './workerConversationStart.js'
 
 function unavailable(message: string): never {
   throw new DomainError('WORKER_CONVERSATION_UNAVAILABLE', message, 409)
@@ -185,16 +186,7 @@ function createInstalledConversationAllocator(input: InstalledWorkerConversation
         environment = relay.environment
         mcpEnvironment = relay.environment
       }
-      const owner = binding.owner
-      if (owner.kind === 'operator' && 'operatorId' in configuration) {
-        return { kind: 'operator', configuration, correlationId: options.correlationId,
-          workingDirectory: binding.workingDirectory, ...(environment ? { environment } : {}) }
-      }
-      if (owner.kind !== 'agent' || !('agentId' in configuration) || environment) unavailable('The native chat role changed.')
-      return { kind: 'agent-chat', configuration, conversationId: owner.conversationId, workflowId: owner.workflowId,
-        workflowNodeId: owner.workflowNodeId, correlationId: options.correlationId,
-        ...(binding.systemPrompt ? { systemPrompt: binding.systemPrompt } : {}),
-        workingDirectory: binding.workingDirectory, instructionsDelivered: options.instructionsDelivered }
+      return workerConversationSessionStart(binding, configuration, environment, options)
     }
     return { manager, inspector, nativeOwner, start,
       hasExited() {

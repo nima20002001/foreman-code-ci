@@ -148,12 +148,18 @@ export class CheckpointTestProvider implements NativeHarnessSessionManager {
         type: 'interaction.pending', occurredAt: new Date().toISOString(), payload: {} })
       return
     }
-    this.terminals.set(session.nativeSessionId, { outcome: 'succeeded', output: this.outputFor ? this.outputFor(request.workflowNodeId, request) : { node: request.workflowNodeId } })
+    this.terminals.set(session.nativeSessionId, { outcome: 'succeeded', output: this.modelOutput(request, { node: request.workflowNodeId }) })
     const terminal = NativeHarnessEventSchema.parse({ sequence: 1, type: 'turn.completed', occurredAt: new Date().toISOString(),
       payload: { turnId, threadId: session.nativeSessionId, clientCorrelationId: input.clientCorrelationId,
         turn: { id: turnId, status: 'completed' } } })
     this.continuationEvents.set(session.nativeSessionId, terminal)
     yield terminal
+  }
+  private modelOutput(request: HarnessExecutionRequest, data: Record<string, string | boolean>) {
+    if (this.outputFor) return this.outputFor(request.workflowNodeId, request)
+    if (!request.resultProtocol) return data
+    return { data, summary: 'Completed the assigned work.', board: { kind: 'none',
+      reason: request.configuration.graphqlTools?.some(tool => tool.startsWith('memory_')) ? 'no_changes' : 'no_access' } }
   }
   async pending(session: NativeSessionReference) { return this.waits.get(session.nativeSessionId)?.[0] }
   /** Synthetic callback state only; no SQL, permission, attachment or native qualification. */
@@ -193,7 +199,7 @@ export class CheckpointTestProvider implements NativeHarnessSessionManager {
     if (!remaining.length) {
       const request = this.requests.get(session.nativeSessionId)!
       this.terminals.set(session.nativeSessionId, { outcome: 'succeeded',
-        output: this.outputFor ? this.outputFor(request.workflowNodeId, request) : { approved: true } })
+        output: this.modelOutput(request, { approved: true }) })
       this.continuationEvents.set(session.nativeSessionId, NativeHarnessEventSchema.parse({ sequence: this.disconnectAfterStart ? 3 : 2,
         type: 'turn.completed', occurredAt: new Date().toISOString(), payload: {
           threadId: session.nativeSessionId, turnId: `turn-${request.executionId}`,

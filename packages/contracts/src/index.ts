@@ -1,3 +1,5 @@
+import { ChatDeliveryIntentSchema, ChatDeliveryReceiptSchema } from './chatDelivery.js';
+import { BoardDigestSchema } from './memoryBoards.js';
 import { AgentProductRoleSchema as WorkflowAgentProductRoleSchema, type WorkflowAgentProductRole } from './agentIdentity.js';
 import { ResultProtocolSchema } from './coordinationResult.js';
 import { MessageSchema } from './messages.js';
@@ -54,7 +56,7 @@ export type {
 import type { ApprovalHandler } from "./wave25/workflowShape.js";
 import type { RunLiveActivity } from "./runLiveActivity.js";
 import { RunStopCauseSchema } from "./runStopCause.js";
-import { GraphqlToolDefaultsSchema } from "./graphqlMcpTools.js";
+import { GraphqlToolDefaultsSchema, graphqlToolsOutsideRole } from "./graphqlMcpTools.js";
 export * from "./runStopCause.js";
 export * from "./runState.js";
 export * from "./runLiveActivity.js";
@@ -334,6 +336,7 @@ export function validateHarnessWorkflowCompatibility(
 
 const AgentTemplateSchema = z.object({
   nativeTools: NativeToolsSchema.optional(),
+  graphqlTools: GraphqlToolDefaultsSchema.optional(),
   harnessProfileSelection: z.lazy(() => HarnessProfileSelectionSchema).optional(),
   role: ConfiguredAgentProductRoleSchema,
   boardAddable: z.boolean(),
@@ -341,6 +344,9 @@ const AgentTemplateSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (value.role === "operator" && value.boardAddable) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["boardAddable"], message: "Operator is application-level and cannot be added to a workflow board" });
+  }
+  if (value.graphqlTools && (value.role === 'operator' || graphqlToolsOutsideRole(value.role, value.graphqlTools).length)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['graphqlTools'], message: 'Workflow tool defaults must be allowed for the selected Agent role.' });
   }
 });
 
@@ -882,6 +888,8 @@ export type HarnessExecutionState = z.infer<typeof HarnessExecutionStateSchema>;
 /** One native harness attempt for a workflow node. Attempts may share a parallelGroupId. */
 export const HarnessExecutionSchema = z
   .object({
+    resultProtocol: ResultProtocolSchema.optional(),
+    memoryBoardDigest: BoardDigestSchema.optional(),
     id: IdSchema,
     runId: IdSchema,
     workflowNodeId: IdSchema,
@@ -1023,6 +1031,8 @@ export const ActivityKindSchema = z.enum([
   "work_limit_notice_unknown",
   "work_needs_direction",
   "work_direction_wait",
+  "workflow_chat_receipt",
+  "collaboration_lifecycle",
 ]);
 
 /** Ordered native/backend activity. payload remains source-specific but JSON-safe. */
@@ -1059,6 +1069,7 @@ export const HarnessExecutionContextSchema = z.object({
     requestId: GraphIdSchema,
     requesterNodeId: GraphIdSchema,
   }).strict().nullable(),
+  outstandingRequestIds: z.array(GraphIdSchema).max(1000).optional(),
 }).strict();
 export type HarnessExecutionContext = z.infer<typeof HarnessExecutionContextSchema>;
 
@@ -1473,6 +1484,8 @@ export const ListOperatorConversationsResponseSchema = z.object({ conversations:
 export const GetOperatorConversationResponseSchema = OperatorConversationStateSchema;
 export const SendOperatorMessageRequestSchema = z.object({
   requestId: IdSchema,
+  intent: ChatDeliveryIntentSchema.optional(),
+  expectedNativeTurnId: IdSchema.optional(),
   ...MessageAttachmentFields,
   content: z.string().trim().describe('Message text, up to 768 KiB as UTF-8 JSON including request metadata. Receipt-only recovery retains previously accepted input.'),
   sessionMode: z.enum(['regular', 'plan']).optional(),
@@ -1490,7 +1503,10 @@ export const SendOperatorMessageRequestSchema = z.object({
 }).superRefine((value, context) => {
   if (value.recovery !== 'receipt') refineChatMessageSize(value, context)
 });
-export const SendOperatorMessageResponseSchema = z.object({ state: OperatorConversationStateSchema, replayed: z.boolean() }).strict();
+export const SendOperatorMessageResponseSchema = z.union([
+  z.object({ state: OperatorConversationStateSchema, replayed: z.boolean() }).strict(),
+  z.object({ state: OperatorConversationStateSchema.optional(), receipt: ChatDeliveryReceiptSchema, replayed: z.boolean() }).strict(),
+]);
 export const CancelOperatorTurnRequestSchema = z.object({ requestId: IdSchema, commandId: z.string().min(8).max(200).optional() }).strict();
 export const RespondOperatorInteractionRequestSchema = z.object({
   commandId: z.string().min(8).max(200).optional(),
@@ -1679,6 +1695,7 @@ export * from './operationalFailures.js'
 
 export * from './agentIdentity.js';
 export * from './memoryBoards.js';
+export * from './memoryBoardViews.js';
 export * from './chatDelivery.js';
 export * from './workflowChat.js';
 export * from './browserProfiles.js';
@@ -1686,3 +1703,11 @@ export * from './browserSessions.js';
 export * from './workflowHierarchy.js';
 export * from './coordinationResult.js';
 export { collaborationContractFixtures } from './collaborationFixtures.js';
+export * from './workflowExecutionChat.js';
+export { canonicalJson } from './canonicalJson.js';
+
+export * from './hierarchyExecutionResult.js';
+
+export * from './browserOperations.js';
+export * from './browserTransport.js';
+export * from './browserTargets.js';

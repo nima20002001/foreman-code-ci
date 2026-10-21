@@ -12,7 +12,7 @@ export const RUN_ACTIVITIES_PAGE_SQL = `with board as materialized (
   select run_id,workspace_id,workflow_id,workflow_version_id,record#>'{}' as record
   from run_board_snapshots where run_id=$1
 )
-select a.sequence::text,a.source,a.kind,a.occurred_at,a.harness_execution_id,
+select a.sequence::text,a.source,a.kind,a.occurred_at,a.harness_execution_id,r.record->>'resultProtocol' as result_protocol,
   coalesce(e.workflow_node_id,j.record#>>'{workflow,nodeId}') as execution_node_id,e.agent_id as execution_agent_id,
   coalesce(e.attempt,x.technical_attempt) as execution_attempt,e.work_activation_id,e.tick_index as execution_tick_index,
   j.id as job_execution_id,j.attempt_id as job_attempt_id,j.operation_id as job_operation_id,

@@ -1,5 +1,5 @@
+import type { SqlQuery } from '../../infrastructure/transaction.js'
 import { readClaudeMessagePublicationReceipts, type ClaudeMessagePublicationReceipt } from '../harnesses/claudeSdk/publications.js'
-import type pg from 'pg'
 import { MessageAttachmentRefSchema, type MessageAttachmentRef } from '@foreman-code/contracts/files'
 import { bindingIdentity } from '../files/tools/context.js'
 import { MessagePublicationRefsSchema, mergeMessagePins } from './messagePins.js'
@@ -10,7 +10,7 @@ export { MessagePublicationRefsSchema, mergeMessagePins }
  * authentication failed. Reconstruct bindings from persisted chat facts, never
  * a live token, mutable host path, current selection, or caller-provided context.
  * This projects already-finalized facts; it cannot authorize another write. */
-export async function readCodexMessagePublications(query: Pick<pg.PoolClient, 'query'>,
+export async function readCodexMessagePublications(query: SqlQuery,
   conversationId: string, messageIds: string[], onReceipt?: (receipt: CodexMessagePublicationReceipt) => void): Promise<Map<string, MessageAttachmentRef[]>> {
   const result = new Map<string, MessageAttachmentRef[]>()
   if (!messageIds.length) return result
@@ -71,7 +71,7 @@ export interface CodexMessagePublicationReceipt {
 }
 export type ConversationPublicationReceipt = CodexMessagePublicationReceipt | ClaudeMessagePublicationReceipt
 /** Reuse the same exact receipt/binding/owner checks as attachment hydration. */
-export async function readConversationPublicationReceipts(query: Pick<pg.PoolClient, 'query'>, conversationId: string, messageIds: string[]) {
+export async function readConversationPublicationReceipts(query: SqlQuery, conversationId: string, messageIds: string[]) {
   const receipts: ConversationPublicationReceipt[] = []
   await readCodexMessagePublications(query, conversationId, messageIds, (receipt) => receipts.push(receipt))
   receipts.push(...await readClaudeMessagePublicationReceipts(query, conversationId, messageIds))

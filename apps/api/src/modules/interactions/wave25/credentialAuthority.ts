@@ -5,12 +5,13 @@ import { resolveImmutableApprovalRoute, usesNativeSelfReview } from '../../workf
 import { validateReviewerBootstrap } from '../../workflows/reviewerBootstrap.js'
 import { fail } from './context.js'
 import { readRecoverableRemoteReviewer } from '../retainedRemoteReviewer.js'
+import { readConsultationCredentialSubject } from '../../access/consultationAuthority.js'
 
 type Purpose = 'workflow' | 'reviewer'
 interface WorkerCredentialBinding {
   execution_id: string
   run_id: string
-  purpose: Purpose
+  purpose: Purpose | 'consultation'
   workspace_id: string
   workflow_id: string
   agent_id: string
@@ -100,6 +101,10 @@ export async function assertWave25WorkerBinding(sql: GraphSqlClient, principalId
      join runs r on r.id=b.run_id join workflow_versions v on v.id=r.workflow_version_id where b.principal_id=$1`, [principalId])).rows[0]
   if (!row) return fail('AUTH_REVOKED')
   if (row.execution_semantics_version !== 3) return fail('AUTH_REVOKED')
+  if (row.purpose === 'consultation') {
+    await readConsultationCredentialSubject(sql, principalId)
+    return
+  }
   if (!row.live || !['workflow','reviewer'].includes(row.purpose) || row.environment_variable !== 'GRAPHQL_MCP_TOKEN') return fail('AUTH_REVOKED')
   if (row.purpose === 'reviewer' && row.approval_review_job_id) {
     const epoch = await sql.query(`select 1 from review_jobs where id=$1 and execution_id=$2 and lease_fence=$3::bigint`,

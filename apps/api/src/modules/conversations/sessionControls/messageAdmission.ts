@@ -1,11 +1,11 @@
-import type pg from 'pg'
+import type { SqlQuery } from '../../../infrastructure/transaction.js'
 import { SessionControlStateSchema, compactionBlocksSend, parseSessionCommand, type SessionMode } from '@foreman-code/contracts'
 import type { AgentChatIntent, SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
 import { DomainError } from '../../errors.js'
 
 /** Called under the existing conversation row lock, in the message transaction. */
-export async function admitSessionMessage(client: Pick<pg.PoolClient, 'query'>, conversationId: string,
-  input: Pick<SendAgentChatMessageRequest, 'content' | 'sessionMode'> & { intent?: AgentChatIntent }) {
+export async function admitSessionMessage(client: SqlQuery, conversationId: string,
+  input: Pick<SendAgentChatMessageRequest, 'content' | 'sessionMode'> & { intent?: AgentChatIntent | undefined }) {
   const result = await client.query<{ record: unknown }>(
     'select record from conversation_session_controls where conversation_id=$1 for update', [conversationId])
   const state = result.rows[0] ? SessionControlStateSchema.parse(result.rows[0].record) : undefined
@@ -13,10 +13,9 @@ export async function admitSessionMessage(client: Pick<pg.PoolClient, 'query'>, 
     throw new DomainError('SESSION_COMPACT_UNCONFIRMED', 'Recover compaction before sending another message.', 409)
   }
   if (input.intent === 'steer') {
-    if (parseSessionCommand(input.content).kind === 'plan-task'
-      || input.sessionMode !== undefined && input.sessionMode !== state?.appliedMode) {
+    if (input.sessionMode !== undefined && input.sessionMode !== state?.appliedMode) {
       throw new DomainError('SESSION_STEER_MODE_UNSUPPORTED',
-        'Steering keeps the active turn’s mode. Send mode changes or /plan tasks as a new turn.', 422)
+        'Steering keeps the active turn’s mode. Send mode changes as a new turn.', 422)
     }
     return
   }

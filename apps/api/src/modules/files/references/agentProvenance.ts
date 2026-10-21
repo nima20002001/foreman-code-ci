@@ -9,6 +9,20 @@ import type { AgentReferenceContext, ReferenceReadRepository } from './agentType
 export class PostgresReferenceReadRepository implements ReferenceReadRepository {
   constructor(private readonly pool: pg.Pool) {}
 
+  /** Admission already pins temporary revisions. They never become permanent Run reference pins. */
+  async completeAttachment(context: AgentReferenceContext, ref: Pick<AgentFileReadInput, 'fileId' | 'revisionId'>,
+    reauthorize: (query: FileQuery) => Promise<void>): Promise<'ready' | 'pending' | 'removed' | 'not_found'> {
+    return withTransaction(this.pool, async client => {
+      await reauthorize(client)
+      const row = (await client.query<{ state: string }>(`select f.state from files f
+        join file_revisions v on v.file_id=f.file_id and v.revision_id=$2
+        where f.file_id=$1 and f.scope_kind='temporary' and f.workspace_id=$3 and f.workflow_id=$4
+          and f.run_id=$5 and f.agent_id=$6 and f.expires_at>clock_timestamp() for share of f`,
+      [ref.fileId, ref.revisionId, context.workspaceId, context.workflowId, context.runId, context.agentId])).rows[0]
+      return row?.state === 'ready' || row?.state === 'pending' || row?.state === 'removed' ? row.state : 'not_found'
+    })
+  }
+
   async pinned(runId: string, fileIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
     if (fileIds.length === 0) return new Map()
     const result = await this.pool.query<{ file_id: string; revision_id: string }>(

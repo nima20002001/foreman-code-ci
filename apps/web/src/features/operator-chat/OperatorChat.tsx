@@ -2,10 +2,12 @@ import { useId, useRef, useState } from 'react'
 import { useSessionControls } from '../conversations/sessionControls/useSessionControls'
 import { useFileDrop } from '../../shared/ui/useFileDrop'
 import { ChatAttachmentBoundary } from '../conversations/ChatAttachmentBoundary'
+import { UnavailableChatDraft } from '../conversations/delivery/UnavailableChatDraft'
 import { Alert, Button } from '../../shared/ui/nocturne'
 import { useAccessFailureLatch } from '../../shared/api/useAccessFailureLatch'
 import { sessionGeneration, sessionIsSwitching } from '../../shared/api/sessionBoundary'
 import { isNarrowOperatorChat, useOperatorChatStore } from './operatorChatStore'
+import { identityEpoch } from '../../shared/api/protectedChatStorage'
 import { useOperatorChatVisibility } from './useOperatorChatVisibility'
 import { useOperatorSettings } from './useOperatorSettings'
 import { useAskOperatorRequest } from './useAskOperatorRequest'
@@ -36,15 +38,20 @@ export function OperatorChat(props: { settingsWarning?: string } = {}) {
   return <ChatAttachmentBoundary><OperatorChatContent {...props} /></ChatAttachmentBoundary>
 }
 
-function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) {
-  const enabled = useOperatorChatVisibility()
+/** Shared-rail destination: hidden means unmounted, with existing drafts and history preserved. */
+export function OperatorChatPanel({ visible, ...props }: { visible: boolean; settingsWarning?: string; onClose?(): void }) {
+  return visible ? <ChatAttachmentBoundary><OperatorChatContent key={identityEpoch()} {...props} docked /></ChatAttachmentBoundary> : null
+}
+
+function OperatorChatContent({ settingsWarning, docked = false, onClose }: { settingsWarning?: string; docked?: boolean; onClose?(): void }) {
+  const legacyEnabled = useOperatorChatVisibility(), enabled = docked || legacyEnabled
   const attachmentReceipts = useOperatorAttachmentReceipts()
   const { panelRef, size, grip, moveGrip } = useOperatorChatResize()
   const [removed, setRemoved] = useState<{ id: string; title: string }>()
   const [handoffNotice, setHandoffNotice] = useState<{ id: string; epoch: string }>()
   const [closing, setClosing] = useState(false)
   const [askSend, setAskSend] = useState<AskSend>()
-  const open = useOperatorChatStore((state) => state.open)
+  const legacyOpen = useOperatorChatStore((state) => state.open), open = docked || legacyOpen
   const historyOpen = useOperatorChatStore((state) => state.historyOpen)
   const selectedId = useOperatorChatStore((state) => state.selectedConversationId)
   const accounts = useProviderAccounts(enabled && open)
@@ -65,8 +72,9 @@ function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) 
   const [connection, setConnection] = useState<ConnectionState>()
   const [, refreshOutbox] = useState(0)
   const [preparingId, setPreparingId] = useState<string>()
-  const { list, selected, accessDenied, acceptState, invalidate, loadOlderChats, deletedRevisions, readGeneration } = useOperatorChatReadback(enabled, open, selectedId)
-  const { attachments, attachmentReceiptPending } = useOperatorChatAttachments({ enabled, selectedId, accessDenied, selectedData: selected.data, attachmentReceipts })
+  const [deniedConversation, setDeniedConversation] = useState<string>()
+  const { list, selected, accessDenied, acceptState, invalidate, loadOlderChats, deletedRevisions, readGeneration } = useOperatorChatReadback(enabled, open, selectedId, !!selectedId && deniedConversation === selectedId)
+  const { attachments, attachmentReceiptPending } = useOperatorChatAttachments({ enabled: enabled && open, selectedId, accessDenied, selectedData: selected.data, attachmentReceipts })
   const { pending, setup, shownSetup, missingSelection, recoveredSelection } = useOperatorSetupState({
     enabled, open, selectedId, accessDenied, selectedError: selected.error, preferences, preferencesDenied })
   const { create, creating, createConversation } = useOperatorCreateConversation({
@@ -80,7 +88,7 @@ function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) 
   const active = Boolean(conversation && (conversation.activeRequestId || !['idle', 'error'].includes(conversation.turnState)))
   const archived = conversation?.conversation.status === 'archived'
   const preparing = preparingId === selectedId
-  const attachmentsDisabled = Boolean(archived || active || pending.command) || preparing
+  const attachmentsDisabled = Boolean(archived || pending.command) || preparing
   const fileDrop = useFileDrop({ disabled: attachmentsDisabled || !attachments.canAdd, onFiles: attachments.addFiles })
   const { settings, retired, messageSettings, pendingHandoff, setupReady, settingsReady } = deriveOperatorMessaging({
     conversation, preferences, preferencesDenied, accounts, setup })
@@ -99,6 +107,7 @@ function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) 
     && !pending.command && !pending.error && !attachmentReceiptPending
   const request = useAskOperatorRequest({ enabled, open, accessDenied, create, creating, askSend, setAskSend, selectedId, askReady, submit })
   const close = () => {
+    if (docked) { onClose?.(); return }
     setClosing(true)
     setOpen(false)
   }
@@ -110,19 +119,19 @@ function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) 
     })
   }
   if (!enabled || sessionIsSwitching()) return null
-  return <div className="operator-chat-root">
-    {open || closing ? <section ref={panelRef} style={size} id={panelId} className="operator-chat" data-state={open ? 'open' : 'closing'} role="dialog" aria-modal={false} aria-label="Operator chat" aria-hidden={closing} inert={closing}
+  return <div className={docked ? 'operator-chat-docked' : 'operator-chat-root'}>
+    {open || closing ? <section ref={panelRef} style={docked ? undefined : size} id={panelId} className="operator-chat" data-state={open ? 'open' : 'closing'} role={docked ? 'region' : 'dialog'} aria-modal={docked ? undefined : false} aria-label="Operator chat" aria-hidden={closing} inert={closing}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return
         event.preventDefault(); event.stopPropagation()
         if (historyOpen && isNarrowOperatorChat()) showHistory(false)
         else close()
       }}>
-      {operatorResizeEdges.map((edge) => <button key={edge} type="button" className={`operator-chat-resize operator-chat-resize-${edge}`} {...grip(edge)} />)}
+      {!docked ? operatorResizeEdges.map((edge) => <button key={edge} type="button" className={`operator-chat-resize operator-chat-resize-${edge}`} {...grip(edge)} />) : null}
       {settingsWarning ? <details><summary>Operator settings refresh failed</summary>{settingsWarning}</details> : null}
-      {accessDenied ? <Alert live tone="danger" title="Operator access unavailable">Check your browser enrollment and permissions.</Alert> : null}
+      {accessDenied ? <Alert live tone="danger" title="Operator access unavailable"><Button onClick={() => { setDeniedConversation(undefined); void list.refetch(); void selected.refetch() }}>Refresh access</Button></Alert> : null}
       <OperatorChatHeader historyOpen={historyOpen} historyId={historyId} historyTriggerRef={historyTriggerRef} closeRef={closeRef}
-        historyFailed={list.isError} moveGrip={moveGrip}
+        historyFailed={list.isError} moveGrip={docked ? undefined : moveGrip}
         sessionControls={conversation ? sessionControls : undefined} accountBinding={conversation && !retired ? conversation.providerAccountBinding : undefined} onToggleHistory={() => showHistory(!historyOpen)} onClose={close} />
       <div className={`operator-chat-body${historyOpen ? ' operator-chat-history-open' : ''}`}>
         <OperatorChatHistory historyOpen={historyOpen} historyId={historyId} historyRef={historyRef} historyTriggerRef={historyTriggerRef}
@@ -143,15 +152,18 @@ function OperatorChatContent({ settingsWarning }: { settingsWarning?: string }) 
               attachmentReceipts={attachmentReceipts} attachmentReceiptPending={attachmentReceiptPending} attachmentsDisabled={attachmentsDisabled}
               fileDrop={fileDrop} pendingHandoff={pendingHandoff} turnStatus={turnStatus} connectionState={connectionState}
               sessionControls={sessionControls} setupReady={setupReady} settingsReady={settingsReady} archived={archived} active={active}
-              send={send} cancel={cancel} requestId={requestId} selectedId={selectedId} createConversation={createConversation} submit={submit} />
-          </> : null}
+              send={send} cancel={cancel} requestId={requestId} selectedId={selectedId} createConversation={createConversation} submit={submit}
+              canonical={{ refresh: () => { if (selectedId) void invalidate(selectedId) },
+                onDenied: () => { setPartial(undefined); setDeniedConversation(selectedId) } }} />
+          </> : selectedId && !accessDenied ? <UnavailableChatDraft draftKey={selectedId} pending={selected.isPending}
+            onRefresh={() => void selected.refetch()} /> : null}
         </main>
       </div>
       {removed ? <div className="operator-chat-undo" role="status">Chat deleted. <Button size="sm" variant="ghost" disabled={restore.isPending}
         onClick={() => restore.mutate({ id: removed.id, generation: sessionGeneration(),
           navigationGeneration: useOperatorChatStore.getState().beginNavigation() })}>Undo</Button></div> : null}
     </section> : null}
-    <OperatorChatLauncher launcherRef={launcherRef} open={open} closing={closing} panelId={panelId} attention={attention}
-      settingsWarning={settingsWarning} listFailed={list.isError} />
+    {!docked ? <OperatorChatLauncher launcherRef={launcherRef} open={open} closing={closing} panelId={panelId} attention={attention}
+      settingsWarning={settingsWarning} listFailed={list.isError} /> : null}
   </div>
 }

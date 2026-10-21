@@ -1,3 +1,4 @@
+import { OperatorConversationStateSchema } from '@foreman-code/contracts'
 import { randomUUID } from 'node:crypto'
 import { operatorChatSettings, SendOperatorMessageResponseSchema,
   type NativeSessionReference, type SendOperatorMessageRequest } from '@foreman-code/contracts'
@@ -135,10 +136,10 @@ describe.skipIf(!connectionString)('Operator input size admission', () => {
       }
       const sent = SendOperatorMessageResponseSchema.parse(response)
       expect(sent.replayed).toBe(false)
-      expect(sent.state.conversation.id).toBe(`operator-fork:${input.requestId}`)
-      expect(sent.state.handoff).toMatchObject({ parentConversationId: source.id, sourceHarness: 'codex' })
-      await waitFor(async () => (await chat.get(sent.state.conversation.id, f.writer.principal)).turnState === 'idle')
-      const child = await chat.get(sent.state.conversation.id, f.writer.principal)
+      expect(OperatorConversationStateSchema.parse(sent.state).conversation.id).toBe(`operator-fork:${input.requestId}`)
+      expect(OperatorConversationStateSchema.parse(sent.state).handoff).toMatchObject({ parentConversationId: source.id, sourceHarness: 'codex' })
+      await waitFor(async () => (await chat.get(OperatorConversationStateSchema.parse(sent.state).conversation.id, f.writer.principal)).turnState === 'idle')
+      const child = await chat.get(OperatorConversationStateSchema.parse(sent.state).conversation.id, f.writer.principal)
       expect(child.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: input.content })]))
       expect(await repository.hasTurn(child.conversation.id, input.requestId)).toBe(true)
       expect(await chat.get(source.id, f.writer.principal)).toEqual(before)

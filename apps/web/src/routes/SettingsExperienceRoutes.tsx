@@ -2,6 +2,7 @@ import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { AgentDefaultsSettings } from '../features/settings/AgentDefaultsSettings'
 import { ComputerSettings } from '../features/settings/ComputerSettings'
+import { BrowserProfilesSettings } from '../features/settings/BrowserProfilesSettings'
 import { DeviceRegistrationSchema } from '@foreman-code/contracts/device-identity'
 import { Alert } from '../shared/ui/nocturne'
 import { HarnessDefaultsSettings } from '../features/settings/HarnessDefaultsSettings'
@@ -20,6 +21,11 @@ function SettingsShell({ children }: { children: ReactNode }) {
       {children}
     </div>,
   }} />
+}
+export function BrowserProfilesSettingsRouteEntry() {
+  const search = useSearch({ from: '/settings/browser-profiles' })
+  const navigate = useNavigate({ from: '/settings/browser-profiles' })
+  return <SettingsShell><BrowserProfilesSettings search={search} onSearch={next => void navigate({ search: next })} /></SettingsShell>
 }
 export function AgentSettingsRouteEntry() {
   const search = useSearch({ from: '/settings/agents' })

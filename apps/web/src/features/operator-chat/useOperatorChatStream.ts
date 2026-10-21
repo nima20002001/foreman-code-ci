@@ -1,14 +1,16 @@
 import { getOperatorConversation } from '../../shared/api/client'
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { ActivityChangeEnvelopeV1Schema, OperatorActivitySchema } from '@foreman-code/contracts'
+import { OperatorActivitySchema } from '@foreman-code/contracts'
 import type { OperatorConversationState } from '@foreman-code/contracts'
 import { createStreamReadback } from '../../shared/api/streamReadback'
+import { committedMessage, createCommittedMessageBuffer, patchCommittedMessages } from '../conversations/delivery/committedMessageStream'
 import { markChatTurnCompleted } from '../conversations/chatTurnCompletion'
 import { subscribeOperatorChat } from '../../shared/api/operatorChatStream'
 import { identityEpoch } from '../../shared/api/protectedChatStorage'
-import { projectOperatorActivity, projectOperatorEnvelope } from './operatorTextProjection'
+import { projectOperatorActivity } from './operatorTextProjection'
 import { detailKey, listKey, type ConnectionState, type PartialState } from './operatorChatShared'
+import { newerOperatorConversationState } from './operatorConversationReadback'
 
 /** Live Operator stream. Presentation-only fragments; Query/PostgreSQL still own all finalized state. */
 export function useOperatorChatStream({ enabled, open, selectedId, accessDenied, acceptState, readGeneration, setPartial, setConnection }: {
@@ -34,22 +36,32 @@ export function useOperatorChatStream({ enabled, open, selectedId, accessDenied,
       ])
     })
     const refresh = readback.request
+    const text = createCommittedMessageBuffer(messages => {
+      if (disposed) return
+      queryClient.setQueryData<OperatorConversationState>(detailKey(selectedId), previous => previous
+        ? patchCommittedMessages(previous, messages, selectedId, previous.activeRequestId) : previous)
+    }, refresh)
     const close = subscribeOperatorChat(selectedId, {
       recover: async () => {
         await queryClient.cancelQueries({ queryKey: detailKey(selectedId), exact: true })
         if (disposed) throw new DOMException('Conversation changed.', 'AbortError')
         const state = await queryClient.fetchQuery({ queryKey: detailKey(selectedId), retry: false, staleTime: 0,
-          queryFn: ({ signal }) => getOperatorConversation(selectedId, { signal }) })
+          queryFn: async ({ signal }) => {
+            const incoming = await getOperatorConversation(selectedId, { signal })
+            signal.throwIfAborted()
+            return newerOperatorConversationState(queryClient.getQueryData<OperatorConversationState>(detailKey(selectedId)), incoming, 'read')
+          } })
         if (disposed) throw new DOMException('Conversation changed.', 'AbortError')
         acceptState(selectedId, state)
       },
       snapshot: (state) => {
+        text.clear()
         readGeneration.current++
         void queryClient.cancelQueries({ queryKey: detailKey(selectedId), exact: true })
         acceptState(selectedId, state)
         refresh()
       },
-      reconnect: () => { setPartial((current) => current?.conversationId === selectedId ? undefined : current); refresh() },
+      reconnect: () => { text.clear(); setPartial((current) => current?.conversationId === selectedId ? undefined : current); refresh() },
       connection: (state) => setConnection((current) => current?.id === selectedId && current.state === state ? current : { id: selectedId, state }),
       event: (event) => {
         if (event.type === 'state' && typeof event.data.requestId === 'string'
@@ -57,6 +69,11 @@ export function useOperatorChatStream({ enabled, open, selectedId, accessDenied,
           markChatTurnCompleted(queryClient, selectedId, event.data.requestId)
         }
         const state = queryClient.getQueryData<OperatorConversationState>(detailKey(selectedId))
+        if (event.type === 'delta') {
+          const message = committedMessage(event.data, selectedId, state?.activeRequestId)
+          if (message) { text.push(message); return }
+        }
+        text.clear()
         if (event.type === 'activity') {
           const activity = OperatorActivitySchema.safeParse(event.data.activity)
           if (!activity.success || typeof event.data.revision !== 'number') { refresh(); return }
@@ -67,10 +84,7 @@ export function useOperatorChatStream({ enabled, open, selectedId, accessDenied,
             value: projectOperatorActivity(current?.conversationId === selectedId ? current.value : undefined,
               state?.activeRequestId ?? null, value.requestId, value.id) }))
         } else if (event.type === 'delta') {
-          if (!ActivityChangeEnvelopeV1Schema.safeParse(event.data.activityChange).success) { refresh(); return }
           refresh()
-          setPartial((current) => ({ conversationId: selectedId,
-            value: projectOperatorEnvelope(current?.conversationId === selectedId ? current.value : undefined, selectedId, state?.activeRequestId ?? null, event.data.activityChange, state?.messages ?? []) }))
         } else {
           // Keep the streamed reply until the authoritative snapshot contains its
           // final replacement. Clearing here creates a visible blank during refetch.
@@ -78,6 +92,6 @@ export function useOperatorChatStream({ enabled, open, selectedId, accessDenied,
         }
       },
     })
-    return () => { disposed = true; readback.dispose(); close() }
+    return () => { disposed = true; text.clear(); readback.dispose(); close() }
   }, [acceptState, accessDenied, enabled, open, queryClient, readGeneration, selectedId, setConnection, setPartial])
 }

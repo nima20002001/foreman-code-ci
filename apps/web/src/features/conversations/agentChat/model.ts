@@ -1,6 +1,8 @@
 import { messageTextPartKey } from '../chatTimeline'
 import { activityScopeKey, reconcileActivitySnapshot, sourceVectorIsStale, sourceVectorHasAdvance } from './activityMerge'
 import { isSessionNativeInteraction, type Message } from '@foreman-code/contracts'
+import { committedAfterSnapshot, inheritCommittedRevision } from '../delivery/committedMessageRevision'
+import { boundedNativeWindow } from '../delivery/nativeMessageWindow'
 import type { AgentChatContext, AgentChatIntent, AgentChatState, AgentChatTurn } from '@foreman-code/contracts/agent-chat'
 
 /** A draft exists before a conversation does. Never key it by Agent alone or by a native id. */
@@ -37,10 +39,10 @@ export function mergeChatMessages(...sources: readonly (readonly Message[])[]): 
       if (previous?.revision !== undefined) {
         if (message.revision === undefined || BigInt(message.revision) < BigInt(previous.revision)) continue
         if (message.revision === previous.revision) {
-          if (message.content === previous.content && message.nativeMessageComplete === previous.nativeMessageComplete && (message.attachments !== undefined || message.originalInput !== undefined || message.acceptedModel !== undefined)) messages.set(message.id, { ...previous,
+          if (message.content === previous.content && message.nativeMessageComplete === previous.nativeMessageComplete && (message.attachments !== undefined || message.originalInput !== undefined || message.acceptedModel !== undefined)) messages.set(message.id, inheritCommittedRevision({ ...previous,
             ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
             ...(message.acceptedModel !== undefined ? { acceptedModel: message.acceptedModel } : {}),
-            ...(message.originalInput !== undefined ? { originalInput: message.originalInput } : {}) })
+            ...(message.originalInput !== undefined ? { originalInput: message.originalInput } : {}) }, previous))
           continue
         }
       }
@@ -57,6 +59,12 @@ export function mergeChatMessages(...sources: readonly (readonly Message[])[]): 
     }
   }
   return order.map((id) => messages.get(id)!)
+}
+
+function snapshotMessages(previous: readonly Message[], incoming: readonly Message[], revision: number) {
+  const ids = new Set(incoming.map(message => message.id))
+  const messages = mergeChatMessages(previous, incoming).filter(message => ids.has(message.id) || committedAfterSnapshot(message, revision))
+  return boundedNativeWindow(messages)?.messages ?? incoming.slice(-100)
 }
 export function acceptAgentChatState(previous: AgentChatState | undefined, incoming: AgentChatState, source: 'read' | 'receipt' = 'receipt'): AgentChatState {
   if (source === 'receipt' && previous?.conversation && incoming.conversation
@@ -91,8 +99,7 @@ export function acceptAgentChatState(previous: AgentChatState | undefined, incom
         if (source === 'receipt' && !incoming.activitySnapshot && !qualificationChanged) return previous
         const activitySnapshot = incoming.activitySnapshot ? reconcileActivitySnapshot(previous.activitySnapshot, incoming.activitySnapshot, incoming.activitySnapshot.scope) : previous.activitySnapshot
         const advanced = previous.activitySnapshot && incoming.activitySnapshot && sourceVectorHasAdvance(previous.activitySnapshot, incoming.activitySnapshot)
-        const messages = advanced || source === 'read' ? mergeChatMessages(previous.messages, incoming.messages)
-          .filter((message) => incoming.messages.some((entry) => entry.id === message.id)) : previous.messages
+        const messages = advanced || source === 'read' ? snapshotMessages(previous.messages, incoming.messages, incoming.revision) : previous.messages
         if (source === 'receipt' && !qualificationChanged) return { ...previous, messages, ...(activitySnapshot ? { activitySnapshot } : {}) }
         let sourceTranscript = previous.sourceTranscript
         if (source === 'read' && (!sourceTranscript || !incoming.sourceTranscript
@@ -109,8 +116,8 @@ export function acceptAgentChatState(previous: AgentChatState | undefined, incom
   const previousMessages = previous?.conversation?.id === incoming.conversation?.id ? previous?.messages : undefined
   const complete = new Map(previousMessages?.filter((message) => message.nativeMessageComplete === true).map((message) => [message.id, message]))
   const activitySnapshot = incoming.activitySnapshot ? reconcileActivitySnapshot(previous?.activitySnapshot, incoming.activitySnapshot, incoming.activitySnapshot.scope) : undefined
-  return { ...incoming, ...(activitySnapshot ? { activitySnapshot } : {}), messages: mergeChatMessages(previousMessages ?? [], incoming.messages.map((message) =>
-    message.nativeMessageComplete !== true && complete.has(message.id) ? complete.get(message.id)! : message)).filter((message) => incoming.messages.some((entry) => entry.id === message.id)),
+  return { ...incoming, ...(activitySnapshot ? { activitySnapshot } : {}), messages: snapshotMessages(previousMessages ?? [], incoming.messages.map((message) =>
+    message.nativeMessageComplete !== true && complete.has(message.id) ? complete.get(message.id)! : message), incoming.revision),
     turns: [...new Map(incoming.turns.map((turn) => [turn.requestId, turn])).values()]
       .sort((a, b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : BigInt(a.sequence) > BigInt(b.sequence) ? 1 : 0) }
 }
@@ -118,7 +125,7 @@ export function acceptAgentChatState(previous: AgentChatState | undefined, incom
 export const deliveryLabels: Record<AgentChatTurn['delivery'], string> = {
   queued: 'Queued', submitting: 'Sending', accepted: 'Delivered', completed: 'Completed', failed: 'Failed', canceled: 'Canceled', unknown: 'Unknown',
 }
-export const intentLabels: Record<AgentChatIntent, string> = { next_turn: 'Next turn', steer: 'Steer', interrupt_and_send: 'Interrupt and send' }
+export const intentLabels: Record<AgentChatIntent, string> = { auto: 'Automatic', next_turn: 'Next turn', steer: 'Steer', interrupt_and_send: 'Interrupt and send' }
 export function chatBusy(state: AgentChatState): boolean {
   return !!state.activeTurn || ['creating', 'active', 'interrupting', 'waiting_approval'].includes(state.sessionState)
 }

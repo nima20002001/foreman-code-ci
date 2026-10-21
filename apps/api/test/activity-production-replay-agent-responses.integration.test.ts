@@ -1,5 +1,5 @@
 import { expectMcpAccessDenied } from './helpers/deniedMcpTool.js'
-import { AgentChatStateSchema, SendAgentChatMessageResponseSchema } from '@foreman-code/contracts/agent-chat'
+import { AgentChatStateSchema, AgentChatSendResponseSchema } from '@foreman-code/contracts/agent-chat'
 import { afterEach, describe, expect, it } from 'vitest'
 import { postgresEnabled } from './helpers/wave25Agent3.js'
 import { closeActivityReplay, setup, eventually } from './helpers/activityReplayFixture.js'
@@ -14,7 +14,12 @@ describe.skipIf(!postgresEnabled)('Production activity replay: agent-responses',
     const first = await f.http('POST', `${base}/messages`, { requestId: 'approval-owner', content: 'recorded waiting message',
       intent: 'next_turn', expectedConversationId: null, context: query })
     expect(first.statusCode, first.body).toBe(202)
-    const id = SendAgentChatMessageResponseSchema.parse(first.json()).state.conversation!.id
+    const sent = AgentChatSendResponseSchema.parse(first.json())
+    expect('receipt' in sent).toBe(true)
+    if (!('state' in sent) || !sent.state || !('conversation' in sent.state) || !sent.state.conversation) {
+      throw new Error('The accepted message must retain its exact Agent conversation.')
+    }
+    const id = sent.state.conversation.id
     const read = async () => AgentChatStateSchema.parse((await f.http('GET',
       `${base}?workflowId=${workflowId}&workflowNodeId=${node.id}&agentId=${node.agentId}`)).json())
     const active = await eventually(read, (state) => !!state.activeTurn?.nativeTurnId)

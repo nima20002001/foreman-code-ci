@@ -9,9 +9,11 @@ import { VerifiedRemoteEvidence } from './resultBridge.js'
 /** Accepted dispatch is immutable; current native grant renewal is a separate audited fact. */
 export async function readReconciledDispatchIntent(sql: Pick<GraphTransactionSql, 'query'>, operationId: string, lock = false) {
   if (lock) {
-    // Credential and artifact operations lock the parent before its dispatch.
+    // Match execution writers: Run, execution, then dispatch.
     await sql.query(`select r.id from runs r join execution_dispatch_intents i on i.run_id=r.id
       where i.operation_id=$1 for share of r`, [operationId])
+    await sql.query(`select e.id from harness_executions e join execution_dispatch_intents i
+      on i.execution_id=e.id and i.run_id=e.run_id where i.operation_id=$1 for share of e`, [operationId])
   }
   const rows = await sql.query<{ record: unknown }>(`select record from execution_dispatch_intents where operation_id=$1${lock ? ' for update' : ''}`, [operationId])
   if (!rows.rows[0]) return undefined

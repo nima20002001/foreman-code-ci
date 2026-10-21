@@ -147,7 +147,7 @@ export class OperatorAgentMutationService {
           id:input.agentId,name:input.name,productRole:input.productRole,description:input.description,role:input.role,
           prompt:input.prompt ?? {},assignedSkills:input.assignedSkills ?? [], harnessProfileSelection,
           nativeTools: input.nativeTools ?? agentTemplateForRole(defaults.value, input.productRole).nativeTools,
-          ...(input.graphqlTools ? {graphqlTools:input.graphqlTools} : {}),
+          graphqlTools: input.graphqlTools ?? agentTemplateForRole(defaults.value, input.productRole).graphqlTools,
         }),configuration), false, this.validateProfile(livePrincipal))
         const revision = await client.query<{metadata_revision:string}>('select metadata_revision from agents where id=$1',[agent.id])
         return {agent,metadataRevision:Number(revision.rows[0]!.metadata_revision)}
@@ -187,6 +187,7 @@ export class OperatorAgentMutationService {
         const { configuration, selection: harnessProfileSelection } = preparation.value()
         authorizeAgentConfiguration(livePrincipal,input.workspaceId,configuration,input.assignedSkills ?? current.agent.assignedSkills)
         const edited = agentWithConfiguration(AgentSchema.parse({...current.agent, harnessProfileSelection,
+          ...(input.productRole !== undefined ? {productRole:input.productRole} : {}),
           ...(input.name !== undefined ? {name:input.name} : {}),
           ...(input.description !== undefined ? {description:input.description ?? undefined} : {}),
           ...(input.role !== undefined ? {role:input.role ?? undefined} : {}),

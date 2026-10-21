@@ -61,12 +61,18 @@ export function scenarioFixture(id: ScenarioId, suffix: string) {
       throw new Error(`Unexpected ${id} provider execution: node=${nodeIndex}, occurrence=${occurrenceIndex}`)
     }
     const data = { marker: `${id}:${nodeIndex}:${occurrenceIndex}`, unicode: 'exact-λ', nested: { zero: 0, no: false, empty: '' } }
-    return { outcome: 'succeeded', output: id === 'S3-03' && nodeIndex === 2
-      ? { text: JSON.stringify({ routing: { outcome: 'long' }, data }) }
-      : repeat && nodeIndex === 1 ? { text: JSON.stringify({
+    const fields = { summary: 'Completed the assigned work.', board: { kind: 'none', reason: 'no_access' } }
+    if (id === 'S3-03' && nodeIndex === 2) {
+      return { outcome: 'succeeded', output: { text: JSON.stringify({ routing: { outcome: 'long' }, data, ...fields }) } }
+    }
+    if (repeat && nodeIndex === 1) {
+      return { outcome: 'succeeded', output: { text: JSON.stringify({
         routing: { outcome: id === 'S3-05-early' && occurrenceIndex === occurrences ? 'pass' : 'issues' },
         data: { latestDeliverable: data, remainingFindings: id === 'S3-05-early' && occurrenceIndex === occurrences ? [] : [{ id: `finding-${occurrenceIndex}` }] },
-      }) } : data }
+        ...fields,
+      }) } }
+    }
+    return { outcome: 'succeeded', output: { data, ...fields } }
   }
   return { id, source, nodes, edges, repeat, occurrences, executedIndexes, predecessors, result,
     approvalNodeIds: id === 'S3-04' ? [nodes[1]!.id] : [],

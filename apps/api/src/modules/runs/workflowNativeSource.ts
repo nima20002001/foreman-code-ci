@@ -6,6 +6,9 @@ import { DomainError } from '../errors.js'
 import { repeatDigest, repeatId, repeatExecutionIdentity, type RepeatScope } from './repeatResolution.js'
 import type { StoredRepeatExecution } from './repeatPostgres.js'
 import type { WorkflowNativeProofRecord } from './workflowNativeProof.js'
+import type { HarnessExecution } from '@foreman-code/contracts'
+import { assertRepeatCanonicalReceiptLocked } from '../run-graph/repeatReceipts.js'
+import { assertOriginalWorkflowTerminal } from '../interactions/workflowTerminalSource.js'
 
 function fail(code = 'NATIVE_SOURCE_CONFLICT'): never {
   throw new DomainError(code, 'The original native source conflicts with its retained record.', 409)
@@ -24,7 +27,32 @@ export function workflowNativeSourceId(executionId: string, source: WorkflowOrig
 }
 function sourceIdentity(record: WorkflowNativeProofRecord): unknown {
   return { scope: record.scope, ref: record.ref, execution: record.execution, inputDigest: record.inputDigest,
-    session: record.session, commandId: record.commandId, original: record.original }
+    session: record.session, commandId: record.commandId, original: record.original,
+    ...(record.settlementOf ? { settlementOf: record.settlementOf } : {}) }
+}
+
+/** The terminal that committed with the execution, before physical settlement. */
+export async function readWorkflowTerminalSource(sql: GraphTransactionSql,
+  execution: HarnessExecution): Promise<WorkflowNativeProofRecord | undefined> {
+  const rows = (await sql.query<{ record: WorkflowNativeProofRecord; source_digest: string }>(`
+    select record,source_digest from workflow_native_proofs where run_id=$1 and execution_id=$2
+      and record->>'observedAt'=$3 and record#>>'{original,type}'='history'
+      and record#>'{original,history,terminalTurn}' is not null and not (record ? 'settlementOf')`,
+  [execution.runId, execution.id, execution.finishedAt])).rows
+  if (!rows.length) return undefined
+  if (rows.length !== 1) return fail()
+  const { record, source_digest } = rows[0]!
+  if (record.original.type !== 'history' || !record.original.history.terminalTurn
+    || record.inputDigest !== repeatDigest(execution.input)
+    || canonicalGraphJson(record.execution) !== canonicalGraphJson(repeatExecutionIdentity(execution))
+    || record.session.nativeSessionId !== execution.nativeSessionId
+    || repeatDigest(record, REMOTE_NATIVE_SOURCE_LIMIT) !== source_digest) return fail()
+  assertOriginalWorkflowTerminal(execution, record.session, record.original.history,
+    record.original.history.terminalTurn.correlationId)
+  await assertRepeatCanonicalReceiptLocked(sql, { scope: record.scope,
+    evidence: { sourceKind: 'native_event', sourceId: record.proofId, sourceRevision: '1' },
+    sourceDigest: source_digest, effect: null })
+  return structuredClone(record)
 }
 
 export function workflowNativeSourceRecord(capture: WorkflowNativeCapture, stored: StoredRepeatExecution,

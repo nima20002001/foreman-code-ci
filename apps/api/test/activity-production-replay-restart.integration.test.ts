@@ -85,7 +85,8 @@ describe.skipIf(!postgresEnabled)('Production activity replay: restart', { timeo
         // Supply the provider's original accepted handoff result through its native transport.
         const first = await eventually(async () => f.replay.starts[0], (value) => value !== undefined)
         f.replay.complete(first!.sessionId, first!.nativeTurnId, JSON.stringify({ routing: { kind: 'finish' },
-          data: { latestDeliverable: { revision: 1 }, remainingFindings: [] } }))
+          data: { latestDeliverable: { revision: 1 }, remainingFindings: [] },
+          summary: 'Completed the first handoff.', board: { kind: 'none', reason: 'no_access' } }))
         await successorQueued
         const before = (await f.db.pool.query<{ id: string; record: { state: string; input: unknown } }>(
           'select id,record from harness_executions where run_id=$1 and workflow_node_id=$2',
@@ -102,7 +103,8 @@ describe.skipIf(!postgresEnabled)('Production activity replay: restart', { timeo
         const resumed = f.reconcile()
         const second = await eventually(async () => f.replay.starts[1], (value) => value !== undefined)
         f.replay.complete(second!.sessionId, second!.nativeTurnId, JSON.stringify({ routing: { kind: 'finish' },
-          data: { latestDeliverable: { revision: 2 }, remainingFindings: [] } }))
+          data: { latestDeliverable: { revision: 2 }, remainingFindings: [] },
+          summary: 'Completed the second handoff.', board: { kind: 'none', reason: 'no_access' } }))
         await resumed
         const detail = await eventually(async () => SavedRunDetailsSchema.parse((await f.http('GET',
           `/api/management/workspaces/${f.saved.scope.workspaceId}/runs/${started.run.id}`)).json()),

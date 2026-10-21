@@ -1,3 +1,4 @@
+import { OperatorConversationStateSchema } from '@foreman-code/contracts'
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
 import { randomUUID } from 'node:crypto'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
@@ -138,8 +139,8 @@ describe.skipIf(!postgresEnabled)('Authenticated Operator conversation tools', (
     expect(recovered.isError).not.toBe(true)
     const result = SendOperatorMessageResponseSchema.parse(decodeMcpToolResult(recovered))
     expect(result.replayed).toBe(true)
-    expect(result.state.messages.map((message) => message.content)).toContain(request.content)
-    expect(result.state.activities?.[0]?.output).toBe('Private tool output')
+    expect(OperatorConversationStateSchema.parse(result.state).messages.map((message) => message.content)).toContain(request.content)
+    expect(OperatorConversationStateSchema.parse(result.state).activities?.[0]?.output).toBe('Private tool output')
     expect(await repository.get(conversation.id)).toEqual(before)
     expect(manager.turns).toBe(0)
 
@@ -352,7 +353,7 @@ describe.skipIf(!postgresEnabled)('Authenticated Operator conversation tools', (
       conversationId: conversation.id, request,
     } })
     expect(sent.isError).not.toBe(true)
-    expect(SendOperatorMessageResponseSchema.parse(decodeMcpToolResult(sent)).state.messages)
+    expect(OperatorConversationStateSchema.parse(SendOperatorMessageResponseSchema.parse(decodeMcpToolResult(sent)).state).messages)
       .toContainEqual(expect.objectContaining({ role: 'user', content, requestId: request.requestId }))
     await vi.waitFor(async () => expect((await chat.get(conversation.id, owner.principal)).turnState).toBe('active'))
     const persisted = await new PostgresOperatorConversationRepository(database.pool).get(conversation.id)

@@ -11,9 +11,12 @@ import {
 } from './workHandoffNotice.js'
 import { selectedWorkHandoffRoutes } from './workHandoffRouting.js'
 import { parseWorkResultLocked, readWorkReturnRequestLocked } from './workReturnValidation.js'
+import { isHierarchyWorkflow, type HierarchyWorkResult } from './hierarchyResults.js'
+import type { RepeatLockedHooks } from './repeatPostgres.js'
 
 interface DeliveryContext {
   sql: GraphTransactionSql; scope: RepeatScope; version: WorkflowVersionV3; now: string
+  hooks?: Pick<RepeatLockedHooks, 'run'>
 }
 
 async function assertDatabaseEnvelopeFits(sql: GraphTransactionSql, envelope: unknown): Promise<void> {
@@ -36,13 +39,18 @@ async function assertNoticeFits(context: DeliveryContext, input: WorkLimitNotice
 }
 
 async function assertReturnFits(context: DeliveryContext, execution: HarnessExecution,
-  activationId: string, result: WorkHandoffResult): Promise<void> {
+  activationId: string, result: WorkHandoffResult | HierarchyWorkResult): Promise<void> {
   const routing = (await parseWorkResultLocked(context, execution, activationId)).routing
   if (routing.kind !== 'return') return repeatConflict('WORK_RETURN_RESULT_CONFLICT')
   const request = await readWorkReturnRequestLocked(context, activationId, routing.requestId)
   if (request.destinationNodeId !== execution.workflowNodeId) return repeatConflict('WORK_RETURN_ANCESTRY_CONFLICT')
   const returnId = repeatId('work-return', execution.id)
-  const continuationActivationId = routing.outcome === 'needs_changes' ? repeatId('work-activation', 'returns', request.requesterActivationId) : undefined
+  const group = (await context.sql.query<{ continuation_activation_id: string }>(
+    `select g.continuation_activation_id from run_hierarchy_groups g join run_hierarchy_group_members m
+      on m.run_id=g.run_id and m.group_id=g.group_id where m.run_id=$1 and m.request_id=$2`,
+    [context.scope.runId, request.requestId])).rows[0]
+  const continuationActivationId = routing.outcome === 'needs_changes'
+    ? group?.continuation_activation_id ?? repeatId('work-activation', 'returns', request.requesterActivationId) : undefined
   const returned = WorkReturnSchema.parse({ scope: context.scope, returnId, requestId: request.requestId,
     sourceActivationId: activationId, sourceExecutionId: execution.id,
     requesterActivationId: request.requesterActivationId,
@@ -52,7 +60,7 @@ async function assertReturnFits(context: DeliveryContext, execution: HarnessExec
     returnedAt: context.now })
   await assertDatabaseEnvelopeFits(context.sql, returned)
   const edge = context.version.definition.edges.find((item) => item.id === request.relationshipId)
-  if (continuationActivationId && edge?.maxWorkHandoffsPerRun !== undefined) {
+  if (!group && continuationActivationId && edge?.maxWorkHandoffsPerRun !== undefined) {
     await assertNoticeFits(context, { cause: { kind: 'last_return', returnId },
       requesterActivationId: request.requesterActivationId, requesterNodeId: request.requesterNodeId,
       continuationActivationId, relationshipId: request.relationshipId, destinationNodeId: request.destinationNodeId,
@@ -63,10 +71,12 @@ async function assertReturnFits(context: DeliveryContext, execution: HarnessExec
 
 /** Validate derived envelopes under the Run lock, before committing terminal acceptance. */
 export async function assertWorkHandoffDeliveryLocked(context: DeliveryContext, execution: HarnessExecution,
-  activationId: string, result: WorkHandoffResult): Promise<void> {
+  activationId: string, result: WorkHandoffResult | HierarchyWorkResult): Promise<void> {
   try {
     if (result.routing.kind === 'return') return await assertReturnFits(context, execution, activationId, result)
-    const routes = selectedWorkHandoffRoutes(context.version.definition, execution.workflowNodeId, result)
+    if (isHierarchyWorkflow(context.version)) return
+    if (result.routing.kind === 'delegate') return repeatConflict('HIERARCHY_REQUIRED')
+    const routes = selectedWorkHandoffRoutes(context.version.definition, execution.workflowNodeId, result as WorkHandoffResult)
     for (const relationshipId of routes) {
       const edge = context.version.definition.edges.find((item) => item.id === relationshipId)
       if (!edge || edge.kind !== 'execution') return repeatConflict('WORK_REQUEST_ROUTE_FORBIDDEN')

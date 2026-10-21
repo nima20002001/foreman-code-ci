@@ -1,3 +1,4 @@
+import { COORDINATION_RESULT_PROTOCOL } from '@foreman-code/contracts'
 import { randomUUID } from 'node:crypto'
 import { posix } from 'node:path'
 import type pg from 'pg'
@@ -188,7 +189,7 @@ export class AgentPlacementProducer implements RunPlacementAdmissionPort {
             attestationId: root.attestationId, attestationHash: root.attestationDigest },
           source: { kind: 'pending', ...root.source, revisionId: root.source.snapshotId, rootId: root.binding.rootId,
             bindingRevision: root.binding.bindingRevision, materializationId: null, materializationDigest: null },
-          payload: { kind: 'agent', agentId: config.agentId, agentConfigurationVersionId: config.id,
+          payload: { kind: 'agent', resultProtocol: COORDINATION_RESULT_PROTOCOL, agentId: config.agentId, agentConfigurationVersionId: config.id,
             ...(accountBinding ? { accountBinding } : {}),
             ...(worktree ? { worktree } : {}),
             ...(node.artifactOutputs ? { artifactOutputs: structuredClone(node.artifactOutputs) } : {}),

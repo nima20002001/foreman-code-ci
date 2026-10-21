@@ -9,7 +9,8 @@ import { canonicalGraphJson, OutputSchemaSchema } from '@foreman-code/contracts/
 import { canonicalJson } from '@foreman-code/contracts/canonical-json'
 import { DispatchIntentSchema, type AcceptedNodePlacement, type DispatchIntent, type NativeExecutionPlacement } from '@foreman-code/contracts/node-placement'
 import { RemoteOwnerControlSchema, RemoteReviewerAssignmentSchema, remoteActiveNative, type RemoteReviewerRequest,
-  type RemoteNativeIdentity, type RemoteTerminalEvidence, type RemoteOperationReceipt, type RemoteOwnerReconciliation, type RemoteApplicationAccess } from '@foreman-code/contracts/remote-execution'
+  type RemoteNativeIdentity, type RemoteTerminalEvidence, type RemoteOperationReceipt, type RemoteOwnerControl,
+  type RemoteOwnerReconciliation, type RemoteApplicationAccess } from '@foreman-code/contracts/remote-execution'
 import { RemoteExecutionRpcRequestSchema } from '@foreman-code/contracts/remote-execution-rpc'
 import type { DeviceConnectionIdentity } from '@foreman-code/contracts/device-identity'
 import type { NativeSessionManagerResolver, NativeManagerResolutionContext } from '../../interactions/runtimePorts.js'
@@ -35,7 +36,8 @@ export interface RemoteExecutionHostPorts {
   connection: DeviceConnectionIdentity
   incarnationId: string
   managers: NativeSessionManagerResolver
-  authorize(intent: DispatchIntent, placement: AcceptedNodePlacement, action: 'start' | 'read' | 'control' | 'stop', signal?: AbortSignal): Promise<void>
+  authorize(intent: DispatchIntent, placement: AcceptedNodePlacement, action: 'start' | 'read' | 'control' | 'stop',
+    signal?: AbortSignal, workflowControl?: RemoteOwnerControl): Promise<void>
   authorizeReview?(intent: DispatchIntent, placement: AcceptedNodePlacement, review: RemoteReviewerRequest): Promise<void>
   /** Host-local credentials and sandbox policy; never copied from main. */
   attestRuntimeLeaf(intent: DispatchIntent, placement: AcceptedNodePlacement, request: HarnessExecutionRequest, executionPlacement?: NativeExecutionPlacement, signal?: AbortSignal): Promise<RuntimeLeafAttestation>
@@ -142,7 +144,8 @@ export class RemoteExecutionHost {
     if (frame.method === 'control') action = frame.command.action.kind === 'stop' ? 'stop' : 'control'
     else if (frame.method === 'session-compact' || frame.method === 'session-preferences-apply') action = 'control'
     else if (frame.method === 'prepare' || frame.method === 'start-turn' && !frame.review) action = 'start'
-    await this.ports.authorize(frame.intent, placement, action)
+    await this.ports.authorize(frame.intent, placement, action, undefined,
+      frame.method === 'control' && frame.command.workflowControl ? frame.command : undefined)
     if (frame.method === 'control-delivery') {
       const command = frame.command
       if (command.operationId !== frame.intent.operationId || command.executionId !== frame.intent.executionId
@@ -715,13 +718,13 @@ export class RemoteExecutionHost {
       if (intent.operationId !== command.operationId || intent.bindingHash !== placement.bindingHash
         || placement.hostRef.kind !== 'device' || placement.hostRef.deviceId !== this.ports.connection.deviceId
         || placement.mainId !== this.ports.connection.mainId) throw new Error('Control placement mismatch')
-      await this.ports.authorize(intent, placement, action)
+      await this.ports.authorize(intent, placement, action, undefined, command.workflowControl ? command : undefined)
       this.bindings.set(command.operationId, { intent, placement })
       await this.ports.journal.accept(intent, this.ports.connection, this.ports.incarnationId)
     }
     const owned = this.bindings.get(command.operationId)
     if (!owned) throw new Error('Original control owner requires reconciliation')
-    await this.ports.authorize(owned.intent, owned.placement, action)
+    await this.ports.authorize(owned.intent, owned.placement, action, undefined, command.workflowControl ? command : undefined)
     const resident = this.residents.get(command.operationId)
     if (!resident) {
       if (command.action.kind !== 'stop') throw new Error('Original native question unavailable')
@@ -761,13 +764,20 @@ export class RemoteExecutionHost {
       && !(command.action.kind === 'stop' && delivery === 'entered')) {
       return this.ports.journal.status(command.operationId)
     }
-    await this.ports.authorize(resident.intent, resident.placement, action)
+    await this.ports.authorize(resident.intent, resident.placement, action, undefined, command.workflowControl ? command : undefined)
     if (delivery !== 'entered' && !await this.ports.journal.enterControlDelivery(command)) {
       return this.ports.journal.status(command.operationId)
     }
     try {
       if (command.action.kind === 'stop') await this.cancelResident(resident, remoteActiveNative(recorded.receipt)?.turnId)
-      else await resident.manager.respond(resident.session, command.action.nativeInteractionId, ApprovalResponseOptionSchema.parse(command.action.response))
+      else if (command.action.kind === 'steer') {
+        if (!resident.manager.steerTurn || resident.session.harness !== 'codex'
+          || !command.native?.turnId || !command.workflowControl) throw new Error('Qualified Worker steering is unavailable')
+        const accepted = await resident.manager.steerTurn(resident.session, { prompt: command.action.prompt,
+          expectedTurnId: command.native.turnId, clientCorrelationId: command.commandId,
+          controlCommandId: command.commandId, ownerRequestId: command.workflowControl.ownerRequestId })
+        if (accepted.nativeTurnId !== command.native.turnId) throw new Error('Worker steering acknowledgement changed the native turn')
+      } else await resident.manager.respond(resident.session, command.action.nativeInteractionId, ApprovalResponseOptionSchema.parse(command.action.response))
       await this.ports.journal.acknowledgeControl(command)
       await this.settle(resident, `execution:${resident.intent.executionId}`)
     } catch (error) {

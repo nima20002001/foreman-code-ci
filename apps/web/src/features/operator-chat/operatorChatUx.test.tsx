@@ -11,6 +11,7 @@ import { ApiError, getManagedAgentDefaults, updateManagedAgentDefaults } from '.
 import { queryKeys } from '../../shared/api/query'
 import { OperatorComposerSettings } from './OperatorComposerSettings'
 import { OperatorChat } from './OperatorChat'
+import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { configuredOperatorSetup } from './operatorSetupTestFixture'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { askOperator, useOperatorChatStore } from './operatorChatStore'
@@ -37,6 +38,7 @@ vi.mock('../provider-accounts/useProviderHarnessModels', () => ({ useProviderHar
 ] } }) }))
 vi.mock('../../shared/api/query', async (original) => ({ ...await original<typeof import('../../shared/api/query')>(), useHarnessDefaultsQuery: () => ({ data: { defaults: { ...DEFAULT_HARNESS_DEFAULTS, claude: savedClaudeConfiguration } } }) }))
 let client: QueryClient
+beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   vi.clearAllMocks(); window.localStorage.clear()
   clearRevisionedFormPersistence()
@@ -176,20 +178,35 @@ describe('Operator chat UX', () => {
   })
 
   it('saves chat model and effort to shared Operator defaults and restores them in a future chat', async () => {
+    const accepted = operatorChatSettings({ ...DEFAULT_HARNESS_DEFAULTS.codex, model: 'model-b', reasoningEffort: 'low' })
+    const pinned = operatorState({ settings: accepted, turnState: 'idle', activeRequestId: null })
+    api.get.mockResolvedValue(pinned)
+    api.send.mockResolvedValue({ state: pinned, replayed: false })
     chat()
     fireEvent.click(await screen.findByRole('button', { name: /Agent settings:/ }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('This chat: Codex · model-b · low effort')
+    expect(screen.getByText('These settings apply to new chats. The selected chat keeps its current settings.')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
     fireEvent.click(screen.getByRole('button', { name: /Model A/ }))
     await waitFor(async () => expect((await getManagedAgentDefaults()).value.operator.harness.model).toBe('model-a'))
     await waitFor(() => expect(screen.getByRole('slider', { name: 'Effort' })).toBeEnabled())
     fireEvent.change(screen.getByRole('slider', { name: 'Effort' }), { target: { value: '1' } })
     await waitFor(async () => expect((await getManagedAgentDefaults()).value.operator.harness).toMatchObject({ model: 'model-a', reasoningEffort: 'high' }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('model-b · low effort')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent settings: New chats, Model A, high' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Use this selected chat' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(api.send).toHaveBeenCalledWith('conversation-one', expect.objectContaining({ content: 'Use this selected chat', settings: accepted })))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(''))
+    const future = operatorChatSettings((await getManagedAgentDefaults()).value.operator.harness)
     cleanup(); client.clear(); clearRevisionedFormPersistence()
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     useOperatorChatStore.getState().select('future-chat')
-    api.get.mockResolvedValue(operatorState({ conversation: { ...operatorState().conversation, id: 'future-chat' }, turnState: 'idle', activeRequestId: null }))
+    api.get.mockResolvedValue(operatorState({ conversation: { ...operatorState().conversation, id: 'future-chat' }, settings: future, turnState: 'idle', activeRequestId: null }))
     chat()
-    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: Model A, high' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: New chats, Model A, high' }))
+    expect(screen.getByLabelText('Accepted chat settings')).toHaveTextContent('model-a · high effort')
     expect(screen.getByRole('switch', { name: 'Show thinking' })).toBeInTheDocument()
   })
 
@@ -229,7 +246,7 @@ describe('Operator chat UX', () => {
       http.get('/api/operator/setup', () => HttpResponse.json(configuredOperatorSetup('claude'))),
     )
     chat()
-    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: Sonnet 5.5, medium' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent settings: New chats, Sonnet 5.5, medium' }))
     const choose = async (name: string, id: string) => {
       fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`${name}.*${id}`) }))
@@ -242,7 +259,7 @@ describe('Operator chat UX', () => {
     delete nativeDefault.effort
     expect(saved.value.operator.harness).toEqual(nativeDefault)
     expect(screen.queryByText('Changes were not saved')).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5' })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5' })).toBeEnabled())
     expect(screen.queryByRole('slider', { name: 'Effort' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /Choose model/ })).toBeEnabled())
     await choose('Sonnet 5.5', 'claude-sonnet-5-5')
@@ -294,10 +311,10 @@ describe('Operator chat UX', () => {
     chat()
     if (action === 'retry a frozen request') expect(await screen.findByText(/The previous save may have committed/)).toBeVisible()
     else expect(await screen.findByText('Changes were not saved')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5, medium' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5, medium' })).toBeVisible()
     if (action !== 'select a supported model') fireEvent.click(screen.getByRole('button', { name: 'Retry settings save' }))
     else {
-      fireEvent.click(screen.getByRole('button', { name: 'Agent settings: Haiku 4.5, medium' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Agent settings: New chats, Haiku 4.5, medium' }))
       fireEvent.click(screen.getByRole('button', { name: /Choose model/ }))
       fireEvent.click(screen.getByRole('button', { name: /Sonnet 5.5.*claude-sonnet-5-5/ }))
     }
@@ -350,45 +367,28 @@ describe('Operator chat UX', () => {
   })
 
 
-  it('starts a linked child on the first send after changing harness', async () => {
-    const locks = Object.getOwnPropertyDescriptor(navigator, 'locks')
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
-      request: async (_name: string, _options: LockOptions, work: (lock: Lock) => unknown) => work({ name: 'operator-outbox', mode: 'exclusive' } as Lock),
-    } })
-    try {
-      const source = operatorState({ revision: 7, turnState: 'idle', activeRequestId: null,
-        settings: operatorChatSettings(DEFAULT_HARNESS_DEFAULTS.codex),
-        messages: [{ id: 'old-message', conversationId: 'conversation-one', requestId: 'old-turn', role: 'assistant', content: 'Earlier answer' }] })
-      const before = await getManagedAgentDefaults()
-      await updateManagedAgentDefaults({ commandId: 'choose-claude-for-handoff-test', expectedRevision: before.revision,
-        value: { ...before.value, operator: { ...before.value.operator, harness: savedClaudeConfiguration } } })
-      const child = operatorState({ conversation: { ...source.conversation, id: 'operator-fork:new-turn' }, revision: 1,
-        turnState: 'starting', activeRequestId: 'new-turn', settings: operatorChatSettings(savedClaudeConfiguration),
-        handoff: { parentConversationId: 'conversation-one', sourceHarness: 'codex', sourceMessageSequence: '1', omittedMessages: 0 },
-        messages: [{ id: 'new-message', conversationId: 'operator-fork:new-turn', requestId: 'new-turn', role: 'user', content: 'Continue here' }] })
-      api.get.mockImplementation(async (id) => id === 'conversation-one' ? source : { ...child,
-        conversation: { ...child.conversation, id }, messages: child.messages.map((message) => ({ ...message, conversationId: id })) })
-      api.list.mockResolvedValue({ conversations: [summarizeOperatorConversation(source)] })
-      api.send.mockImplementation(async (_id, command) => ({ state: { ...child, conversation: { ...child.conversation, id: `operator-fork:${command.requestId}` },
-        messages: [{ ...child.messages[0], conversationId: `operator-fork:${command.requestId}`, requestId: command.requestId }] }, replayed: false }))
-      chat()
-      expect(await screen.findByText('Your next message starts a Claude chat with prior conversation context.')).toBeVisible()
-      const composer = within(screen.getByRole('form', { name: 'Conversation composer' }))
-      fireEvent.change(composer.getByRole('textbox', { name: 'Message' }), { target: { value: 'Continue here' } })
-      await waitFor(() => expect(composer.getByRole('button', { name: 'Send message' })).toBeEnabled())
-      fireEvent.click(composer.getByRole('button', { name: 'Send message' }))
-      await waitFor(() => expect(api.send).toHaveBeenCalledWith('conversation-one', expect.objectContaining({
-        content: 'Continue here', forkExpectedRevision: 7, settings: expect.objectContaining({ harness: 'claude' }),
-      })))
-      await waitFor(() => expect(useOperatorChatStore.getState().selectedConversationId).toMatch(/^operator-fork:/))
-      expect(await screen.findByText('Continued from')).toBeVisible()
-      expect(screen.getByRole('button', { name: 'codex chat' })).toBeVisible()
-      fireEvent.click(screen.getByRole('button', { name: 'codex chat' }))
-      expect(useOperatorChatStore.getState().selectedConversationId).toBe('conversation-one')
-    } finally {
-      if (locks) Object.defineProperty(navigator, 'locks', locks)
-      else Reflect.deleteProperty(navigator, 'locks')
-    }
+  it('keeps a draft pinned after changing harness and requires explicit new-chat navigation', async () => {
+    const source = operatorState({ revision: 7, turnState: 'idle', activeRequestId: null,
+      settings: operatorChatSettings(DEFAULT_HARNESS_DEFAULTS.codex),
+      messages: [{ id: 'old-message', conversationId: 'conversation-one', role: 'assistant', content: 'Earlier answer' }] })
+    const before = await getManagedAgentDefaults()
+    await updateManagedAgentDefaults({ commandId: 'choose-claude-for-new-chat', expectedRevision: before.revision,
+      value: { ...before.value, operator: { ...before.value.operator, harness: savedClaudeConfiguration } } })
+    api.get.mockImplementation(async id => id === source.conversation.id ? source : operatorState({
+      conversation: { ...source.conversation, id }, settings: operatorChatSettings(savedClaudeConfiguration),
+      messages: [], turnState: 'idle', activeRequestId: null }))
+    chat()
+    expect(await screen.findByText('Changed Operator settings apply to a new chat. This draft stays with the selected conversation.')).toBeVisible()
+    const input = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.change(input, { target: { value: 'Continue here' } })
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(api.send).not.toHaveBeenCalled()
+    expect(useOperatorChatStore.getState().selectedConversationId).toBe('conversation-one')
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    await waitFor(() => expect(useOperatorChatStore.getState().selectedConversationId).toBe('new-chat'))
+    expect(useConversationDraftStore.getState().drafts['conversation-one']).toBe('Continue here')
+    expect(await screen.findByRole('textbox', { name: 'Message' })).toHaveValue('')
   })
 
   it('does not promise a handoff when a new chat has no previous messages', async () => {
@@ -594,28 +594,23 @@ describe('PR19 receipt recovery and navigation fencing', () => {
     expect(api.send).toHaveBeenCalledTimes(1)
   }))
 
-  it.each(['another chat', 'new chat', 'away and back'] as const)('does not steal selection after navigating to %s during a delayed handoff response', async (destination) => withPr19Locks(async () => {
+  it.each(['another chat', 'new chat', 'away and back'] as const)('does not clear another draft or steal selection after navigating to %s during a canonical send', async destination => {
     const source = operatorState({ revision: 7, turnState: 'idle', activeRequestId: null,
       conversation: { ...operatorState().conversation, operatorConfigurationVersionId: 'source-config' },
-      settings: operatorChatSettings(DEFAULT_HARNESS_DEFAULTS.codex),
-      messages: [{ id: 'old-message', conversationId: 'conversation-one', requestId: 'old-turn', role: 'assistant', content: 'Earlier answer' }] })
-    const before = await getManagedAgentDefaults()
-    await updateManagedAgentDefaults({ commandId: `pr19-handoff-${destination}`, expectedRevision: before.revision,
-      value: { ...before.value, operator: { ...before.value.operator, harness: savedClaudeConfiguration } } })
+      messages: [{ id: 'old-message', conversationId: 'conversation-one', role: 'assistant', content: 'Earlier answer' }] })
     api.get.mockImplementation(async (id: string) => id === 'conversation-one' ? source : operatorState({
       conversation: { ...source.conversation, id }, turnState: 'idle', activeRequestId: null, messages: [] }))
     api.list.mockResolvedValue({ conversations: [summarizeOperatorConversation(source)] })
     let resolve!: (value: unknown) => void
-    api.send.mockImplementation(() => new Promise((done) => { resolve = done }))
+    api.send.mockImplementation(() => new Promise(done => { resolve = done }))
     chat()
-    const composer = within(await screen.findByRole('form', { name: 'Conversation composer' }))
-    fireEvent.change(composer.getByRole('textbox', { name: 'Message' }), { target: { value: 'Continue here' } })
-    await waitFor(() => expect(composer.getByRole('button', { name: 'Send message' })).toBeEnabled())
-    fireEvent.click(composer.getByRole('button', { name: 'Send message' }))
+    const input = await screen.findByRole('textbox', { name: 'Message' })
+    fireEvent.change(input, { target: { value: 'Continue here' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(api.send).toHaveBeenCalledTimes(1))
     const command = api.send.mock.calls[0]![1]
     expect(command.configurationVersionId).toBe('source-config')
-    expect(command.defaultsRevision).toBe(before.revision + 1)
     if (destination === 'new chat') {
       fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
       await waitFor(() => expect(useOperatorChatStore.getState().selectedConversationId).toBe('new-chat'))
@@ -624,15 +619,14 @@ describe('PR19 receipt recovery and navigation fencing', () => {
       if (destination === 'away and back') useOperatorChatStore.getState().select('conversation-one')
     })
     const selected = useOperatorChatStore.getState().selectedConversationId
-    const childId = `operator-fork:${command.requestId}`
-    await act(async () => resolve({ replayed: false, state: operatorState({
-      conversation: { ...source.conversation, id: childId }, revision: 1, activeRequestId: null, turnState: 'idle',
-      messages: [{ id: 'child-message', conversationId: childId, requestId: command.requestId, role: 'user', content: command.content }],
-    }) }))
-    expect(await screen.findByRole('button', { name: 'Open continued chat' })).toBeVisible()
+    const nextInput = await screen.findByRole('textbox', { name: 'Message' })
+    fireEvent.change(nextInput, { target: { value: 'A later editable draft' } })
+    await act(async () => resolve({ replayed: false, state: source }))
+    await waitFor(() => expect(client.isMutating()).toBe(0))
     expect(useOperatorChatStore.getState().selectedConversationId).toBe(selected)
+    expect(nextInput).toHaveValue('A later editable draft')
     expect(api.send).toHaveBeenCalledTimes(1)
-  }))
+  })
 })
 
 it('keeps historical OpenCode messages visible with no composer or response controls', async () => {

@@ -8,8 +8,9 @@ export const WorkerConversationMcpRequestSchema = z.discriminatedUnion('operatio
   z.object({ ...fields, operation: z.literal('conversation-mcp.request'), body: z.json(),
     protocolVersion: z.string().max(64).optional() }).strict(),
 ]).superRefine((value, context) => {
-  if (value.binding.owner.kind !== 'operator' || value.binding.appMcpAccess !== 'scoped') {
-    context.addIssue({ code: 'custom', message: 'Management MCP requires an admitted scoped Operator conversation.' })
+  if (value.binding.appMcpAccess !== 'scoped'
+    || value.binding.owner.kind === 'agent' && !value.admissionId) {
+    context.addIssue({ code: 'custom', message: 'MCP requires a scoped conversation and an admitted Agent binding.' })
   }
 })
 export type WorkerConversationMcpRequest = z.infer<typeof WorkerConversationMcpRequestSchema>

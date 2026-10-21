@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect } from 'vitest'
+import { parseCoordinationResult } from '@foreman-code/contracts'
 import {
   CurrentWorkflowReadResultSchema, CURRENT_WORKFLOW_TOOLS, RepeatGraphSnapshotV3Schema,
   RunStartV3InputSchema, type WorkflowDefinitionV3,
@@ -95,7 +96,10 @@ export async function assertHistoricalVersionPins(via: Via) {
   // Same IDs/configurations/Run input, different saved definitions. No retagging
   // of versions or Runs, and no overwriting an old accepted result.
   const ordinary: Scenario = { ...repeated, id: 'S3-01', repeat: false, occurrences: 1,
-    result: (node, round) => ({ outcome: 'succeeded', output: { marker: `ordinary:${node}:${round}`, exact: [0, false, '', 'λ'] } }) }
+    result: (node, round) => ({ outcome: 'succeeded', output: {
+      data: { marker: `ordinary:${node}:${round}`, exact: [0, false, '', 'λ'] },
+      summary: 'Completed the assigned work.', board: { kind: 'none', reason: 'no_access' },
+    } }) }
   const completed: Array<{ started: Started; initial: ReturnType<typeof RepeatGraphSnapshotV3Schema.parse>; expected: Scenario;
     evidence: Awaited<ReturnType<typeof assertScenarioEvidence>> }> = []
   try {
@@ -105,6 +109,12 @@ export async function assertHistoricalVersionPins(via: Via) {
       const graph = previous ? { ...raw, id: previous.version.workflowId, version: previous.version.version,
         createdAt: previous.version.definition.createdAt, updatedAt: previous.version.definition.updatedAt } : raw
       const { saved } = await f.save(via, previous, graph)
+      for (const index of expected.executedIndexes) {
+        expect(() => parseCoordinationResult(expected.result(index, 1).output, {
+          resultProtocol: 'f1-f4-v1', definition: saved.version.definition,
+          workflowNodeId: expected.nodes[index]!.id,
+        })).not.toThrow()
+      }
       expect(saved.version.executionSemanticsVersion).toBe(3)
       expect(Object.hasOwn(saved.version.definition, 'repeat')).toBe(expected.repeat)
       if (previous) expect(saved.version.id).not.toBe(previous.version.id)

@@ -1,0 +1,21 @@
+.memory-board { min-width: 0; }
+.memory-board-dialog { width: min(1120px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+.memory-filter-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.memory-filter-row .n-field:first-child { flex: 1 1 240px; }
+.memory-columns { display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 12px; overflow-x: auto; padding: 4px 2px 12px; }
+.memory-column { min-width: 0; border: 1px solid var(--n-border, #45434a); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.memory-column h3 { margin: 0; font-size: 0.95rem; }
+.memory-card, .memory-note { border: 1px solid var(--n-border, #45434a); border-radius: 8px; padding: 10px; min-width: 0; overflow-wrap: anywhere; }
+.memory-card-title { width: 100%; text-align: start; justify-content: start; white-space: normal; font-weight: 600; }
+.memory-card-owner, .memory-card-reason { font-size: 0.875rem; margin: 6px 0; }
+.memory-card small { opacity: 0.75; }
+.memory-notes-list { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.memory-note { flex: 1 1 260px; }
+.memory-editor, .memory-detail, .memory-conflict, .memory-unsaved { border: 1px solid var(--n-border, #45434a); border-radius: 10px; padding: 16px; }
+.memory-fieldset { margin: 0; padding: 12px; border: 1px solid var(--n-border, #45434a); border-radius: 8px; }
+.memory-work-option + .memory-work-option { margin-top: 12px; }
+.memory-work-choices { display: grid; gap: 8px; margin: 8px 0 0 20px; }
+.memory-work-list { display: grid; gap: 12px; padding-left: 20px; }
+.memory-preserve-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-recovery:empty { display: none; }
+@media (max-width: 640px) { .memory-board-dialog { width: calc(100vw - 16px); } .memory-columns { grid-template-columns: repeat(4, minmax(240px, 1fr)); } }

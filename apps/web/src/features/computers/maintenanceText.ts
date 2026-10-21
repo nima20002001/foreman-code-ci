@@ -1,7 +1,7 @@
 import type { MaintenanceTask } from '@foreman-code/contracts/computer-maintenance'
 
 const TASK_LABELS: Record<string, string> = { 'update-harnesses': 'Harness update', 'update-system': 'System update', restart: 'Restart',
-  'sync-mcp': 'MCP sync', 'sync-plugins': 'Plugin sync', 'update-worker': 'Worker update' }
+  'sync-mcp': 'MCP sync', 'sync-plugins': 'Plugin sync', 'update-worker': 'Worker update', 'repair-browser': 'Browser repair' }
 export function taskLabel(kind: string) { return TASK_LABELS[kind] ?? kind }
 
 /** Known system and Worker codes in plain words. The raw text stays available for the tooltip. */

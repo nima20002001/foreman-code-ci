@@ -20,9 +20,10 @@ export function validateReviewerBootstrap(
   if (nodes.length !== 1 || !reviewer || entryNodeId !== reviewer.id
     || definition.approval?.handler !== 'orchestrator'
     || definition.approval.designatedOrchestratorAgentId !== approval.designatedOrchestratorAgentId
-    || definition.edges.some((edge) => edge.target === reviewer.id && edge.kind === 'execution')) {
+    || !(definition.hierarchy && definition.handoffs)
+      && definition.edges.some((edge) => edge.target === reviewer.id && edge.kind === 'execution')) {
     throw new DomainError('APPROVAL_REVIEWER_BOOTSTRAP_ORDER',
-      'The designated Orchestrator must appear once as the accepted entry, with no incoming execution dependency. Independent or recursive reviewer startup is unsupported.', 409)
+      'The designated coordinator must appear once as the accepted entry, with no incoming automatic execution dependency. Independent or recursive reviewer startup is unsupported.', 409)
   }
   if (configuration?.harness === 'codex') {
     if (configuration.advanced?.approvalPolicy !== 'on-request'

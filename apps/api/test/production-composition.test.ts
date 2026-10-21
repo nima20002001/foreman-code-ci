@@ -277,3 +277,23 @@ it('does not register the removed Operator approval HTTP routes', async () => {
   expect(production.app.hasRoute({ method: 'GET', url: '/api/interactions/:interactionId' })).toBe(false)
   expect(production.app.hasRoute({ method: 'POST', url: '/api/interactions/:interactionId/respond' })).toBe(false)
 })
+
+it('exposes Run-owned chat over authenticated HTTP and MCP in production', async () => {
+  principal = operator(['agent_chat:read', 'agent_chat:write', 'agent_chat:cancel'])
+  const discovery = await production.app.inject({ method: 'POST', url: '/mcp',
+    headers: { authorization: 'Bearer test-operator', accept: 'application/json, text/event-stream' },
+    payload: { jsonrpc: '2.0', id: 'execution-chat-discovery', method: 'tools/list' },
+  })
+  expect(discovery.statusCode, discovery.body).toBe(200)
+  const message = JSON.parse(discovery.body.split('\n').find(line => line.startsWith('data: '))!.slice(6))
+  expect(message.result.tools).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: 'agent_chat_cancel_all_queued' }),
+  ]))
+  const target = { kind: 'workflow_execution',
+    agent: { workspaceId: 'workspace-1', workflowId: 'workflow-1', workflowNodeId: 'node-1', agentId: 'agent-1' },
+    execution: { runId: 'run-1', workflowVersionId: 'version-1', executionId: 'execution-1', attempt: 1 } }
+  const denied = await production.app.inject({ method: 'POST',
+    url: '/api/workspaces/workspace-1/workflows/workflow-1/execution-chat/read',
+    headers: { authorization: 'Bearer invalid-operator' }, payload: { target } })
+  expect(denied.statusCode, denied.body).toBe(401)
+})

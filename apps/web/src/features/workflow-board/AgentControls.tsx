@@ -13,6 +13,8 @@ import { changeDraftAgent, editorAgents } from '../graph/nextDraft/agentEdits'
 import type { NextDraftEdit } from '../graph/nextDraft/state'
 import { useWorktreeChoices } from '../../shared/api/worktreeChoices'
 import { worktreeLabel } from './worktreePresentation'
+import { hierarchyNodes, reparentHierarchyWorker } from '../workflow-hierarchy/authoring'
+import { WorkerParentField } from '../workflow-hierarchy/WorkerParentField'
 
 function installAgent(draftKey: string, instanceId: string, agent: Agent, nodeId?: string, prompt?: string,
   graphqlTools?: GraphqlToolOverride, placement?: SavedNodePlacement, worktree?: AgentWorktreeSettings) {
@@ -33,10 +35,22 @@ function installAgent(draftKey: string, instanceId: string, agent: Agent, nodeId
       id, agentId: agent.id, name: agent.name,
     }
     const agentForms = { ...current.agentForms }; delete agentForms[id]
-    return changeDraftAgent({ ...current, agentForms }, agent, { ...graph,
+    const workflowForms = { ...current.workflowForms }, workerParents = { ...workflowForms.workerParents }
+    const parent = workerParents[id]
+    let nextGraph: NextDraftEdit['graph'] = { ...graph,
       nodes: node ? graph.nodes.map((item) => item.id === id ? nextNode : item) : [...graph.nodes, nextNode],
       entryNodeId: !graph.nodes.length ? id : graph.entryNodeId,
-    })
+    }
+    if (parent !== undefined) {
+      if (!hierarchyNodes(current).some(item => item.role === 'orchestrator' && item.node.id === parent)) {
+        throw new Error('Choose an Orchestrator for this Worker before applying.')
+      }
+      nextGraph = reparentHierarchyWorker(nextGraph, id, parent)
+      delete workerParents[id]
+      if (Object.keys(workerParents).length) workflowForms.workerParents = workerParents
+      else delete workflowForms.workerParents
+    }
+    return changeDraftAgent({ ...current, agentForms, workflowForms }, agent, nextGraph)
   })
 }
 
@@ -62,6 +76,9 @@ function BoardAgentSettingsVisit({ draftKey, edit, nodeId, close, remove, placem
     return { ...option, ...(root?.commit ? { commit: root.commit } : {}) }
   })
   if (!node || !agent) return <Alert tone="warning" title="This agent’s settings aren’t available." />
+  const worker = !!edit.graph.hierarchy && agent.productRole === 'coder'
+  const selectedParent = edit.workflowForms?.workerParents?.[nodeId]
+  const parentDirty = selectedParent !== undefined && selectedParent !== edit.graph.hierarchy?.parents.find(member => member.workflowNodeId === nodeId)?.parentNodeId
   // Re-key on the staged agent so a discard or reload never leaves stale values in the open form.
   return <>
     {!choiceScope ? <p role="status">Save this node and Agent before choosing its computer.</p> : choices.isError ? <Alert tone="warning" title="Computer choices are unavailable." /> : null}
@@ -74,11 +91,17 @@ function BoardAgentSettingsVisit({ draftKey, edit, nodeId, close, remove, placem
     placementStage={sameWorkflowValue(node.placement, savedNode?.placement) ? 'saved' : 'draft'}
     placementOptionsState={placementOptions ? 'ready' : !choiceScope || choices.isError || choices.isPaused ? 'unavailable' : choices.isPending ? 'loading' : 'ready'}
     retainedForm={edit.agentForms?.[node.id]}
+    additionalDirty={parentDirty}
+    additionalFields={worker ? <WorkerParentField draftKey={draftKey} edit={edit} nodeId={node.id} /> : undefined}
     onFormChange={(form) => useGraphDraftStore.getState().updateNextDraft(draftKey, (current) => ({ ...current,
       agentForms: { ...current.agentForms, [node.id]: form } }))}
     onDiscardForm={() => useGraphDraftStore.getState().updateNextDraft(draftKey, (current) => {
       const agentForms = { ...current.agentForms }; delete agentForms[node.id]
-      return { ...current, agentForms }
+      const workflowForms = { ...current.workflowForms }, workerParents = { ...workflowForms.workerParents }
+      delete workerParents[node.id]
+      if (Object.keys(workerParents).length) workflowForms.workerParents = workerParents
+      else delete workflowForms.workerParents
+      return { ...current, agentForms, workflowForms }
     })}
     canResume={() => {
       const current = useGraphDraftStore.getState().nextDrafts[draftKey]

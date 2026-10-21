@@ -225,13 +225,13 @@ export class NativeHarnessFactories {
       }
       this.instances.select(input.configured.instanceId)
     }
-    if ((input.role === 'agent-chat' || input.role === 'diagnostics' || input.role === 'qualification')
+    if ((input.role === 'diagnostics' || input.role === 'qualification')
       && input.appMcpAccess !== 'none') {
       throw new DomainError('HARNESS_ROLE_AUTHORITY_INVALID', 'This runtime role has no application MCP credentials.', 403)
     }
-    if (input.chatFiles && input.appMcpAccess === 'scoped' && input.role !== 'operator') {
+    if (input.chatFiles && input.appMcpAccess === 'scoped' && input.role !== 'operator' && input.role !== 'agent-chat') {
       throw new DomainError('HARNESS_ROLE_AUTHORITY_INVALID',
-        'Only Operator chat can combine file tools with application management credentials.', 403)
+        'Only conversation owners can combine file tools with scoped application credentials.', 403)
     }
     const auxiliary = input.role === 'diagnostics' || input.role === 'qualification'
     if (auxiliary && this.auxiliaryClosing) throw new DomainError(

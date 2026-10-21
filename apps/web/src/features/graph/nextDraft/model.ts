@@ -38,9 +38,9 @@ export function roleEvidence(context: NextDraftContext, agentId: string, agentEd
   }
   if (!agent || !agent.configurationVersionId
     || (expected && expected.configurationVersionId !== agent.configurationVersionId)) return { source: 'unavailable' }
-  const role = agent.productRole
+  const role = local?.productRole ?? agent.productRole
   if (role !== 'master' && role !== 'orchestrator' && role !== 'coder') return { source: 'unavailable' }
-  return { role, source: 'configuration', configurationVersionId: agent.configurationVersionId }
+  return { role, source: local?.productRole && local.productRole !== agent.productRole ? 'staged' : 'configuration', configurationVersionId: agent.configurationVersionId }
 }
 
 export function entryChoices(graph: WorkflowDefinitionV3, context: NextDraftContext, agentEdits: DraftAgentEdits = {}) {
@@ -76,7 +76,7 @@ export function authoringHints(graph: WorkflowDefinitionV3, context: NextDraftCo
     : entry.mode === 'orchestrator' ? 'Choose the orchestrator that starts the workflow.'
       : 'Choose the worker that starts the workflow.' })
   for (const edge of graph.edges) {
-    if (edge.kind === 'execution' && edge.target === graph.entryNodeId) issues.push({
+    if (!(graph.hierarchy && graph.handoffs) && edge.kind === 'execution' && edge.target === graph.entryNodeId) issues.push({
       code: 'ENTRY_HAS_DEPENDENCY', relationshipId: edge.id, message: 'The starting agent can’t receive a handoff. Remove or redirect that connection.',
     })
   }
@@ -90,7 +90,8 @@ export function authoringHints(graph: WorkflowDefinitionV3, context: NextDraftCo
       declared.add(item.outcome)
       if (item.target.kind === 'edge') {
         targets.add(item.target.relationshipId)
-        if (!graph.edges.some((edge) => item.target.kind === 'edge' && edge.id === item.target.relationshipId && edge.kind === 'execution' && edge.source === node.id)) issues.push({
+        if (!graph.edges.some((edge) => item.target.kind === 'edge' && edge.id === item.target.relationshipId && edge.kind === 'execution'
+          && (edge.source === node.id || graph.hierarchy && graph.handoffs && edge.workRequestDirection === 'both' && edge.target === node.id))) issues.push({
           code: 'CHOICE_TARGET_REQUIRED', nodeId: node.id, relationshipId: item.target.relationshipId,
           message: 'Send each outcome to one of this agent’s handoffs, or end the branch.',
         })
@@ -132,8 +133,13 @@ export function removeRelationship(graph: WorkflowDefinitionV3, relationshipId: 
 
 export function removeNode(graph: WorkflowDefinitionV3, nodeId: string): WorkflowDefinitionV3 {
   if (!graph.nodes.some((node) => node.id === nodeId)) return graph
+  if (graph.hierarchy?.masterNodeId === nodeId) throw new Error('Replace the Master or explicitly remove the Master hierarchy in Workflow settings before removing this node.')
+  if (graph.hierarchy?.parents.some(member => member.parentNodeId === nodeId)) {
+    throw new Error('Move this Orchestrator’s Workers to another Orchestrator before removing it.')
+  }
   return { ...graph, nodes: graph.nodes.filter((node) => node.id !== nodeId),
     edges: graph.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+    ...(graph.hierarchy ? { hierarchy: { ...graph.hierarchy, parents: graph.hierarchy.parents.filter(member => member.workflowNodeId !== nodeId) } } : {}),
     entryNodeId: graph.entryNodeId === nodeId ? null : graph.entryNodeId }
 }
 

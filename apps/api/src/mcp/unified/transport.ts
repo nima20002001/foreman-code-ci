@@ -22,6 +22,7 @@ import type { BugReportService } from '../../modules/bug-reports/service.js'
 import type { PostgresCommandCoordinator } from '../../modules/commands/postgres.js'
 import { retiredExecutionToolCall } from '../operator/retiredExecutionTools.js'
 import { unavailableCurrentWorkflowToolCall } from '../operator/tools/currentWorkflow.js'
+import { unavailableWorkflowHierarchyToolCall } from '../operator/tools/workflowHierarchy.js'
 import { unavailableRunGraphToolCall } from '../operator/tools/runGraph.js'
 import { unavailableRunInspectionToolCall } from '../operator/tools/runInspection.js'
 import { unavailableFileRetentionToolCall } from '../operator/tools/fileRetention.js'
@@ -113,6 +114,7 @@ export function registerGraphqlMcp(app: FastifyInstance, services: GraphqlMcpSer
         ?? await retiredExecutionToolCall(context, request.body)
         ?? await unavailableRunToolCall(context, request.body)
         ?? await unavailableCurrentWorkflowToolCall(context, request.body)
+        ?? await unavailableWorkflowHierarchyToolCall(context, request.body)
         ?? await unavailableRunGraphToolCall(context, request.body)
         ?? await unavailableRunInspectionToolCall(context, request.body)
         ?? await unavailableFileReferenceToolCall(context, request.body)

@@ -59,7 +59,7 @@ export function filterMcpServers(start: NativeSessionStart, servers: Readonly<Re
     name === 'graphql-files' || nativeMcpServerAllowed(name, policy)))
 }
 
-export function queryOptions(ctx: ClaudeManagerContext, start: NativeSessionStart, preferences = SessionPreferencesSchema.parse({})) {
+export function queryOptions(ctx: ClaudeManagerContext, start: NativeSessionStart, preferences = SessionPreferencesSchema.parse({})): Record<string, unknown> & { env: NodeJS.ProcessEnv } {
   const configuration = sessionStartConfiguration(start)
   const nativeTools = configuration.nativeTools
   const sdkOptions = { ...ctx.options.sdkOptions }
@@ -141,7 +141,8 @@ export function sessionContext(start: NativeSessionStart) {
   return start.kind === 'operator'
     ? { kind: start.kind, configuration: start.configuration,
       cwd: start.workingDirectory, environment: start.environment }
-    : { kind: 'workflow', request: start.request, environment: start.environment }
+    : { kind: start.kind ?? 'workflow', request: start.request, environment: start.environment,
+      ...(start.kind === 'workflow-consultation' ? { consultation: start.consultation } : {}) }
 }
 
 export function makeRuntime(ctx: ClaudeManagerContext, start: NativeSessionStart): Runtime {

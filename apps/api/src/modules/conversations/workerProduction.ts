@@ -1,3 +1,4 @@
+import { assertWorkerSteerAuthority } from './workerSteerAuthority.js'
 import type pg from 'pg'
 import { isDeepStrictEqual } from 'node:util'
 import { commandInputHash } from '@foreman-code/contracts/command-identity-node'
@@ -25,10 +26,11 @@ import type { PostgresOperatorConversationRepository } from './operatorChatRepos
 import type { PostgresAgentChatRepository } from './agentChatRepository.js'
 import { nativeCorrelation } from './operatorChatRepository.js'
 import { agentChatCorrelation } from './agentChatRepository.js'
-import { WorkerConversationManager } from './workerManager.js'
+import { WorkerConversationManager, type WorkerConversationManagerOptions } from './workerManager.js'
+import type { AcceptedChatInput } from './nativeChatInput.js'
 import { MainWorkerConversationBridge } from './workerBridge.js'
 import { DomainError } from '../errors.js'
-import { MainWorkerConversationMcp } from './mainWorkerMcp.js'
+import { MainWorkerConversationMcp, type WorkerConversationAgentMcp } from './mainWorkerMcp.js'
 import type { PostgresAccessService } from '../access/postgres.js'
 import type { SelectedMainMcpForward } from '../placement/workerMcpRelay.js'
 import { ApprovedRootAllowlistSchema, WORKSPACE_ROOT_EXTENSION } from '@foreman-code/contracts/workspace-root-policies'
@@ -73,7 +75,7 @@ function unavailable(message: string): never {
   throw new DomainError('WORKER_CONVERSATION_UNAVAILABLE', message, 409)
 }
 
-interface ProductionWorkerConversationsInput {
+export interface ProductionWorkerConversationsInput {
   pool: pg.Pool
   endpoint(): Pick<DeviceEndpoint, 'captureRequest'>
   profiles: AcceptedHarnessProfileAdmission<ClaudeProfileOwner>
@@ -85,11 +87,12 @@ interface ProductionWorkerConversationsInput {
   suiteRevisions: Partial<Record<'codex', string>>
   access: Pick<PostgresAccessService, 'authenticate'>
   mcpForward(): SelectedMainMcpForward
+  agentMcp?: WorkerConversationAgentMcp
   files?(conversationId: string, configuration: WorkerConversationConfiguration, workingDirectory: string): PrepareWorkerFiles
   fileService?(): AgentFileToolService
 }
 
-interface WorkerConversationOptions {
+export interface WorkerConversationOptions {
   conversationId: string
   configuration: WorkerConversationConfiguration
   lifecycle?: 'owner' | 'observer'
@@ -99,6 +102,7 @@ interface WorkerConversationOptions {
   observationPrincipalId?: string
   profileSelection?: AcceptedProfileSelector
   sourceExecution?: WorkerConversationBinding['sourceExecution']
+  applicationAccess?: import('./workerManager.js').WorkerConversationManagerOptions['applicationAccess']
 }
 
 async function authorizeWorkerConversationRequest(pool: pg.Pool, live: OwnerRow,
@@ -127,7 +131,8 @@ async function authorizeWorkerConversationRequest(pool: pg.Pool, live: OwnerRow,
   }
   if (context.changingAccess && request.method === 'conversation.open'
     && (!live.active_request_id || request.mode !== 'attach'
-      || request.operationId !== nativeCorrelation(live.id, live.active_request_id)
+      || request.operationId !== (live.kind === 'agent' ? agentChatCorrelation(live.id, live.active_request_id)
+        : nativeCorrelation(live.id, live.active_request_id))
       || !isDeepStrictEqual(request.previousBinding, context.originalBinding))) {
     unavailable('The native access change differs from the admitted Operator message.')
   }
@@ -146,24 +151,13 @@ async function authorizeWorkerConversationRequest(pool: pg.Pool, live: OwnerRow,
     if (request.method === 'conversation.respond') action = `${prefix}:respond`
     requireAuthorization(principal, action, scope)
   }
+  if (request.method === 'conversation.steer') {
+    await assertWorkerSteerAuthority(pool, live, request, currentCaller)
+  }
   if (request.method === 'conversation.start-turn' || request.method === 'conversation.initial-turn') {
     const correlation = live.kind === 'operator' ? nativeCorrelation(live.id, live.active_request_id ?? '')
       : agentChatCorrelation(live.id, live.active_request_id ?? '')
     if (!live.active_request_id || request.correlationId !== correlation) unavailable('The admitted chat message changed.')
-  }
-  if (request.method === 'conversation.steer') {
-    const prefix = agentChatCorrelation(live.id, '')
-    if (live.kind !== 'agent' || !live.active_request_id || !request.correlationId.startsWith(prefix)) {
-      unavailable('The admitted steering message is unavailable.')
-    }
-    const requestId = request.correlationId.slice(prefix.length)
-    const admitted = await agents.turn(live.id, requestId)
-    if (admitted?.intent !== 'steer' || admitted.delivery !== 'submitting'
-      || admitted.targetNativeTurnId !== request.expectedTurnId
-      || live.active_native_turn_id !== request.expectedTurnId
-      || await agents.turnContent(live.id, requestId) !== request.prompt) {
-      unavailable('The admitted steering message or its active turn changed.')
-    }
   }
   if ('session' in request && live.native_session_id && live.native_session_id !== request.session.nativeSessionId) {
     unavailable('The addressed native session changed.')
@@ -233,6 +227,37 @@ function currentWorkerConversationChannel(input: Pick<ProductionWorkerConversati
     if (actual.binding[field] !== expected[field]) unavailable('The original paired worker authority changed.')
   }
   return actual
+}
+
+function conversationClaudeAuthority(pool: pg.Pool, owner: ConversationClaudeOwner,
+  files: ReturnType<typeof createMainWorkerClaudeFiles> | undefined): NonNullable<WorkerConversationManagerOptions['claudeAuthority']> {
+  return async (request, signal) => {
+    signal.throwIfAborted()
+    const context = request.phase === 'admission' ? undefined : request.identity
+    const authority = new PostgresClaudeInteractionAuthority(pool, owner, {
+      nativeCallbackContext: (sessionId, toolUseId) => context
+        && context.nativeSessionId === sessionId && context.toolUseId === toolUseId ? context : undefined,
+    })
+    if (request.phase === 'admission') return authority.callbackAdmission()
+    const { nativeTurnId, nativeRequestId, nativeRequestType, ...required } = request.identity
+    const identity: ClaudeCallbackIdentity = { ...definedProperties(required),
+      ...(nativeTurnId !== undefined ? { nativeTurnId } : {}),
+      ...(nativeRequestId !== undefined ? { nativeRequestId } : {}),
+      ...(nativeRequestType !== undefined ? { nativeRequestType } : {}),
+    }
+    if (request.phase === 'pending') await authority.publishPending(identity, request.pending)
+    else if (request.phase === 'response') await authority.validateResponse(identity, {
+      outcome: request.answer.outcome,
+      ...(request.answer.reason !== undefined ? { reason: request.answer.reason } : {}),
+    })
+    else await authority.validate(identity)
+    signal.throwIfAborted()
+    if (request.phase === 'file') {
+      if (!files || identity.nativeTurnId !== undefined) unavailable('This native file callback is unavailable.')
+      return files.call(request, identity, signal)
+    }
+    return { authorized: true }
+  }
 }
 
 async function admitWorkerConversation(input: ProductionWorkerConversationsInput,
@@ -379,6 +404,7 @@ async function admitWorkerConversation(input: ProductionWorkerConversationsInput
       allowMutation: configuration.harness.sandbox !== 'read-only' }) : undefined
   const manager = new WorkerConversationManager({ binding, configuration: executionConfiguration,
     lifecycle: options.lifecycle ?? 'owner',
+    ...(options.applicationAccess ? { applicationAccess: options.applicationAccess } : {}),
     channel, currentChannel, bridge, current,
     currentForDisposal: (request, effectSignal) => current(request, effectSignal, principalId),
     ...(executionConfiguration !== configuration && 'operatorId' in configuration
@@ -388,35 +414,8 @@ async function admitWorkerConversation(input: ProductionWorkerConversationsInput
     sourceWorkingDirectory: options.workingDirectory,
     ...(configuration.harness.harness === 'codex' && (binding.appMcpAccess === 'none' || options.fileInputs) && input.files
       ? { files: input.files(options.conversationId, configuration, binding.workingDirectory) } : {}),
-    ...(configuration.harness.harness === 'claude' ? { claudeAuthority: async (
-      request: import('@foreman-code/contracts/remote-execution-rpc').WorkerClaudeAuthorityRequest,
-      effectSignal: AbortSignal) => {
-      effectSignal.throwIfAborted()
-      const context = request.phase === 'admission' ? undefined : request.identity
-      const authority = new PostgresClaudeInteractionAuthority(input.pool, owner, {
-        nativeCallbackContext: (sessionId, toolUseId) => context
-          && context.nativeSessionId === sessionId && context.toolUseId === toolUseId ? context : undefined,
-      })
-      if (request.phase === 'admission') return authority.callbackAdmission()
-      const { nativeTurnId, nativeRequestId, nativeRequestType, ...required } = request.identity
-      const identity: ClaudeCallbackIdentity = { ...definedProperties(required),
-        ...(nativeTurnId !== undefined ? { nativeTurnId } : {}),
-        ...(nativeRequestId !== undefined ? { nativeRequestId } : {}),
-        ...(nativeRequestType !== undefined ? { nativeRequestType } : {}),
-      }
-      if (request.phase === 'pending') await authority.publishPending(identity, request.pending)
-      else if (request.phase === 'response') await authority.validateResponse(identity, {
-        outcome: request.answer.outcome,
-        ...(request.answer.reason !== undefined ? { reason: request.answer.reason } : {}),
-      })
-      else await authority.validate(identity)
-      effectSignal.throwIfAborted()
-      if (request.phase === 'file') {
-        if (!claudeFiles || identity.nativeTurnId !== undefined) unavailable('This native file callback is unavailable.')
-        return claudeFiles.call(request, identity, effectSignal)
-      }
-      return { authorized: true }
-    } } : {}),
+    ...(configuration.harness.harness === 'claude'
+      ? { claudeAuthority: conversationClaudeAuthority(input.pool, owner, claudeFiles) } : {}),
     profile: () => readWorkerConversationProfileFacts(input, configuration, accepted),
     observeSession: async session => {
       const saved = await input.pool.query(`update operator_conversations set worker_conversation_binding=$2::jsonb
@@ -466,10 +465,22 @@ export function createProductionWorkerConversations(input: ProductionWorkerConve
       : { kind: 'agent', conversationId: options.conversationId,
         workspaceId: configuration.workspaceId, repository: input.agents }
     const profiles = configuration.harness.harness === 'claude' ? input.claudeProfiles : input.profiles
+    const prepared = new Map<string, AcceptedChatInput>()
+    let actual: WorkerConversationManager | undefined
     const admitted = createAdmittedNativeManager<WorkerConversationManager>(configuration.harness.harness,
-      signal => admitWorkerConversation(input, options, {
-        configuration, selector, owner, profiles, kind, bridge, row, caller: () => caller,
-      }, signal))
+      async signal => {
+        const allocation = await admitWorkerConversation(input, options, {
+          configuration, selector, owner, profiles, kind, bridge, row, caller: () => caller,
+        }, signal)
+        actual = allocation.manager
+        for (const [correlationId, value] of prepared) actual.restorePreparedInput(correlationId, value)
+        prepared.clear()
+        return allocation
+      })
+    Object.assign(admitted.manager, { restorePreparedInput: (correlationId: string, value: AcceptedChatInput) => {
+      if (actual) actual.restorePreparedInput(correlationId, value)
+      else prepared.set(correlationId, structuredClone(value))
+    } })
     admitted.manager.setSessionControlPrincipal = principalId => { caller = principalId }
     admitted.manager.reconcileSessionCreation = async (start, signal, forkSource) => {
       const manager = await admitted.actual(signal)
@@ -479,12 +490,10 @@ export function createProductionWorkerConversations(input: ProductionWorkerConve
       const manager = await admitted.actual(signal)
       return manager.mcpInspectionContext!(signal)
     }
-    if (configuration.harness.harness === 'claude') {
-      admitted.manager.startInitialTurn = async function* (start, turn, signal) {
-        const manager = await admitted.actual(signal)
-        if (!manager.startInitialTurn) unavailable('The worker Claude adapter does not support atomic initial message admission.')
-        yield* manager.startInitialTurn(start, turn, signal)
-      }
+    admitted.manager.startInitialTurn = async function* (start, turn, signal) {
+      const manager = await admitted.actual(signal)
+      if (!manager.startInitialTurn) unavailable('The worker adapter does not support admitted initial input.')
+      yield* manager.startInitialTurn(start, turn, signal)
     }
     inspectors.set(admitted.manager, admitted.inspector)
     if (configuration.harness.harness === 'claude' && kind === 'operator' && options.appMcpAccess === 'scoped') {
@@ -538,7 +547,8 @@ export function createProductionWorkerConversations(input: ProductionWorkerConve
   }
   const mcp = new MainWorkerConversationMcp({ pool: input.pool, access: input.access, operators: input.operators,
     profiles: input.profiles, claudeProfiles: input.claudeProfiles, bridge,
-    current: deviceId => input.endpoint().captureRequest(deviceId, 'execution-v1')?.binding, forward: input.mcpForward })
+    current: deviceId => input.endpoint().captureRequest(deviceId, 'execution-v1')?.binding, forward: input.mcpForward,
+    ...(input.agentMcp ? { agent: input.agentMcp } : {}) })
   const closeConversation = async (conversationId: string, signal: AbortSignal) => {
     const original = await row(conversationId, 'conversation.close')
     if (!original.worker_conversation_binding || !original.native_session_id || !original.provider_version) {

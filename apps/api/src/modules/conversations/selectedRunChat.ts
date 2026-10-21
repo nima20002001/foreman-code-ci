@@ -1,3 +1,4 @@
+import type { SqlQuery } from '../../infrastructure/transaction.js'
 import type pg from 'pg'
 import { withTransaction } from '../../infrastructure/transaction.js'
 import type { HarnessExecution } from '@foreman-code/contracts'
@@ -50,7 +51,7 @@ export function assertRunChatConversation(row: AgentConversationRow, context: Ag
 }
 
 /** All physical scope/origin columns participate; never lookup a Run conversation by Agent alone. */
-export async function findRunChatConversation(query: Queryable, context: AgentChatContext,
+export async function findRunChatConversation(query: SqlQuery, context: AgentChatContext,
   executionId: string): Promise<AgentConversationRow | undefined> {
   if (!context.runId) staleRunChat()
   const rows = (await query.query<AgentConversationRow>(`

@@ -15,7 +15,8 @@ async function publish(path, content, mode) {
 
 // This convenience installs files only. Starting/enabling the user service and
 // enabling linger remain explicit actions by the approved OS user.
-export async function setupCompanion({ home, node, artifact, approvedManifestSha256, facts, updatePolicy, serviceTemplate }) {
+export async function setupCompanion({ home, node, artifact, approvedManifestSha256, facts, updatePolicy, serviceTemplate,
+  browserRuntimeLifecycle, browserRuntimeReadiness }) {
   const root = join(home, '.local/lib/graphql-worker');
   const state = join(home, '.local/state/graphql-worker');
   const path = workerPath(home, node);
@@ -29,6 +30,8 @@ export async function setupCompanion({ home, node, artifact, approvedManifestSha
     facts,
     expected: { protocolVersion: 1, identityFormat: 1 },
     updatePolicy,
+    browserRuntimeLifecycle,
+    browserRuntimeReadiness,
     publishInstallation: publishLaunchers,
   });
 

@@ -9,10 +9,10 @@ import { useRunsSelectorUi } from './uiStore'
 import type { SelectedRunState } from './useSelectedRun'
 import './runsSelector.css'
 
-export type RunsSelectorProps = { selection: SelectedRunState; className?: string }
+export type RunsSelectorProps = { selection: SelectedRunState; className?: string; triggerLabel?: string }
 
 /** Mount beside Board controls; selection can be shared with the snapshot/chat consumer. */
-export function RunsSelector({ selection, className = '' }: RunsSelectorProps) {
+export function RunsSelector({ selection, className = '', triggerLabel = 'Runs' }: RunsSelectorProps) {
   const id = useId()
   const { identity } = selection
   const openId = JSON.stringify([id, identity.workspaceId, identity.workflowId])
@@ -86,12 +86,12 @@ export function RunsSelector({ selection, className = '' }: RunsSelectorProps) {
   }
 
   return <div className={`n-menu runs-selector ${className}`}>
-    <Button ref={trigger} size="sm" variant="ghost" className="runs-selector-trigger" aria-label="Runs" title="Runs"
+    <Button ref={trigger} size="sm" variant="ghost" className="runs-selector-trigger" aria-label={triggerLabel} title={triggerLabel}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} disabled={!selection.active}
       onClick={() => open ? close() : show()} onKeyDown={(event) => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(event.key === 'ArrowUp') }
       }}>
-      Runs <Icon name="down" size={13} />
+      {triggerLabel} <Icon name="down" size={13} />
     </Button>
     {identity.runId !== null || selection.invalid ? <IconButton label="Return to workflow" size="sm" variant="ghost"
       disabled={!selection.active} onClick={() => choose(null)}><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /></IconButton> : null}

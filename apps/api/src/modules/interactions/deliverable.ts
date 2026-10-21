@@ -1,4 +1,4 @@
-import { ExecutionResultSchema, type ExecutionResult } from '@foreman-code/contracts'
+import { ExecutionResultSchema, parseCoordinationResult, type CoordinationResultContext, type ExecutionResult } from '@foreman-code/contracts'
 import {
   OUTPUT_MISMATCH_CODE, OUTPUT_REFERENCE_KEYWORD, OUTPUT_REFERENCE_UNKNOWN_CODE, OUTPUT_SCHEMA_INVALID_CODE,
   checkDeliverable, deliverableReferences,
@@ -12,6 +12,7 @@ export type DeliverableSource = 'text' | 'data' | 'latestDeliverable'
 
 /** Per-execution deliverable contract. Omitting values lists all references this execution created. */
 export interface DeliverableContract {
+  coordination?: CoordinationResultContext
   source: DeliverableSource
   outputSchema?: OutputSchema | undefined
   referencesExist(kind: OutputReferenceKind, values?: readonly string[]): Promise<ReadonlySet<string>>
@@ -72,7 +73,18 @@ function referenceHint(kind: OutputReferenceKind, value: string, available: Read
 /** Returns undefined when the deliverable passes; otherwise the code and every issue for the repair turn. */
 export async function deliverableVerdict(result: ExecutionResult, contract: DeliverableContract): Promise<DeliverableVerdict | undefined> {
   if (result.outcome !== 'succeeded') return undefined
-  const deliverable = deliverableOf(result.output, contract)
+  let deliverable: ReturnType<typeof deliverableOf>
+  if (contract.coordination) {
+    try {
+      const parsed = parseCoordinationResult(result.output, contract.coordination)
+      if (contract.coordination.interval) return undefined
+      deliverable = contract.source === 'latestDeliverable' && isObject(parsed.data)
+        ? { value: parsed.data.latestDeliverable } : { value: parsed.data }
+    } catch (error) {
+      return { code: OUTPUT_MISMATCH_CODE, issues: [{ code: OUTPUT_MISMATCH_CODE, path: '',
+        message: error instanceof Error ? error.message : 'The coordination result is invalid.' }] }
+    }
+  } else deliverable = deliverableOf(result.output, contract)
   if (deliverable === 'not-json') {
     return { code: OUTPUT_MISMATCH_CODE,
       issues: [{ code: OUTPUT_MISMATCH_CODE, path: '', message: 'The final answer must be one JSON value, without Markdown, that matches the output schema.' }] }
@@ -140,6 +152,8 @@ function codexStrict(node: unknown): boolean {
 
 /** Native structured output for a plain-answer node, without Foreman reference markers. */
 export function nativeOutputSchema(contract: DeliverableContract): Record<string, unknown> | undefined {
+  // Coordination envelopes include arbitrary JSON and optional mutation variants outside the native strict-schema subset.
+  if (contract.coordination) return undefined
   const schema = contract.outputSchema
   if (contract.source !== 'text' || !schema || schema.type !== 'object' || !codexStrict(schema)) return undefined
   const strip = (node: unknown): unknown => {

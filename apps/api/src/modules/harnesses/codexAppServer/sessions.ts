@@ -13,9 +13,12 @@ import { CodexRpcError, object, text, type JsonObject } from '../codexStdioTrans
 import type { CodexOriginalResidency, CodexOriginalSessionLifetime, Runtime, Creation } from './types.js'
 import { advanced, accepted, binding, credentialIdentity, configuration, threadParameters, isUncertain } from './support.js'
 import { CodexManagerTurns } from './turns.js'
+import { assertConsultationSession } from '../consultationSession.js'
 
 export abstract class CodexManagerSessions extends CodexManagerTurns {
   async createSession(source: NativeSessionStart, signal?: AbortSignal): Promise<NativeSessionReference> {
+    if (source.kind === 'workflow-consultation') throw new HarnessExecutionError('CONSULTATION_NATIVE_ATTACH_REQUIRED',
+      'A consultation can only attach its persisted coordinator session.')
     if (isWorkflowStart(source) && source.sessionContinuation) {
       return this.attachSessionRuntime(source.sessionContinuation.session, { ...source, instructionsDelivered: true },
         { signal, workflowContinuation: true })
@@ -281,6 +284,7 @@ export abstract class CodexManagerSessions extends CodexManagerTurns {
   }
 
   async attachSession(session: NativeSessionReference, source: NativeSessionStart, signal?: AbortSignal): Promise<NativeSessionReference> {
+    assertConsultationSession(source, session)
     return this.attachSessionRuntime(session, source, { signal })
   }
 
@@ -374,7 +378,14 @@ export abstract class CodexManagerSessions extends CodexManagerTurns {
 
   /** `thread/fork` copies the source history into a new thread; the source thread is never written. */
   async forkSession(source: NativeSessionReference, value: NativeSessionStart, signal?: AbortSignal): Promise<NativeSessionReference> {
+    if (value.kind === 'workflow-consultation') throw new HarnessExecutionError('CONSULTATION_NATIVE_ATTACH_REQUIRED',
+      'A consultation cannot fork its coordinator session.')
     return this.beginCreation(value, { forkSource: source, signal })
+  }
+
+  async closeForResume(session: NativeSessionReference): Promise<void> {
+    this.assertIdle(this.requireRuntime(session))
+    await this.close(session)
   }
 
   async close(session: NativeSessionReference): Promise<void> {

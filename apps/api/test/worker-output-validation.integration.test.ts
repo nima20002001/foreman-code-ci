@@ -26,10 +26,12 @@ describe('Worker workflow output correction through authenticated MCP', () => {
         if (node.kind === 'job') throw new Error('Expected an Agent')
         node.outputSchema = outputSchema
         if (kind === 'handoff') graph.handoffs = { contractVersion: 1 }
+        const fields = { summary: 'Completed the assigned work.', board: { kind: 'none', reason: 'no_access' } }
         const finalAnswer = kind === 'handoff'
-          ? { routing: { kind: 'finish' }, data: { latestDeliverable: corrected, remainingFindings: [] } }
-          : corrected
-        const invalid = kind === 'handoff' ? { routing: { kind: 'invalid' } } : {}
+          ? { routing: { kind: 'finish' }, data: { latestDeliverable: corrected, remainingFindings: [] }, ...fields }
+          : { data: corrected, ...fields }
+        const invalid = kind === 'handoff'
+          ? { ...finalAnswer, routing: { kind: 'invalid' } } : { data: {}, ...fields }
         const answers = kind === 'exhausted' ? [invalid, invalid, invalid] : [invalid, finalAnswer]
         await writeFile(join(f.provider.directory, 'workflow-answers.json'),
           JSON.stringify(answers.map(answer => JSON.stringify(answer))))
@@ -39,6 +41,7 @@ describe('Worker workflow output correction through authenticated MCP', () => {
           expectedAgentConfigurationVersionIds: saved.version.agentConfigurationVersionIds,
         })).value
         const version = changed.version
+        expect(version.definition.nodes.find(savedNode => savedNode.id === node.id)).toMatchObject({ outputSchema })
         const workspace = ManagedWorkspaceSchema.parse(await f.value('workspace_get', { workspaceId: scope.workspaceId }))
         const reader = await f.access.issue({ name: 'Output result reader', audience: 'operator',
           expiresAt: new Date(Date.now() + 600_000), grants: [{ actions: ['runs:read'],
@@ -60,6 +63,7 @@ describe('Worker workflow output correction through authenticated MCP', () => {
         }, value => value.run.executionState === 'completed', 'Worker output validation completion')
         expect(details.executions).toHaveLength(1)
         const execution = details.executions[0]!
+        expect(execution.resultProtocol).toBe('f1-f4-v1')
         const expectedRepairs = kind === 'exhausted' ? 2 : 1
         const calls = (await f.provider.calls()).filter(call => call.method === 'turn/start'
           && String(call.correlationId).startsWith(`execution:${execution.id}`))
@@ -68,7 +72,8 @@ describe('Worker workflow output correction through authenticated MCP', () => {
           ...Array.from({ length: expectedRepairs }, (_, index) => `execution:${execution.id}:result-repair:${index + 1}`),
         ])
         expect(new Set(calls.map(call => call.threadId))).toEqual(new Set([execution.nativeSessionId]))
-        if (kind !== 'handoff') expect(calls.map(call => call.outputSchema)).toEqual(calls.map(() => outputSchema))
+        // The business schema applies inside data; it cannot constrain the entire native envelope.
+        expect(calls.map(call => call.outputSchema)).toEqual(calls.map(() => undefined))
         expect(execution.result).toMatchObject(kind === 'exhausted'
           ? { outcome: 'failed', error: { code: 'OUTPUT_SCHEMA_MISMATCH', retryable: false } }
           : { outcome: 'succeeded', output: { text: JSON.stringify(finalAnswer) } })
