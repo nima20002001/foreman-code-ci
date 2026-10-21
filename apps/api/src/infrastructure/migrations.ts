@@ -1,4 +1,6 @@
 import { memoryRepeatDecisionMigration } from './memoryRepeatDecisionMigration.js'
+import { memoryWaitingForUserMigration } from './memoryWaitingForUserMigration.js'
+import { workflowKanbanMigration } from './workflowKanbanMigration.js'
 import { browserProfilesMigration } from './browserProfilesMigration.js'
 import { conversationCredentialsMigration } from './conversationCredentialsMigration.js'
 import { hierarchyAdmissionMigration } from './hierarchyAdmissionMigration.js'
@@ -1042,6 +1044,8 @@ export const migrations = [
   { version: 2026102124, ...memoryBoardsMigration },
   { ...memoryWorkIndexesMigration, version: 2026102125 },
   memoryRepeatDecisionMigration,
+  workflowKanbanMigration,
+  memoryWaitingForUserMigration,
 ] as const
 
 export function assertMigrationVersions(entries: readonly { version: number }[]): void {

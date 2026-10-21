@@ -102,6 +102,11 @@ async function mount(entry = runsUrl('run-a'), { hasHierarchy = true } = {}) {
   return { cache, router }
 }
 const toolbar = () => within(screen.getByRole('navigation', { name: 'Workflow views' }))
+/** The URL owns the workflow memory dialog; the Board opens it from a Kanban card. */
+const openMemoryBoard = (router: Awaited<ReturnType<typeof mount>>['router']) => act(async () => {
+  const { pathname, searchStr } = router.state.location
+  router.history.push(`${pathname}${searchStr ? `${searchStr}&` : '?'}boardMemory=true`)
+})
 const childScope = { ...scope, runId: 'run-a' }
 
 it.each(['graph', 'overview'])('stops an ordinary selected Run from %s and keeps its command after a lost receipt', async view => {
@@ -172,7 +177,7 @@ it('uses saved roles and coordinates, docks one inspector, and navigates teams w
 
 it('retains native-child text through parent collapse, Memory, Overview and access loss without hidden reads', async () => {
   const wire = install()
-  const { cache } = await mount()
+  const { cache, router } = await mount()
   fireEvent.click(await screen.findByRole('button', { name: 'Research, Codex, Running' }))
   fireEvent.change(await screen.findByRole('textbox', { name: 'Message to subagent' }), { target: { value: 'Keep this direction' } })
   fireEvent.click(screen.getByRole('button', { name: 'Hide Workers for Y' }))
@@ -182,7 +187,7 @@ it('retains native-child text through parent collapse, Memory, Overview and acce
   expect(wire.requests.filter(path => ['child', 'messages', 'tools'].includes(path))).toHaveLength(afterCollapse)
   fireEvent.click(screen.getByRole('button', { name: 'Show Workers for Y' }))
   expect(await screen.findByRole('textbox', { name: 'Message to subagent' })).toHaveValue('Keep this direction')
-  fireEvent.click(toolbar().getByRole('button', { name: 'Memory board' }))
+  await openMemoryBoard(router)
   await screen.findByRole('dialog', { name: 'Memory board' })
   const hiddenReads = wire.requests.length
   await act(async () => { await cache.invalidateQueries({ queryKey: subagentsKey(childScope) }) })
@@ -214,12 +219,12 @@ it('keeps a hidden pending command identity and defers failure refresh until its
     if (bodies.length === 1) { await pending.promise; return HttpResponse.error() }
     return HttpResponse.json(receipt({ commandId: body.commandId }))
   }))
-  const { cache } = await mount()
+  const { cache, router } = await mount()
   fireEvent.click(await screen.findByRole('button', { name: 'Research, Codex, Running' }))
   fireEvent.change(await screen.findByRole('textbox', { name: 'Message to subagent' }), { target: { value: 'One direction' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(bodies).toHaveLength(1))
-  fireEvent.click(toolbar().getByRole('button', { name: 'Memory board' }))
+  await openMemoryBoard(router)
   await screen.findByRole('dialog', { name: 'Memory board' })
   const hiddenReads = wire.requests.filter(path => path === 'child').length
   await act(async () => { pending.resolve() })
@@ -235,13 +240,13 @@ it('keeps a hidden pending command identity and defers failure refresh until its
 
 it('suspends Overview reports while Memory is open and restores the selected branch on close', async () => {
   const wire = install()
-  const { cache } = await mount()
+  const { cache, router } = await mount()
   fireEvent.click(toolbar().getByRole('button', { name: 'Overview' }))
   await screen.findByRole('region', { name: 'Master Overview' })
   fireEvent.click(screen.getByRole('button', { name: 'View branch · 1' }))
   await screen.findByRole('region', { name: 'Reports to Y' })
   await waitFor(() => expect(ReportSource.instances).toHaveLength(1))
-  fireEvent.click(toolbar().getByRole('button', { name: 'Memory board' }))
+  await openMemoryBoard(router)
   await screen.findByRole('dialog', { name: 'Memory board' })
   expect(ReportSource.instances[0]!.closed).toBe(true)
   const reports = wire.requests.filter(path => path === 'reports').length

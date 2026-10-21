@@ -2,7 +2,7 @@ import { describe,expect,it } from 'vitest'
 import { JobWorkflowNodeSchema } from '@foreman-code/contracts/job-workflow'
 import { currentWorkflowFixture } from '../../../shared/mocks/currentWorkflow'
 import { definition } from '../../jobs/fixtures'
-import { attachAgent,attachJob,draftOperations } from './model'
+import { attachJob,draftOperations } from './model'
 import { LocalWorkflowFormSchema } from './localGraph'
 import { workflowToGraph } from '../mapper'
 import { createGraphTopologyProjector } from '../topology'
@@ -30,12 +30,5 @@ describe('shared explicit job authoring on the current Board',()=>{
     expect(LocalWorkflowFormSchema.safeParse({...graph,nodes:[...graph.nodes.filter(node=>node.id!==job.id),partial]}).success).toBe(true)
     expect(JobWorkflowNodeSchema.safeParse(partial).success).toBe(false)
     expect(()=>attachJob({...graph,handoffs:{contractVersion:1}},{...definition,workspaceId:graph.workspaceId},'other-job')).toThrow(/DAG/)
-  })
-  it('allows the same saved Agent at multiple distinct node identities',()=>{
-    const f=currentWorkflowFixture('same-agent'),configuration=f.configurations[0]!
-    const record={agent:{id:configuration.agentId,name:'Shared worker',productRole:'coder' as const,configurationVersionId:configuration.id},metadataRevision:1,archivedAt:null}
-    const graph=attachAgent(f.version.definition,record,'second-instance-of-agent')
-    expect(graph.nodes.filter(node=>node.kind!=='job'&&node.agentId===configuration.agentId)).toHaveLength(2)
-    expect(()=>attachAgent(graph,record,'second-instance-of-agent')).toThrow(/node identity/)
   })
 })

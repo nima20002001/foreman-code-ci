@@ -1696,6 +1696,7 @@ export * from './operationalFailures.js'
 export * from './agentIdentity.js';
 export * from './memoryBoards.js';
 export * from './memoryBoardViews.js';
+export * from './workflowKanban.js';
 export * from './chatDelivery.js';
 export * from './workflowChat.js';
 export * from './browserProfiles.js';

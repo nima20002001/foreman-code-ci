@@ -50,7 +50,7 @@ export async function readDigestCards(tx: GraphTransactionSql, board: MemoryBoar
   add(relevant.rows, 0)
   if (board.scope.kind === 'workflow' && agent.productRole === 'master') {
     const blocked = await tx.query<{ record: unknown }>(`select record from memory_cards
-      where board_id=$1 and status='blocked' order by updated_at desc,id desc limit 20`, [board.id])
+      where board_id=$1 and status in ('waiting_for_user','blocked') order by updated_at desc,id desc limit 20`, [board.id])
     add(blocked.rows, 1)
     const recent = await tx.query<{ record: unknown }>(`select record from memory_cards
       where board_id=$1 and status<>'done' order by updated_at desc,id desc limit 20`, [board.id])

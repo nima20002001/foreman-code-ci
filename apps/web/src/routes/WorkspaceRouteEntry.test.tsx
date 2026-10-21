@@ -277,11 +277,9 @@ describe('WorkspaceRouteEntry integration', () => {
     expect(await screen.findByTestId('workspace-error')).toBeVisible()
     error.unmount()
 
-    // A workspace without workflows has no Board to open: its address shows the workspace Memory board.
     setMockScenario('empty')
     const empty = await renderWorkspace('/workspaces/workspace-1')
-    expect(await screen.findByRole('region', { name: 'Workspace Memory board' })).toBeVisible()
-    expect(screen.queryByTestId('workspace-empty')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('workspace-empty')).toBeVisible()
     empty.unmount()
 
     const missing = await renderWorkspace('/workspaces/missing?workflowId=workflow-content-pipeline')
