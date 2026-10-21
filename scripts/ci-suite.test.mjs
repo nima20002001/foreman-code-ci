@@ -146,6 +146,8 @@ if (process.argv[2] === 'rev-parse') console.log('false')
 }
 
 const contractsBuild = ['--filter', '@foreman-code/contracts', 'build']
+const apiBuildCheck = ['--filter', '@foreman-code/api', 'exec', 'tsc', '-p', 'tsconfig.build.json', '--noEmit', '--isolatedModules',
+  '--tsBuildInfoFile', 'node_modules/.cache/tsc/production-check.tsbuildinfo']
 test('suite command assertions are independent of runner typecheck cache and shell startup', t => {
   const cache = join(homedir(), '.cache', 'foreman-tmp')
   mkdirSync(cache, { recursive: true })
@@ -158,7 +160,7 @@ test('suite command assertions are independent of runner typecheck cache and she
     BASH_ENV: shellEnvironment, RUNNER_CACHE: directory,
   })
   assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']])
+  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck])
 })
 
 test('cloud suites forward an explicit base to selection without fetching the default branch', t => {
@@ -178,7 +180,7 @@ test('an invalid explicit base logs the reason and runs the full cloud suite par
     { scope: 'full', files: [], baseCommit: 'a'.repeat(40), reason })
   assert.equal(result.status, 0, result.stderr)
   assert.ok(result.stderr.includes(`Running full suite: ${reason}`))
-  assert.deepEqual(calls.slice(3), [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']])
+  assert.deepEqual(calls.slice(3), [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck])
 })
 
 test('omitted scope derives affected files on the cloud runner using the workspace default branch', t => {
@@ -199,20 +201,20 @@ test('a shared infrastructure fallback runs the complete cloud suite part and lo
     { scope: 'full', files: [] })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stderr, /Running full suite: Shared CI infrastructure changed/)
-  assert.deepEqual(calls.slice(3), [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']])
+  assert.deepEqual(calls.slice(3), [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck])
 })
 test('a repository without a selector runs the full cloud part and logs the reason', t => {
   const { result, calls } = runSuite(t, 'typecheck-api', '', 'affected', '', true,
     { missingSelector: true, omitScope: true })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Running full suite: The repository has no affected selector/)
-  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']])
+  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck])
 })
 test('explicit full scope bypasses runner selection and runs the complete cloud part', t => {
   const { result, calls } = runSuite(t, 'typecheck-api', '', 'full', '', true,
     { scope: 'affected', files: ['apps/api/src/value.ts'] })
   assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']])
+  assert.deepEqual(calls, [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck])
 })
 test('a host CI part uses Corepack and the already delegated host service', t => {
   const { result, calls } = runSuite(t, 'unit-api', '', 'full', '', true, undefined, true)
@@ -295,7 +297,7 @@ for (const suite of ['unit-web', 'unit-web-heavy', 'unit-other', 'lint-api', 'li
   })
 }
 const parts = [
-  ['typecheck-api', [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck']]],
+  ['typecheck-api', [contractsBuild, ['--filter', '@foreman-code/api', 'typecheck'], apiBuildCheck]],
   ['typecheck-other', [contractsBuild, ['-r', '--filter', '!@foreman-code/api', '--if-present', 'typecheck']]],
   ['build-api', [contractsBuild, ['--filter', '@foreman-code/api', 'build']]],
   ['build-other', [['-r', '--filter', '!@foreman-code/api', '--if-present', 'build']]],
@@ -491,7 +493,8 @@ for (const suite of ['typecheck-api', 'typecheck-other', 'build-api']) {
     assert.equal(calls[0][0], 'scripts/ci-contracts.mjs')
     assert.equal(calls[0][1], 'ready')
     assert.equal(calls.some(args => JSON.stringify(args) === JSON.stringify(contractsBuild)), false)
-    assert.equal(calls.at(-1).at(-1), suite.startsWith('typecheck') ? 'typecheck' : 'build')
+    if (suite === 'typecheck-api') assert.deepEqual(calls.at(-1), apiBuildCheck)
+    else assert.equal(calls.at(-1).at(-1), suite.startsWith('typecheck') ? 'typecheck' : 'build')
   })
 }
 
