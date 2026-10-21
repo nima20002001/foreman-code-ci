@@ -65,13 +65,14 @@ export async function waitForRemoteReview<T>(read: () => Promise<T>, accept: (va
   })
 }
 
-async function freePort() {
+/** Probed ports are released before use, so a later probe can return one already reserved for Main. */
+async function freePort(...taken: number[]): Promise<number> {
   const server = createServer()
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Expected a loopback port.')
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-  return address.port
+  return taken.includes(address.port) ? freePort(...taken) : address.port
 }
 
 async function postDeviceJson(endpoint: string, certificate: Buffer, payload: unknown) {
@@ -243,7 +244,7 @@ export async function remoteReviewProduction(options: {
     const access = new PostgresAccessService(db.pool)
     const writer = await access.issue({ name: 'Remote review owner', audience: 'operator',
       expiresAt: new Date(Date.now() + 900_000), grants: [{ actions: ManagementActionSchema.options, scope: {} }] })
-    let devicePort = await freePort()
+    let devicePort = await freePort(config.port)
     let deviceEndpoint = `wss://127.0.0.1:${devicePort}/device/connect`
     const infrastructure = { mode: 'native' as const,
       installationRefreshIntervalMs: options.installationRefreshIntervalMs,
@@ -382,7 +383,7 @@ export async function remoteReviewProduction(options: {
         }
         // Port probes release their sockets before the child binds; another listener can win that race.
         config.port = await freePort()
-        devicePort = await freePort()
+        devicePort = await freePort(config.port)
         deviceEndpoint = `wss://127.0.0.1:${devicePort}/device/connect`
         infrastructure.deviceListener.port = devicePort
         infrastructure.deviceListener.advertisedEndpoint = deviceEndpoint
