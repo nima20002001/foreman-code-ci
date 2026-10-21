@@ -16,9 +16,7 @@ installBoardTestLifecycle()
 beforeEach(() => { installFlowLayout(1000, 720) })
 let serial = 0
 const inspector = () => screen.getByRole('region', { name: 'Exact execution inputs and results' })
-const canvas = () => screen.getByRole('region', { name: 'Selected Run board' })
-// The retained editor stays mounted but hidden while a saved Run is shown.
-const editor = () => screen.getByRole('region', { name: 'Workflow authoring', hidden: true })
+const canvas = () => screen.getByRole('region', { name: 'Selected Run pinned topology' })
 
 // The registered router, Board, React Flow, Query hooks, detail clients, schemas
 // and presentation stores are real. Only HTTP and JSDOM layout APIs are fixtures.
@@ -30,12 +28,12 @@ describe('ENG07-B S3 scenarios on the one mounted Board', () => {
     const href = boardHref(f.scope, { runNodeId: execution.workflowNodeId,
       runExchangeKey: runInspectionKey({ executionId, ...(execution.occurrence ? { occurrenceId: execution.occurrence.occurrenceId } : {}) }) })
     const mounted = await mountMeasuredBoard(href)
-    const article = await within(await openRunDetails()).findByRole('article', { name: `Execution ${executionId}` })
+    const article = await screen.findByRole('article', { name: `Execution ${executionId}` })
     expect(JSON.parse(within(article).getByLabelText(`Input ${executionId}`).textContent!)).toEqual(selected.detail.acceptedInput.value)
     expect(JSON.parse(within(article).getByLabelText(`Accepted result ${executionId}`).textContent!)).toEqual(f.scenario.result(
       f.scenario.executedIndexes.at(-1)!, f.scenario.occurrences))
-    expect(canvas()).toHaveAttribute('data-run-id', f.run.id)
-    expect(within(canvas()).getAllByRole('button', { name: /^Inspect / })).toHaveLength(f.scenario.nodes.length)
+    expect(canvas()).toHaveTextContent(f.version.id)
+    expect(within(canvas()).getAllByRole('button', { name: /^Inspect Run node / })).toHaveLength(f.scenario.nodes.length)
     expect(within(inspector()).getByRole('combobox', { name: 'Run node' })).toHaveValue(execution.workflowNodeId)
     if (f.scenario.repeat) {
       expect(within(inspector()).getByRole('combobox', { name: 'Business repetition' })).toHaveValue(execution.occurrence!.occurrenceId)
@@ -72,7 +70,7 @@ describe('ENG07-B S3 scenarios on the one mounted Board', () => {
     mounted.unmount(); mounted.cache.clear()
     act(() => useInspectionPresentation.setState({ open: {} }))
     await mountMeasuredBoard(savedHref)
-    const reopened = await within(await openRunDetails()).findByRole('article', { name: `Execution ${executionId}` })
+    const reopened = await screen.findByRole('article', { name: `Execution ${executionId}` })
     expect(JSON.parse(within(reopened).getByLabelText(`Input ${executionId}`).textContent!)).toEqual(selected.detail.acceptedInput.value)
     expect(JSON.parse(within(reopened).getByLabelText(`Accepted result ${executionId}`).textContent!)).toEqual(selected.detail.reportedResult)
     await waitFor(() => expect(wire.samples.slice(before).some((sample) => sample.path.endsWith(detailPath))).toBe(true))
@@ -84,7 +82,7 @@ describe('ENG07-B S3 scenarios on the one mounted Board', () => {
     const mounted = await mountMeasuredBoard(boardHref(f.runs.before.scope))
     const key = nextDraftKey(f.mock.workspaceId, f.after.workflowId)
     await waitFor(() => expect(useGraphDraftStore.getState().nextDrafts[key]).toBeDefined())
-    const board = screen.getByTestId('unified-workflow-board'), authoring = editor()
+    const board = screen.getByTestId('unified-workflow-board'), authoring = screen.getByRole('region', { name: 'Workflow authoring' })
     const instanceId = useGraphDraftStore.getState().nextDrafts[key]!.instanceId
     act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => ({ ...graph,
       nodes: graph.nodes.map((node) => ({ ...node, initialPrompt: 'Unpublished ENG07 input is not historical fact' })) })))
@@ -93,7 +91,7 @@ describe('ENG07-B S3 scenarios on the one mounted Board', () => {
       if (mounted.router.state.location.search.runId !== owner.run.id) {
         await user.click(await screen.findByRole('button', { name: `Open Run ${owner.run.id} · completed · succeeded` }))
       }
-      await waitFor(() => expect(canvas()).toHaveAttribute('data-run-id', owner.run.id))
+      await waitFor(() => expect(canvas()).toHaveTextContent(owner.version.id))
       expect(mounted.router.state.location.search).toMatchObject({ runId: owner.run.id, workflowVersionId: owner.version.id,
         executionSemanticsVersion: 3 })
       const repeated = owner.run.id === f.runs.repeated.run.id
@@ -101,13 +99,13 @@ describe('ENG07-B S3 scenarios on the one mounted Board', () => {
       const expected = f.mock.inspection.get(owner.run.id)!.find((row) => row.detail.acceptedResult.status === 'accepted')!
       await user.selectOptions(within(inspector()).getByRole('combobox', { name: 'Run node' }), expected.detail.execution.workflowNodeId)
       await user.click(await within(inspector()).findByRole('button', { name: new RegExp(expected.detail.execution.executionId) }))
-      const article = await within(inspector()).findByRole('article', { name: `Execution ${expected.detail.execution.executionId}` })
+      const article = await screen.findByRole('article', { name: `Execution ${expected.detail.execution.executionId}` })
       expect(JSON.parse(within(article).getByLabelText(`Input ${expected.detail.execution.executionId}`).textContent!)).toEqual(expected.detail.acceptedInput.value)
       if (expected.detail.acceptedResult.status !== 'accepted') throw new Error('Expected a successful historical execution')
       expect(JSON.parse(within(article).getByLabelText(`Accepted result ${expected.detail.execution.executionId}`).textContent!)).toEqual(expected.detail.acceptedResult.value)
       expect(article).not.toHaveTextContent('Unpublished ENG07 input')
       expect(screen.getByTestId('unified-workflow-board')).toBe(board)
-      expect(editor()).toBe(authoring)
+      expect(screen.getByRole('region', { name: 'Workflow authoring' })).toBe(authoring)
       expect(useGraphDraftStore.getState().nextDrafts[key]!.instanceId).toBe(instanceId)
     }
     expect(nativeNode(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes[0]!).initialPrompt).toBe('Unpublished ENG07 input is not historical fact')

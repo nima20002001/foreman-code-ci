@@ -6,14 +6,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { useLocation, useRouter } from '@tanstack/react-router'
 import type { ExecutionRef, WorkflowRunSummary } from '@foreman-code/contracts'
 import type { RepeatGraphScopeV3, WorkspaceBoardInspection } from '@foreman-code/contracts/wave25'
-import { Alert, Button, Dialog, Icon, IconButton } from '../../shared/ui/nocturne'
+import { Alert, Button, Dialog } from '../../shared/ui/nocturne'
 import { WorkspaceExecutionLocationSettings } from '../settings/WorkspaceExecutionLocationSettings'
 import { RunBoardSlot } from '../run-board'
 import { useRunSummaries, useSelectedRun, useSelectedRunSnapshot } from '../runs-selector'
 import { BoardNavigationControls } from './BoardNavigationControls'
+import { CurrentRunObserver } from './CurrentRunObserver'
 import { WorkflowBoardContext, type WorkflowAuthoringActions } from './context'
 import { ActivitiesPopover } from './ActivitiesPopover'
 import { RunActivityPanel } from './RunActivityPanel'
+import { shortRunId } from './runFacts'
 import { useInspectionPresentation } from './inspect/presentation'
 import { useWorkflowSidePanel } from './useWorkflowSidePanel'
 import { WorkflowMemoryDialog, WorkflowSidePanel, type WorkflowCollaborationSlots } from './WorkflowSidePanel'
@@ -81,22 +83,11 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
   const candidates = activeRunCandidates(
     summaries.filter(item => item.workspaceId === workspaceId && item.workflowId === workflowId), listed.items,
   )
-  const boardSelection = selectedRun
+  // A pinned Run link keeps the retained editor and the pinned canvas; a picked Run renders the saved Run board.
+  const boardSelection = legacyRun ? { ...selectedRun, identity: { ...selectedRun.identity, runId: null } } : selectedRun
   const current = boardSelection.active && !boardSelection.invalid && boardSelection.identity.runId === null
   const currentRef = useRef(current)
   currentRef.current = current
-  // The retained editor is hidden while a Run is shown, so its Activities button is unavailable;
-  // the Run's own Activities and details open from the Board toolbar over this exact scope.
-  const selectedRunId = boardSelection.active && !boardSelection.invalid ? boardSelection.identity.runId : null
-  const detailsScope = useMemo<RepeatGraphScopeV3 | undefined>(() => {
-    if (!selectedRunId) return undefined
-    if (legacyRun?.runId === selectedRunId) return legacyRun
-    return picked?.kind === 'available' && picked.runId === selectedRunId
-      ? { workspaceId, workflowId, runId: selectedRunId, workflowVersionId: picked.workflowVersionId, executionSemanticsVersion: 3 }
-      : undefined
-  }, [selectedRunId, legacyRun, picked, workspaceId, workflowId])
-  const detailsRef = useRef(detailsScope)
-  detailsRef.current = detailsScope
   const locationKey = JSON.stringify(['board-location-dialog', workspaceId, workflowId])
   const locationOpen = useInspectionPresentation((state) => !!state.open[locationKey])
   const setLocationOpen = useCallback((open: boolean) => {
@@ -107,7 +98,7 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
   const toolbar = useRef<HTMLDivElement>(null)
   const findActivitiesButton = useCallback(() => toolbar.current?.querySelector<HTMLButtonElement>('button[aria-label="Activities"]') ?? null, [])
   const setRunsOpen = useCallback((open: boolean) => {
-    if (open && !currentRef.current && !detailsRef.current) return
+    if (open && !currentRef.current) return
     useInspectionPresentation.getState().setOpen(runsKey, open)
     if (!open) setTimeout(() => {
       if (!document.activeElement || document.activeElement === document.body) {
@@ -115,9 +106,12 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
       }
     }, 0)
   }, [runsKey, findActivitiesButton])
+  const linkedInspection = legacyRun && (inspection.runNodeId || inspection.runRelationshipId || inspection.runExchangeKey)
+    ? JSON.stringify([legacyRun, inspection]) : undefined
+  useEffect(() => { if (linkedInspection) setRunsOpen(true) }, [linkedInspection, setRunsOpen])
   useEffect(() => {
-    if (!current && !detailsScope) setRunsOpen(false)
-  }, [current, detailsScope, setRunsOpen])
+    if (!current) setRunsOpen(false)
+  }, [current, setRunsOpen])
   useEffect(() => () => {
     useInspectionPresentation.getState().setOpen(runsKey, false)
     useInspectionPresentation.getState().setOpen(locationKey, false)
@@ -137,15 +131,14 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
   const activeRuns = candidates.length
   // History is rendered only by RunBoardSlot. Do not feed legacy Run pins to the
   // hidden editor/SelectedRunCanvas, or fabricate missing version/semantics pins.
-  const value = useMemo(() => ({ workspaceId, workflowId, selectRun: chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent,
+  const value = useMemo(() => ({ workspaceId, workflowId, run: legacyRun, selectRun: chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent,
     sidePanel: side.panel, selectedPanelNodeId: side.agentSelection?.nodeId, selectSidePanel: side.selectPanel, sidePanelHost, memoryOpen: side.memoryOpen,
     executionChatMounted: !!collaborationSlots?.executionChat,
     canvasVisible: side.view === 'graph', teamNodeId: side.teamNodeId, selectTeam: side.selectTeam,
     collaborationFields: collaborationSlots,
     openLocation: () => setLocationOpen(true), openRuns: () => setRunsOpen(true), activeRuns, authoringActive: current, registerAuthoringActions,
     navigationControls: current && side.view === 'graph' ? <BoardNavigationControls workspaceId={workspaceId} workflowId={workflowId} selection={navigationSelection} /> : undefined,
-  }), [workspaceId, workflowId, chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent, activeRuns, setRunsOpen, setLocationOpen, navigationSelection, current, side.view, side.panel, side.agentSelection?.nodeId, side.selectPanel, sidePanelHost, side.memoryOpen, side.teamNodeId, side.selectTeam, collaborationSlots, registerAuthoringActions])
-  const detailsValue = useMemo(() => detailsScope ? { ...value, run: detailsScope } : value, [value, detailsScope])
+  }), [workspaceId, workflowId, legacyRun, chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent, activeRuns, setRunsOpen, setLocationOpen, navigationSelection, current, side.view, side.panel, side.agentSelection?.nodeId, side.selectPanel, sidePanelHost, side.memoryOpen, side.teamNodeId, side.selectTeam, collaborationSlots, registerAuthoringActions])
   const authoringEvent = (event: SyntheticEvent) => {
     if (event.target instanceof Element && event.target.closest('.workflow-side-panel')) return
     // React capture also covers descendants portalled outside the inert subtree.
@@ -172,7 +165,6 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
         style={{ position: 'static', flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end', padding: 'var(--space-2)', boxSizing: 'border-box', minWidth: 0 }}>
         <BoardNavigationControls workspaceId={workspaceId} workflowId={workflowId} selection={navigationSelection}
           runsLabel={current && side.view === 'overview' ? 'Choose run' : undefined} />
-        {detailsScope ? <IconButton label="Activities" onClick={() => setRunsOpen(true)}><Icon name="history" size={16} /></IconButton> : null}
         {boardSelection.active && !boardSelection.invalid && boardSelection.identity.runId ?
           <SelectedRunControls key={JSON.stringify(boardSelection.identity)} visible={!side.memoryOpen}
             scope={{ workspaceId, workflowId, runId: boardSelection.identity.runId,
@@ -183,6 +175,10 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
       <RunBoardSlot selection={boardSelection}>
         <div className="workflow-board-authoring" onClickCapture={authoringEvent} onKeyDownCapture={authoringEvent} onSubmitCapture={authoringEvent}>
           {children}
+          {legacyRun ? <CurrentRunObserver scope={legacyRun} /> : null}
+          {legacyRun ? <div className="board-run-tag" role="status">
+            <RunContextLabel scope={legacyRun} />
+          </div> : null}
           <ActivitiesPopover open={current && runsOpen} onClose={() => setRunsOpen(false)} findAnchor={findActivitiesButton}>
             {current ? <RunActivityPanel summaries={summaries} summariesReadAt={summariesReadAt} /> : null}
           </ActivitiesPopover>
@@ -208,11 +204,6 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
           onCurrentWorkflow={() => { void navigationSelection.selectRun(null) }}
           onCard={collaborationSlots?.reportCard} />}
       </section> : null}
-      {detailsScope ? <WorkflowBoardContext.Provider value={detailsValue}>
-        <ActivitiesPopover open={runsOpen} onClose={() => setRunsOpen(false)} findAnchor={findActivitiesButton}>
-          <RunActivityPanel summaries={summaries} summariesReadAt={summariesReadAt} />
-        </ActivitiesPopover>
-      </WorkflowBoardContext.Provider> : null}
       <WorkflowSidePanel scope={side.scope} workspaceId={workspaceId} workflowId={workflowId}
         workflowVersionId={legacyRun?.workflowVersionId ?? (picked?.kind === 'available' ? picked.workflowVersionId : undefined)}
         opener={side.opener} runId={legacyRun?.runId ?? pickedRunId} selection={side.panel} agentSelection={side.agentSelection} onSelect={side.selectPanel} bodyRef={setSidePanelHost}
@@ -226,4 +217,8 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
           scopeName="Workflow" dialog={{ open: true, onOpenChange: side.setMemoryOpen, historicalRun: Boolean(legacyRun || pickedRunId) }} />}
     </div>
   </WorkflowBoardContext.Provider>
+}
+
+function RunContextLabel({ scope }: { scope: RepeatGraphScopeV3 }) {
+  return <span>Run <code title={scope.runId}>{shortRunId(scope.runId)}</code></span>
 }
