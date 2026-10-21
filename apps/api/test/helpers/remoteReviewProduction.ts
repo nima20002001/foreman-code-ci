@@ -414,7 +414,7 @@ export async function remoteReviewProduction(options: {
       startupCatalog = HarnessOptionsResultSchema.parse(await value('harness_options_get', { harness: 'codex' }))
       await provider.showModels()
     }
-    async function call(name: string, args: Record<string, unknown>, token = writer.token, replay = true) {
+    async function call(name: string, args: Record<string, unknown>, token = writer.token) {
       let connected = clients.get(token)
       if (!connected) {
         // One SDK counter per credential keeps parallel calls distinct on the stateless endpoint.
@@ -426,12 +426,11 @@ export async function remoteReviewProduction(options: {
         clients.set(token, connected)
       }
       const client = await connected
-      // A caller observing a retryable first answer asks for exactly one attempt.
-      return replay ? callProductionMcpTool(client, { name, arguments: args }) : client.callTool({ name, arguments: args })
+      return callProductionMcpTool(client, { name, arguments: args })
     }
-    async function value(name: string, args: Record<string, unknown>, replay = true) {
+    async function value(name: string, args: Record<string, unknown>) {
       const seenBefore = failuresSeen
-      const response = await call(name, args, writer.token, replay)
+      const response = await call(name, args)
       if (response.isError) {
         // Main logs an unclassified tool failure asynchronously; report it with the error instead of a stale list.
         if (JSON.stringify(response.content).includes('INTERNAL_ERROR')) {
@@ -729,13 +728,13 @@ export async function remoteReviewProduction(options: {
       expectedWorkflowVersionId: before.version.id,
       expectedAgentConfigurationVersionIds: before.version.agentConfigurationVersionIds, graph,
     })).value.version
-    async function start({ replay = true }: { replay?: boolean } = {}) {
+    async function start() {
       const current = CurrentWorkflowReadResultSchema.parse(await value(CURRENT_WORKFLOW_TOOLS.saved, workflowScope))
       return ManualRunStartResultSchema.parse(await value('run_start', { ...workflowScope,
         workflowVersionId: version.id, commandId: randomUUID(), executionSemanticsVersion: 3,
         expectedWorkflowRevision: current.revision, expectedAgentConfigurationVersionIds: version.agentConfigurationVersionIds,
         expectedLocationRevision: location.locationRevision, input: {},
-      }, replay))
+      }))
     }
     const requestReconciliation = (kind: 'reconcile' | 'reconcile-reviews') => new Promise<void>((resolve, reject) => {
       if (!main || !main.connected) {
