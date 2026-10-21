@@ -439,7 +439,7 @@ for (const provider of ['github', 'circleci', 'circleci-ssh']) {
       git(checkout, 'checkout', '--detach', 'FETCH_HEAD')
     } else {
       const configuration = parse(readFileSync(new URL('../.circleci/config.yml', import.meta.url), 'utf8'))
-      const step = configuration.jobs.ci.steps.find(entry => entry === 'checkout' || entry.run?.name === 'Checkout tested commit')
+      const step = configuration.jobs.ci.steps[0]
       if (step === 'checkout') {
         git(directory, 'clone', '-q', `file://${origin}`, checkout)
         git(checkout, 'checkout', '--detach', commit)

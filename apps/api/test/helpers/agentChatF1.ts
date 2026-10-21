@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import type pg from 'pg'
+import { canonicalGraphJson, makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import type { AgentChatContext, AgentChatTurn, SendAgentChatMessageRequest } from '@foreman-code/contracts/agent-chat'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import type { AgentConfigurationVersion, AgentHarness, ExecutionResult, Message, NativeSessionReference, SessionControlState, SessionMode } from '@foreman-code/contracts'
 import { AgentChatService } from '../../src/modules/conversations/agentChat.js'
+import { qualifiedAgentChatSteer } from '../../src/modules/conversations/chatSteerQualification.js'
 import { agentChatKey, type AgentConversationRow, PostgresAgentChatRepository } from '../../src/modules/conversations/agentChatRepository.js'
 import type { OperatorActivityChange } from '../../src/modules/conversations/operatorActivity.js'
 import type { PostgresOperatorConversationRepository } from '../../src/modules/conversations/operatorChatRepository.js'
@@ -32,6 +35,17 @@ const principal: ManagementPrincipal = {
   grants: [{ scope: { workspaceIds: [context.workspaceId], workflowIds: [context.workflowId] },
     actions: ['agent_chat:read', 'agent_chat:write', 'agent_chat:cancel'] }],
 }
+/** The saved current Version row the conversation feature context reads: one Agent node bound to this fixture's Agent. */
+function currentWorkflowVersionRow() {
+  const { version } = makeCurrentWorkflowFixture('f1', 'single')
+  const record = JSON.parse(JSON.stringify(version).replaceAll('cfg-f1-0', configuration.id).replaceAll('agent-f1-0', context.agentId)
+    .replaceAll('node-f1-0', context.workflowNodeId).replaceAll('wf-f1', context.workflowId).replaceAll('ws-f1', context.workspaceId)) as typeof version
+  record.contentHash = `sha256:${createHash('sha256').update(canonicalGraphJson({ definition: record.definition,
+    configurations: record.agentConfigurationVersionIds, entryNodeId: record.entryNodeId })).digest('hex')}`
+  return { id: record.id, workspace_id: record.workspaceId, workflow_id: record.workflowId, version: record.version,
+    entry_node_id: record.entryNodeId, execution_semantics_version: record.executionSemanticsVersion, record }
+}
+
 interface Receipt {
   request_id: string; turn_sequence: string; intent: AgentChatTurn['intent']; delivery: AgentChatTurn['delivery']
   message_id: string; native_turn_id: string | null; target_native_turn_id: string | null
@@ -101,6 +115,10 @@ export class F1Store {
       return result(values[0] === this.row.id ? [{ path: this.row.record.workingDirectory, host_kind: 'main' }] : [])
     }
     if (sql.startsWith('select record, revision, current_version_id from application_settings')) return result()
+    if (sql.startsWith('select version.id,version.workspace_id,version.workflow_id,version.version,version.entry_node_id,')
+      && sql.includes('from workflows workflow join workflow_versions version on version.id = workflow.current_version_id')) {
+      return result(values[0] === context.workspaceId && values[1] === context.workflowId ? [currentWorkflowVersionRow()] : [])
+    }
     if (sql.startsWith("update operator_conversations set record=record || jsonb_build_object('systemPrompt'")) {
       if (this.row.id !== values[0]) return result()
       this.row.record.systemPrompt = JSON.parse(String(values[1]))
@@ -414,7 +432,9 @@ export function fixture(store = new F1Store()) {
   } as unknown as Pick<PostgresWorkflowRepository, 'getAgentConfiguration' | 'getCurrentSavedVersion' | 'getSavedVersion'>
   const service = new AgentChatService(store.pool, repository, {} as PostgresOperatorConversationRepository,
     workflows, { getForWorkspace: () => { throw new Error('No Run access in F1 tests.') },
-      getExecution: async () => { throw new Error('This fixture must not read a Run execution.') }, executionPages: () => { throw new Error('No execution access in F1 tests.') } }, () => manager, '/unused')
+      getExecution: async () => { throw new Error('This fixture must not read a Run execution.') }, executionPages: () => { throw new Error('No execution access in F1 tests.') } },
+    // Production composition qualifies Codex steering for the live owner; this fixture composes the same port.
+    Object.assign(() => manager, { qualifiedSteer: qualifiedAgentChatSteer }), '/unused')
   // Keep the service/pump/observation code real; only the already-resident native owner is injected.
   const internals = service as unknown as {
     runtimes: Map<string, { manager: NativeHarnessSessionManager; session: NativeSessionReference; configuration: AgentConfigurationVersion }>
