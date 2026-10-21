@@ -51,7 +51,7 @@ export async function handoffPlacementFixture(options: { checkOutcome?: 'qualifi
   let base: Awaited<ReturnType<typeof currentOperatorIntegration>>
   try {
     base = await currentOperatorIntegration({ fixture: definition, insertRun: false,
-      approvalNodeIds: [], workerParallelism: 3,
+      approvalNodeIds: [], workerParallelism: 3, collaborationPorts: {},
       onRunTerminal: async () => { completion.resolve() },
       outputFor: handoffOutput,
       admitPlacementExecutionLocked: async (sql, owner, run, execution, ref, digest) => {

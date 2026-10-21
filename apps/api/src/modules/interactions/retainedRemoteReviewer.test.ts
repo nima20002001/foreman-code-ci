@@ -15,7 +15,6 @@ import type { RunOwnership } from '../runs/ownership.js'
 import { RemoteNativeSessionManager } from '../runs/remote/nativeManagerProxy.js'
 import { pageNativeHistory } from '../runs/remote/nativeHistoryPage.js'
 import { nativeLanes } from '../../../test/helpers/nativeLanes.js'
-import { idleWorkflowControls, idleWorkflowRepeat } from '../../../test/helpers/idleWorkflowControls.js'
 import { DomainError } from '../errors.js'
 import { DeviceApplicationError } from '../devices/deviceApplicationError.js'
 import { workflowExecutionRequest } from '../runs/workflowExecutionRequest.js'
@@ -188,10 +187,10 @@ async function recoveryFixture(options: { handoff?: boolean } = {}) {
     })
     proxies.push(manager)
     type Args = ConstructorParameters<typeof ApprovalExecutionCoordinator>
-    return new ApprovalExecutionCoordinator({ ...idleWorkflowControls, getExecution: async () => f.execution,
+    return new ApprovalExecutionCoordinator({ getExecution: async () => f.execution,
       getExecutionConfiguration: async () => f.base.configurations[0],
       getRepeatVersion: async () => f.base.version,
-      repeat: async () => ({ ...idleWorkflowRepeat, readWorkExecutionContext: async () => ({ parentRequest: null }) }),
+      repeat: async () => ({ readWorkExecutionContext: async () => ({ parentRequest: null }) }),
       get: async () => ({ ...f.base.run, executionState: 'running', outcome: 'pending' }),
       getRepeatSnapshot: async () => ({ run: f.base.run, stopRequested: false, cleanupPending: false }),
       async *executionPages() { yield [f.execution] },
