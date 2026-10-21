@@ -19,8 +19,7 @@ afterEach(async () => {
   await Promise.allSettled(operations.splice(0))
 })
 async function enqueue(f: ReturnType<typeof fixture>, requestId: string) {
-  return f.repository.admit({ key: f.store.row.agent_key, context, request: f.request(requestId), delivery: 'queued',
-    ownerPrincipalId: f.principal.id })
+  return f.repository.admit({ key: f.store.row.agent_key, context, request: f.request(requestId), delivery: 'queued' })
 }
 function countClaims(f: ReturnType<typeof fixture>) {
   let calls = 0

@@ -11,9 +11,7 @@ import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { AgentChatService } from '../src/modules/conversations/agentChat.js'
 import { agentChatCorrelation, agentChatKey, PostgresAgentChatRepository, type AgentConversationRow } from '../src/modules/conversations/agentChatRepository.js'
 import type { PostgresOperatorConversationRepository } from '../src/modules/conversations/operatorChatRepository.js'
-import { qualifiedAgentChatSteer } from '../src/modules/conversations/chatSteerQualification.js'
 import type { NativeHarnessSessionManager, NativeHistory, NativeSessionStart, NativeSteerInput, NativeSteerReceipt, NativeTurnInput } from '../src/modules/harnesses/port.js'
-import { chatWorkflowVersionRow, isCurrentVersionRead } from './helpers/chatWorkflowVersion.js'
 
 const now = new Date('2026-09-27T00:00:00Z')
 const context: AgentChatContext = { workspaceId: 'workspace', workflowId: 'workflow', workflowNodeId: 'node', agentId: 'agent' }
@@ -23,9 +21,7 @@ const principal: ManagementPrincipal = { id: 'g1-reader', name: 'G1 reader', aud
   grants: [{ actions: ['agent_chat:read'], scope: { workspaceIds: [context.workspaceId], workflowIds: [context.workflowId] } }] }
 const sender: ManagementPrincipal = { ...principal, id: 'chat-sender', name: 'Chat sender',
   grants: [{ actions: ['agent_chat:read', 'agent_chat:write'], scope: principal.grants[0]!.scope }] }
-const savedVersion = chatWorkflowVersionRow({ ...context, configurationId: 'configuration' })
 const pool = { query: async (sql: string, values: unknown[] = []) => {
-  if (isCurrentVersionRead(sql)) return { rows: [savedVersion], rowCount: 1 }
   const authority = [principal, sender].find(candidate => candidate.id === values[0])
   return { rows: sql.includes('from management_principals') && authority
     ? [{ id: authority.id, name: authority.name, audience: authority.audience, grants: authority.grants,
@@ -240,7 +236,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function fixture(repository = new MemoryRepository(), native = new NativeFixture()) {
   repository.row.harness = native.harness
   const root = await mkdtemp(join(tmpdir(), 'agent-chat-g1-'))
-  const configuration = { id: 'configuration', workspaceId: context.workspaceId, agentId: context.agentId, harness: { harness: native.harness }, prompt: { system: 'SYSTEM' }, assignedSkills: [], resolvedSkills: [] } as unknown as AgentConfigurationVersion
+  const configuration = { id: 'configuration', harness: { harness: native.harness }, prompt: { system: 'SYSTEM' }, assignedSkills: [], resolvedSkills: [] } as unknown as AgentConfigurationVersion
   const workflows = { getAgentConfiguration: async () => configuration,
     getSavedVersion: async () => ({ definition: { nodes: [{ id: 'node', agentId: 'agent' }] } }),
     getCurrentSavedVersion: async () => ({ definition: { nodes: [{ id: 'node', agentId: 'agent' }] } }) } as unknown as ConstructorParameters<typeof AgentChatService>[3]
@@ -248,9 +244,7 @@ async function fixture(repository = new MemoryRepository(), native = new NativeF
     getForWorkspace: async () => ({ workflowVersionId: 'source-version' }),
   } as unknown as ConstructorParameters<typeof AgentChatService>[4]
   const service = new AgentChatService(pool, repository, {} as PostgresOperatorConversationRepository,
-    workflows, runs,
-    // Production composition qualifies Codex steering for the live owner; this fixture composes the same port.
-    Object.assign(() => native, { qualifiedSteer: qualifiedAgentChatSteer }), root)
+    workflows, runs, () => native, root)
   cleanups.push(async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }) })
   return { service, repository, native, configuration, internal: service as unknown as Internals }
 }

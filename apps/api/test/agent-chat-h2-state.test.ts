@@ -22,7 +22,7 @@ function service() {
 
 describe('H2 A-R01: truthful chat availability without changing the frozen contract', () => {
   for (const harness of ['codex'] as const) {
-    it(`${harness}: an unopened chat states its scoped capabilities without blocking ordinary chat`, async () => {
+    it(`${harness}: an unopened chat states the workflow-tool restriction without blocking ordinary chat`, async () => {
       const fixture = makeCurrentWorkflowFixture('h2-state', 'single')
       const configuration = structuredClone(fixture.configurations[0]!)
 
@@ -33,11 +33,12 @@ describe('H2 A-R01: truthful chat availability without changing the frozen contr
         const state = await chat['state']({ context, configuration }, principal)
         assert.equal(AgentChatStateSchema.safeParse(state).success, true)
         assert.equal(state.availability.canSend, true)
-        assert.match(state.availability.message!, /accepted configuration and scoped workflow capabilities/)
+        assert.match(state.availability.message!, /Foreman Code workflow tools are not available in chat/)
+        assert.match(state.availability.message!, /other accepted Agent settings are retained/)
         assert.equal(state.availability.reason, undefined)
         assert.equal(state.capabilities.harness, harness)
         assert.equal(state.capabilities.resume, true)
-        assert.equal(state.capabilities.steer, 'unavailable', 'an unopened chat has no live turn to steer')
+        assert.equal(state.capabilities.steer, harness === 'codex' ? 'native_expected_turn' : 'unavailable')
         assert.equal(state.conversation, null)
         assert.equal(state.sessionState, 'none')
         const blocked = await chat['state']({ context, configuration, blocked: { reason: 'run_active', message: 'The Run is still active.' } }, principal)
