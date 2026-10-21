@@ -10,6 +10,7 @@ import { ReadSelectedRunChatResponseSchema, type SelectedRunChatTarget } from '@
 import { makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import { buildApp } from '../src/app.js'
 import { AgentChatService } from '../src/modules/conversations/agentChat.js'
+import { qualifiedAgentChatSteer } from '../src/modules/conversations/chatSteerQualification.js'
 import { PostgresAgentChatRepository } from '../src/modules/conversations/agentChatRepository.js'
 import { PostgresOperatorConversationRepository } from '../src/modules/conversations/operatorChatRepository.js'
 import { RunPlacementReadService } from '../src/modules/placement/readService.js'
@@ -85,7 +86,9 @@ export async function setup() {
   const repository = new PostgresAgentChatRepository(f.db.pool)
   const native = new Map<string, RunChatNative>()
   const chat = new AgentChatService(f.db.pool, repository, new PostgresOperatorConversationRepository(f.db.pool), f.workflows, f.runs,
-    (id) => { const manager = new RunChatNative(id); native.set(id, manager); return manager }, f.db.directory)
+    // Production composition qualifies Codex steering for the live owner; this fixture composes the same port.
+    Object.assign((id: string) => { const manager = new RunChatNative(id); native.set(id, manager); return manager },
+      { qualifiedSteer: qualifiedAgentChatSteer }), f.db.directory)
   // The shared current-Run fixture already owns its production app. Compose chat on
   // another real authenticated app using the same services/database/native Run reader.
   const app = buildApp({ readiness: { database: { ping: async () => undefined }, checkpoints: { ping: async () => undefined } },
