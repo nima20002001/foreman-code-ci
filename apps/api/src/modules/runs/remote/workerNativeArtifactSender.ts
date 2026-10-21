@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { timed } from '../../../diagTemp.js'
 import { isDeepStrictEqual } from 'node:util'
 import { AgentFilePublishInputSchema, AgentFilePublishResultSchema, MAX_FILE_BYTES,
   type AgentFilePublishInput, type AgentFilePublishResult } from '@foreman-code/contracts/files'
@@ -71,7 +70,7 @@ export class WorkerNativeArtifactSender {
     }
     await current()
     const snapshot = await this.source.sealed(publication, call, signal)
-    const check = (bounded?: AbortSignal) => timed('sender.check', async () => { await current(bounded); await snapshot.assertCurrent(bounded ?? signal); await current(bounded) })
+    const check = async (bounded?: AbortSignal) => { await current(bounded); await snapshot.assertCurrent(bounded ?? signal); await current(bounded) }
     await check()
     if (!Number.isSafeInteger(snapshot.byteSize) || snapshot.byteSize < 0 || snapshot.byteSize > MAX_FILE_BYTES) conflict()
     const hash = createHash('sha256')
@@ -86,7 +85,7 @@ export class WorkerNativeArtifactSender {
     if (sha256 !== snapshot.sha256) conflict()
     const declaration = { commandId: publication.commandId, sha256, byteSize: snapshot.byteSize }
     await check()
-    const transfer = TransferIntentSchema.parse(await timed('main.admit', () => this.main.admit(declaration, signal)))
+    const transfer = TransferIntentSchema.parse(await this.main.admit(declaration, signal))
     await check()
     const { intent, placement, root } = this.binding
     const registration = placement.registration!
@@ -123,7 +122,7 @@ export class WorkerNativeArtifactSender {
     await check()
     if (!isDeepStrictEqual(receipt.intent, transfer) || receipt.transferId !== transfer.transferId
       || receipt.sha256 !== sha256 || receipt.byteSize !== snapshot.byteSize) conflict()
-    const result = AgentFilePublishResultSchema.parse(await timed('main.publish', () => this.main.publish({ transferId: transfer.transferId, publication }, signal)))
+    const result = AgentFilePublishResultSchema.parse(await this.main.publish({ transferId: transfer.transferId, publication }, signal))
     await check()
     const { file, revision } = result.value
     if (revision.sha256 !== sha256 || revision.byteSize !== snapshot.byteSize || revision.filename !== publication.filename

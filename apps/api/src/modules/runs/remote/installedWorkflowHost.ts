@@ -1,5 +1,4 @@
 import type { RemoteOwnerControl } from '@foreman-code/contracts/remote-execution'
-import { diagFile, timed } from '../../../diagTemp.js'
 import type { ResultProtocol } from '@foreman-code/contracts'
 import { workflowPreparationExtension } from './preparationExtension.js'
 import type { ProviderAccountResolver, ResolvedProviderAccount } from '../../provider-accounts/service.js'
@@ -622,14 +621,6 @@ class InstalledWorkflowHostRuntime {
       } else await workerExecutionAuthorizer(this.forBinding(actual.context.binding))(actual.intent,actual.placement,'start')
       await this.reserveResidentLaunch(actual)
       installations.assertCurrent(selection)}
-    // Checks that begin in the same synchronous burst share one Main read: it is sent after every one of them
-    // began, so each still observes authority as of its own call. Later checks send their own read.
-    let pendingRead: Promise<unknown> | undefined
-    diagFile(join(this.input.stateDirectory, 'diag-time.json'))
-    const readAuthority = () => pendingRead ??= Promise.resolve().then(() => {
-      pendingRead = undefined
-      return timed('authority-read-send', () => workerExecutionAuthorizer(this.forBinding(actual.context.binding))(actual.intent,actual.placement,'read'))
-    })
     const outputContext: InstalledWorkflowNativeOutputContext = {
       get intent() { return structuredClone(actual.intent) },
       placement: structuredClone(actual.placement),
@@ -653,7 +644,7 @@ class InstalledWorkflowHostRuntime {
       assertCurrent: async (pin, effectSignal) => {
         effectSignal?.throwIfAborted(); this.current(actual.context.binding)
         if (actual.native) {
-          await timed('assertCurrent-read-wait', () => readAuthority())
+          await workerExecutionAuthorizer(this.forBinding(actual.context.binding))(actual.intent,actual.placement,'read')
           installations.assertCurrent(selection)
         } else {
           await before()
@@ -689,7 +680,7 @@ class InstalledWorkflowHostRuntime {
       || outputPorts.artifacts.binding.root.rootId !== outputContext.materialization.receipt.binding.rootId
       || outputPorts.artifacts.binding.root.rootBindingRevision !== outputContext.materialization.receipt.binding.bindingRevision)) unavailable('original_native_output_binding_conflict')
     const nativeOutputs = outputPorts && createInstalledNativeOutputs({ ...outputPorts,
-      assertCurrent: async effectSignal => { await Promise.all([outputContext.assertCurrent(undefined, effectSignal), outputPorts.assertCurrent(effectSignal)]) },
+      assertCurrent: async effectSignal => { await outputContext.assertCurrent(undefined, effectSignal); await outputPorts.assertCurrent(effectSignal) },
       storage: (prepared, pin) => {
         const storage = outputPorts.storage(prepared, pin)
         if (!('binding' in storage.owner)

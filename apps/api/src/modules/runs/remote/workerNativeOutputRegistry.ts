@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { timed } from '../../../diagTemp.js'
 import { constants } from 'node:fs'
 import { open, unlink, type FileHandle } from 'node:fs/promises'
 import { CodexHarnessConfigurationSchema, type CodexHarnessConfiguration } from '@foreman-code/contracts'
@@ -91,26 +90,20 @@ export class WorkerNativeOutputRegistry implements WorkerNativeArtifactSource {
     } catch (error) { await root.close(); throw error }
   }
   private signal(signal?: AbortSignal) { return signal ? AbortSignal.any([signal, this.stop.signal]) : this.stop.signal }
-  private check(operation: WorkerNativeOutputCommand['operation'], signal?: AbortSignal, entry?: Entry, call?: WorkerNativeArtifactCallback) {
-    return timed(`registry.check:${operation}`, () => this.check2(operation, signal, entry, call))
-  }
-  private async check2(operation: WorkerNativeOutputCommand['operation'], signal?: AbortSignal, entry?: Entry, call?: WorkerNativeArtifactCallback) {
+  private async check(operation: WorkerNativeOutputCommand['operation'], signal?: AbortSignal, entry?: Entry, call?: WorkerNativeArtifactCallback) {
     const bounded = this.signal(signal); bounded.throwIfAborted()
-    // Every Main-backed check is a read: the original callbacks and each guard are verified together,
-    // bracketed by the callbacks, so one operation costs a handful of Main round trips, not dozens.
     const current = async () => {
-      bounded.throwIfAborted()
-      await Promise.all([this.pin.assertCurrent(bounded), call?.assertCurrent(bounded)]); bounded.throwIfAborted()
-    }
-    const rootIdentityCurrent = async () => {
-      const root = await openPrivateRoot(this.ports.storage.rootDirectory)
-      this.inspections.add(root)
-      try { if (JSON.stringify(await identity(root)) !== this.rootIdentity) throw conflict() }
-      finally { await root.close(); this.inspections.delete(root) }
+      bounded.throwIfAborted(); await this.pin.assertCurrent(bounded)
+      await call?.assertCurrent(bounded); bounded.throwIfAborted()
     }
     await current()
-    await Promise.all([timed('check.authority', () => this.ports.authority.assertCurrent(operation, bounded)), timed('check.storage', () => this.ports.storage.assertProtected(bounded)),
-      timed('check.reservation', async () => entry?.reservation.assertCurrent(bounded)), timed('check.root', rootIdentityCurrent)])
+    await this.ports.authority.assertCurrent(operation, bounded); await current()
+    await this.ports.storage.assertProtected(bounded); await current()
+    await entry?.reservation.assertCurrent(bounded); await current()
+    const root = await openPrivateRoot(this.ports.storage.rootDirectory)
+    this.inspections.add(root)
+    try { if (JSON.stringify(await identity(root)) !== this.rootIdentity) throw conflict() }
+    finally { await root.close(); this.inspections.delete(root) }
     await current()
   }
   private entry(id: string): Entry {

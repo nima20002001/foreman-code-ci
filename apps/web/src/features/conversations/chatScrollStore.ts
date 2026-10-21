@@ -6,7 +6,8 @@ type Position = { top: number; following: boolean }
 const useChatScrollStore = create<{ positions: Record<string, Position>; remember(key: string, value: Position): void }>(set => ({
   positions: {}, remember: (key, value) => set(state => ({ positions: { ...state.positions, [key]: value } })),
 }))
-if (typeof window !== 'undefined') window.addEventListener(identityChangedEvent, () => useChatScrollStore.setState({ positions: {} }))
+export const clearRememberedChatScroll = () => useChatScrollStore.setState({ positions: {} })
+if (typeof window !== 'undefined') window.addEventListener(identityChangedEvent, clearRememberedChatScroll)
 
 /** One presentation store shared by the existing floating and docked transcript renderers. */
 export function useRememberedChatScroll(key: string | undefined, element: RefObject<HTMLDivElement | null>, following: RefObject<boolean>) {
