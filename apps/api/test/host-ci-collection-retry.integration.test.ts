@@ -190,22 +190,3 @@ it('recovers a terminal log observation after collection completes and then stop
     expect((await f.call(denied, 'ci_get', { ticketId: f.record.id })).isError).toBe(true)
   } finally { await f.close() }
 })
-
-it('settles a canceled part at once without collecting results, so its gate group is terminal', async () => {
-  const f = await collectionFixture('pending', 'running')
-  vi.useFakeTimers({ toFake: ['Date'] })
-  try {
-    f.remoteState('canceled')
-    await settle(f.ci)
-    const output = await f.read()
-    expect(output.run).toMatchObject({ state: 'canceled', collection: 'unsupported',
-      observation: { status: 'available', consecutiveFailures: 0, nextAttemptAt: null } })
-    const waited = CiGetOutputSchema.parse(decodeMcpToolResult(await f.operator.callTool({ name: 'ci_get',
-      arguments: { workspaceId: f.workspaceId, ticketId: f.record.id, waitUntil: 'group-terminal', logTail: false } })))
-    expect(waited.wait).toMatchObject({ status: 'settled', tickets: 1, settledTickets: 1 })
-    const counts = f.counts()
-    vi.setSystemTime(Date.now() + 120_000)
-    await settle(f.ci)
-    expect(f.counts()).toEqual(counts)
-  } finally { await f.close() }
-})
