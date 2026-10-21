@@ -1964,8 +1964,6 @@ export class AgentChatService {
     const code = failure(error).error?.code
     componentLogger('harness').error({
       errorType: error instanceof Error ? error.constructor.name : typeof error,
-      diagMessage: String((error as { message?: unknown })?.message ?? error).slice(0, 400),
-      diagCause: String(((error as { cause?: { message?: unknown } })?.cause)?.message ?? '').slice(0, 400),
       ...(code && /^[A-Za-z0-9_-]{1,64}$/.test(code) ? { errorCode: code } : {}),
       stackFrames: error instanceof Error
         ? error.stack?.split('\n').filter(frame => /^\s+at\s/.test(frame)).slice(0, 8) ?? [] : [],
