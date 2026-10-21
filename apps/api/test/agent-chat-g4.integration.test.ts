@@ -126,7 +126,10 @@ describe.skipIf(!postgresEnabled)('G4 PostgreSQL / HTTP / MCP regressions', () =
       const expectedMessages = expected.map((message, index) => ({ ...message,
         revision: persisted[index]!.revision, sequence: persisted[index]!.sequence }))
       const state = AgentChatStateSchema.parse((await f.read()).json())
-      assert.equal(state.messages.length, 0)
+      // The snapshot keeps only the newest message, as a preview within the byte budget; exact history pages hold the full bodies.
+      assert.deepEqual(state.messages.map((message) => message.id), [answer2.id])
+      assert.equal(state.messages[0]!.truncation?.truncated, true)
+      assert.ok(Buffer.byteLength(JSON.stringify(state.messages)) <= OPERATOR_SNAPSHOT_MESSAGE_BYTES)
       assert.equal(state.hasEarlierMessages, true)
       const discovery = await f.mcp.listTools()
       const tool = discovery.tools.find((entry) => entry.name === 'agent_chat_read')!
