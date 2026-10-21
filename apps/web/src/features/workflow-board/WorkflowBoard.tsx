@@ -17,7 +17,6 @@ import { RunActivityPanel } from './RunActivityPanel'
 import { useInspectionPresentation } from './inspect/presentation'
 import { useWorkflowSidePanel } from './useWorkflowSidePanel'
 import { WorkflowMemoryDialog, WorkflowSidePanel, type WorkflowCollaborationSlots } from './WorkflowSidePanel'
-import { useWorkflowOperatorDock } from './operatorDockContext'
 import { useBrowserPanelRelease } from './useBrowserPanelRelease'
 import { useCollaborationUISlots } from '../../shared/ui/collaborationSlots'
 import { createWorkflowExecutionChatSlot } from '../workflow-hierarchy/execution-chat/createWorkflowExecutionChatSlot'
@@ -49,7 +48,6 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
   const [sidePanelHost, setSidePanelHost] = useState<HTMLDivElement | null>(null)
   const [authoringActions, setAuthoringActions] = useState<WorkflowAuthoringActions>()
   const registerAuthoringActions = useCallback((actions?: WorkflowAuthoringActions) => setAuthoringActions(actions), [])
-  useWorkflowOperatorDock(side.scope, sidePanelHost, side.panel.kind === 'operator', side.memoryOpen, side.selectPanel, side.closeOperator)
   const selection = useRef({ location: router.history.location, generation: 0 })
   const getSelectionToken = useCallback(() => {
     if (selection.current.location !== router.history.location) {

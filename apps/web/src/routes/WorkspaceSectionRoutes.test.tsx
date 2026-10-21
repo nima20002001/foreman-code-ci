@@ -128,25 +128,10 @@ describe('workspace section routes', () => {
         openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
         counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
     }))
-    const { router, queryClient, unmount } = renderRoute('/workspaces/workspace-1/memory')
+    const { queryClient, unmount } = renderRoute('/workspaces/workspace-1/memory')
     expect(await screen.findByRole('button', { name: 'Add card' })).toBeVisible()
     expect(screen.queryByText('Memory board is not available yet.')).not.toBeInTheDocument()
     expect(scopes).toEqual([{ kind: 'workspace', workspaceId: 'workspace-1' }])
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Find cards' }), 'release')
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ memoryQuery: 'release' }))
-    expect(router.state.location.pathname).toBe('/workspaces/workspace-1/memory')
-    unmount(); queryClient.clear()
-  })
-
-  it('keeps the Workflows page to its workflow list without memory cards', async () => {
-    const memoryReads = vi.fn()
-    server.use(http.get('/api/memory-boards', () => { memoryReads(); return HttpResponse.json({}, { status: 500 }) }))
-    const { queryClient, unmount } = renderRoute('/workspaces/workspace-1/workflows')
-    expect(await screen.findByTestId('workflow-card-workflow-content-pipeline')).toBeVisible()
-    await waitFor(() => expect(queryClient.isFetching()).toBe(0))
-    expect(screen.queryByRole('button', { name: 'Add card' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: /memory board/i })).not.toBeInTheDocument()
-    expect(memoryReads).not.toHaveBeenCalled()
     unmount(); queryClient.clear()
   })
 

@@ -4,7 +4,6 @@ import { boardSidePanelFromSearch, readRunInspectionKey, runInspectionKey, type 
 import type { WorkflowExecutionChatTarget } from '@foreman-code/contracts'
 import type { RunsSelectorSearchSchema } from '../runs-selector/search'
 import { useSelectedRun } from '../runs-selector/useSelectedRun'
-import { useSidePanelPresentation } from './sidePanelPresentation'
 
 /** Navigation belongs to the URL. Drafts and scroll stay in their existing local owners. */
 export function useWorkflowSidePanel(workspaceId: string, workflowId: string, run?: RepeatGraphScopeV3,
@@ -16,8 +15,10 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
   const scope = JSON.stringify([workspaceId, workflowId])
   const opener = useRef<HTMLElement | null>(null)
   const { boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId } = search
-  const panel = useMemo(() => boardSidePanelFromSearch({ boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId }),
-    [boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId])
+  // Operator chat is the app's floating dialog, never a rail destination, so a stale `boardPanel=operator` link leaves the rail closed.
+  const panel = useMemo<BoardSidePanel>(() => boardPanel === 'operator' ? { kind: 'none' }
+    : boardSidePanelFromSearch({ boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId }),
+  [boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId])
   const browserKey = JSON.stringify([workspaceId, workflowId, run?.runId ?? search.selectedRunId ?? search.runId,
     boardNodeId, boardExecutionId])
   const visible = panel.kind === 'browser' && search.boardMemory !== true
@@ -54,13 +55,6 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
       search: previous => {
         if (previous.workflowId && previous.workflowId !== workflowId) return previous
         const selected = keepRun(previous)
-        if (next.kind === 'operator' && previous.boardPanel !== 'operator') {
-          useSidePanelPresentation.getState().rememberOperator(scope, {
-            kind: boardSidePanelFromSearch(previous).kind,
-            runId: selected.selectedRunId ?? selected.runId ?? null,
-            workflowVersionId: selected.workflowVersionId ?? null,
-          })
-        }
         // The rail owns inspection after a legacy deep link has been opened.
         // Clearing those aliases also makes Back to Board stay closed.
         delete selected.runNodeId; delete selected.runRelationshipId; delete selected.runExchangeKey
@@ -78,7 +72,7 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
         }
         return selected
       } })
-  }, [navigate, pathname, workflowId, keepRun, scope, panel, search.boardMemory, releaseBrowser, generation, isCurrent])
+  }, [navigate, pathname, workflowId, keepRun, panel, search.boardMemory, releaseBrowser, generation, isCurrent])
   // A Run link that arrives naming a node (and execution) opens that saved node in this rail, which owns the selection
   // afterwards. Only the link the Board was opened with does this: the Run's Activities inspector writes the same
   // fields as its own selection. It runs here, after the selection subscription above is live; a child's effect
@@ -93,20 +87,6 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
     // Replace the link itself, so Back never returns to a link that would open the rail again.
     selectPanel({ kind: 'agent', nodeId: linkedNodeId!, tab: 'details', ...(executionId ? { executionId } : {}) }, true)
   }, [openLinkedNode, linkedNodeId, linkedExchange, selectPanel])
-  const closeOperator = useCallback(() => {
-    const previous = useSidePanelPresentation.getState().beforeOperator[scope]
-    const current = keepRun(search)
-    const sameRun = previous?.runId === (current.selectedRunId ?? current.runId ?? null)
-      && previous?.workflowVersionId === (current.workflowVersionId ?? null)
-    const nodeDestination = previous?.kind === 'agent' || previous?.kind === 'browser'
-    if (!previous || nodeDestination && !sameRun) {
-      selectPanel({ kind: 'none' })
-      return
-    }
-    selectPanel(boardSidePanelFromSearch({ ...current,
-      boardPanel: previous.kind === 'none' ? undefined : previous.kind,
-    }))
-  }, [scope, selectPanel, keepRun, search])
   const selectView = useCallback((view: 'graph' | 'overview') => {
     if (!isCurrent(generation)) return
     void navigate({ to: pathname, hash: true,
@@ -163,6 +143,6 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
     ? { kind: 'agent', nodeId: search.boardNodeId, tab: search.boardAgentTab ?? 'chat',
       ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}),
       ...(search.boardWaitingActivationId ? { waitingActivationId: search.boardWaitingActivationId } : {}) } : undefined
-  return { scope, opener, panel, selectPanel, closeOperator, agentSelection, releaseBrowser, view: search.boardView ?? 'graph', selectView,
+  return { scope, opener, panel, selectPanel, agentSelection, releaseBrowser, view: search.boardView ?? 'graph', selectView,
     memoryOpen: search.boardMemory === true, setMemoryOpen, teamNodeId: search.boardTeamId, selectTeam, selectExecution, selectChatTarget, selectChatRun }
 }

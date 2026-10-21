@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import type { BoardSidePanel } from '@foreman-code/contracts/wave25'
 import type { HierarchyReport } from '@foreman-code/contracts'
 import { Button, Dialog, Slider } from '../../shared/ui/nocturne'
-import { useOperatorChatStore } from '../operator-chat/operatorChatStore'
 import { useSidePanelPresentation, useSidePanelScroll } from './sidePanelPresentation'
 import type { CollaborationFieldSlots } from '../graph/collaborationFields'
 import type { WorkflowExecutionChatSlotSelection } from '../workflow-hierarchy/execution-chat/types'
@@ -40,7 +39,7 @@ export interface WorkflowSidePanelProps {
 }
 
 const destinations = [
-  ['group_chat', 'Group chat'], ['agent', 'Agent'], ['browser', 'Browser'], ['operator', 'Operator'],
+  ['group_chat', 'Group chat'], ['agent', 'Agent'], ['browser', 'Browser'],
 ] as const
 
 /** Only the selected body mounts. The fixed portal host preserves existing conversation/store ownership. */
@@ -50,10 +49,8 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
   const heldFocus = useRef(false)
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const width = useSidePanelPresentation(state => state.widths[scope] ?? 420)
-  const conversationId = useOperatorChatStore(state => state.selectedConversationId)
   const attach = useCallback((element: HTMLDivElement | null) => { setHost(element); bodyRef(element) }, [bodyRef])
-  useSidePanelScroll(host, JSON.stringify([scope, runId, selection,
-    selection.kind === 'operator' ? conversationId : undefined]), modalOpen)
+  useSidePanelScroll(host, JSON.stringify([scope, runId, selection]), modalOpen)
   const active = selection.kind !== 'none'
   useLayoutEffect(() => {
     const panel = panelRef.current
