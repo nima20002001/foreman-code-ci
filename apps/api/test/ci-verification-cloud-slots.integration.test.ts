@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
 import { CiGetOutputSchema, CiRunOutputSchema, CiRunRecordSchema,
-  type CiHostReply, type CiHostRequest, type CiHostRun } from '@foreman-code/contracts'
+  type CiHostReply, type CiHostRequest, type CiHostRun, type CiRunRecord } from '@foreman-code/contracts'
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { buildApp } from '../src/app.js'
 import type { OperatorServices } from '../src/mcp/operator/types.js'
@@ -104,7 +104,7 @@ function executor(options: { status?: (computer: HostCiComputer) => Promise<CiHo
     if (request.operation === 'cancel') return { operation: 'cancel', run: { ...run, state: 'canceled' } }
     return { operation: 'read', run, text: '', nextOffset: 0 }
   }
-  const finish = (runId: string, options: { executorCleanupPending?: boolean } = {}) => {
+  const finish = (runId: string, options: Pick<CiHostRun, 'executorCleanupPending' | 'collection'> = {}) => {
     const run = runs.get(runId)!
     runs.set(runId, { ...run, ...options, state: 'passed', exitCode: 0, finishedAt: new Date().toISOString() })
   }
@@ -135,7 +135,7 @@ async function operatorApp(ci: HostCiService, commands: PostgresCommandCoordinat
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
     return decodeMcpToolResult(result)
   }
-  return { value, close: async () => {
+  return { value, workspaceId, close: async () => {
     await client.close()
     await ci.close()
     await app.close()
@@ -144,6 +144,183 @@ async function operatorApp(ci: HostCiService, commands: PostgresCommandCoordinat
 
 const verification = (commit: string, priority: 'high' | 'normal' = 'high') => ({ suite: 'lint', scope: 'affected',
   files: ['apps/web/src/site.tsx'], priority, noSupersede: true, commit, commandId: randomUUID() })
+
+async function insertTicket(run: CiRunRecord, durations: Record<string, number> | null = null) {
+  await database.pool.query(`insert into ci_runs(id,workspace_id,group_id,state,host_key,record,durations)
+    values($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,
+  [run.id, run.workspaceId, run.groupId, run.state, null, JSON.stringify(run),
+    durations ? JSON.stringify(durations) : null])
+}
+
+it.each(['github', 'circleci'] as const)('keeps an oversized gate check off %s after its builder disappears', async provider => {
+  const clouds: HostCiComputer[] = cloudSlots(2).map(computer => ({ ...computer, hostRef: { ...computer.hostRef, provider } }))
+  const computers: HostCiComputer[] = [...clouds]
+  const fleet = executor()
+  const commands = new PostgresCommandCoordinator(database.pool)
+  const ci = new HostCiService(database.pool, commands, new RunCiAuthority(database.pool), commits,
+    { computers: async () => computers, request: fleet.request })
+  const f = await operatorApp(ci, commands)
+  try {
+    const groupId = randomUUID()
+    const ticket = (part: 'unit-api' | 'unit-web', expectedDurationMs: number, plannedHostKey: string) =>
+      CiRunRecordSchema.parse({ id: randomUUID(), workspaceId: f.workspaceId, groupId, suite: 'unit', part,
+        expectedDurationMs, plannedHostKey, gate: true, noSupersede: true, scope: 'full', files: [],
+        repository: 'octo/site', ciMirror: 'octo/site-ci', commit: 'a'.repeat(40), partition: null,
+        state: 'queued', computer: null, step: null, message: null, exitCode: null,
+        queuedAt: new Date().toISOString(), startedAt: null, finishedAt: null,
+        initiator: { principalId: 'operator', executionId: null } })
+    const oversized = ticket('unit-api', 4_000_000, builders[0]!.key)
+    const safe = ticket('unit-web', 150_000, clouds[0]!.key)
+    await insertTicket(oversized)
+    await insertTicket(safe)
+    await ci.dispatch()
+    await ci.drain()
+    const read = (id: string) => f.value('ci_get', { ticketId: id }).then(value => CiGetOutputSchema.parse(value).run)
+    expect(await read(oversized.id)).toMatchObject({ state: 'queued', computer: null,
+      plannedHostKey: builders[0]!.key })
+    expect(fleet.started.some(started => started.runId === oversized.id)).toBe(false)
+    expect(await read(safe.id)).toMatchObject({ state: 'running', computer: { hostRef: { kind: 'cloud', provider } } })
+    // Restoring builder capacity must let the unchanged oversized check start there.
+    computers.push(builders[0]!)
+    await ci.dispatch()
+    await ci.drain()
+    expect(await read(oversized.id)).toMatchObject({ state: 'running', computer: { hostRef: builders[0]!.hostRef } })
+  } finally { await f.close() }
+})
+
+it.each(['github', 'circleci'] as const)('budgets %s fallback with measured slowdown and preserves its factor', async provider => {
+  const clouds: HostCiComputer[] = cloudSlots(2).map(computer => ({ ...computer, hostRef: { ...computer.hostRef, provider } }))
+  const fleet = executor()
+  const commands = new PostgresCommandCoordinator(database.pool)
+  const ci = new HostCiService(database.pool, commands, new RunCiAuthority(database.pool), commits,
+    { computers: async () => clouds, request: fleet.request })
+  const f = await operatorApp(ci, commands)
+  try {
+    const groupId = randomUUID()
+    const at = new Date(Date.now() - 91_000).toISOString()
+    const ticket = (file: string, expectedDurationMs: number) => CiRunRecordSchema.parse({ id: randomUUID(),
+      workspaceId: f.workspaceId, groupId, suite: 'integration', expectedDurationMs,
+      plannedHostKey: builders[0]!.key, integrationShards: 4, gate: true, noSupersede: true,
+      scope: 'full', files: [file], repository: 'octo/site', ciMirror: 'octo/site-ci', commit: 'a'.repeat(40),
+      partition: null, state: 'queued', computer: null, step: null, message: null, exitCode: null,
+      queuedAt: at, startedAt: null, finishedAt: null, initiator: { principalId: 'operator', executionId: null } })
+    const longFile = 'apps/api/test/long.integration.test.ts'
+    const shortFile = 'apps/api/test/short.integration.test.ts'
+    const oversized = ticket(longFile, 1_890_000)
+    const safe = ticket(shortFile, 690_000)
+    const history = CiRunRecordSchema.parse({ ...ticket(shortFile, 100_000), files: [], state: 'passed', exitCode: 0,
+      groupId: randomUUID(), plannedHostKey: clouds[0]!.key,
+      computer: { hostRef: clouds[0]!.hostRef, label: clouds[0]!.label },
+      startedAt: new Date(Date.parse(at) - 400_000).toISOString(),
+      finishedAt: new Date(Date.parse(at) - 200_000).toISOString() })
+    await insertTicket(history)
+    await insertTicket(oversized, { [longFile]: 1_800_000 })
+    await insertTicket(safe, { [shortFile]: 600_000 })
+    await ci.dispatch()
+    await ci.drain()
+    const read = (id: string) => f.value('ci_get', { ticketId: id }).then(value => CiGetOutputSchema.parse(value).run)
+    expect(await read(oversized.id)).toMatchObject({ state: 'queued', computer: null,
+      plannedHostKey: builders[0]!.key, files: [longFile] })
+    expect(fleet.started.some(started => started.runId === oversized.id)).toBe(false)
+    const running = await read(safe.id)
+    expect(running).toMatchObject({ state: 'running', expectedDurationMs: 1_380_000, speedFactor: 2,
+      files: [shortFile], computer: { hostRef: { kind: 'cloud', provider } } })
+    const saved = (await database.pool.query('select record from ci_runs where id=$1', [safe.id])).rows[0]!.record
+    expect(saved).toEqual(running)
+  } finally { await f.close() }
+})
+
+it.each(['github', 'circleci'] as const)('tries another provider when the first %s fallback exceeds the budget', async slow => {
+  const fast = slow === 'github' ? 'circleci' : 'github'
+  const clouds: HostCiComputer[] = ([slow, fast] as const).map((provider, index) => ({ ...cloudSlots(2)[index]!,
+    hostRef: { kind: 'cloud', mainId: 'main', provider, slot: index } }))
+  const fleet = executor()
+  const commands = new PostgresCommandCoordinator(database.pool)
+  const ci = new HostCiService(database.pool, commands, new RunCiAuthority(database.pool), commits,
+    { computers: async () => clouds, request: fleet.request })
+  const f = await operatorApp(ci, commands)
+  try {
+    const at = new Date(Date.now() - 91_000).toISOString()
+    const file = 'apps/api/test/long.integration.test.ts'
+    const run = CiRunRecordSchema.parse({ id: randomUUID(), groupId: randomUUID(), workspaceId: f.workspaceId,
+      suite: 'integration', expectedDurationMs: 1_890_000, plannedHostKey: builders[0]!.key,
+      integrationShards: 4, gate: true, noSupersede: true, scope: 'full', files: [file],
+      repository: 'octo/site', ciMirror: 'octo/site-ci', commit: 'a'.repeat(40), partition: null,
+      state: 'queued', computer: null, step: null, message: null, exitCode: null, queuedAt: at,
+      startedAt: null, finishedAt: null, initiator: { principalId: 'operator', executionId: null } })
+    for (const [index, computer] of clouds.entries()) {
+      const history = CiRunRecordSchema.parse({ ...run, id: randomUUID(), groupId: randomUUID(),
+        files: [], state: 'passed', exitCode: 0, expectedDurationMs: 100_000, plannedHostKey: computer.key,
+        computer: { hostRef: computer.hostRef, label: computer.label },
+        startedAt: new Date(Date.parse(at) - 400_000).toISOString(),
+        finishedAt: new Date(Date.parse(at) - 400_000 + (index === 0 ? 200_000 : 100_000)).toISOString() })
+      await insertTicket(history)
+    }
+    await insertTicket(run, { [file]: 1_800_000 })
+    await ci.dispatch()
+    await ci.drain()
+    const running = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: run.id })).run
+    expect(running).toMatchObject({ state: 'running', plannedHostKey: clouds[1]!.key,
+      expectedDurationMs: 1_890_000, files: [file], computer: { hostRef: clouds[1]!.hostRef } })
+    expect(fleet.started).toEqual([{ key: clouds[1]!.key, runId: run.id }])
+    expect((await database.pool.query('select record from ci_runs where id=$1', [run.id])).rows[0]!.record)
+      .toEqual(running)
+  } finally { await f.close() }
+})
+
+it('starts cloud integration on a new ticket after the slot finishes its gate check', async () => {
+  const clouds = cloudSlots(8)
+  const fleet = executor()
+  const commands = new PostgresCommandCoordinator(database.pool)
+  const files = Array.from({ length: 96 }, (_, index) => `apps/api/test/feature-${index}.integration.test.ts`)
+  const ci = new HostCiService(database.pool, commands, new RunCiAuthority(database.pool), { ...commits,
+    integrationInventory: async () => ({ files, durations: Object.fromEntries(files.map(file => [file, 120_000])) }),
+  }, { computers: async () => [builders[0]!, ...clouds], request: fleet.request })
+  const f = await operatorApp(ci, commands)
+  try {
+    const gate = CiRunOutputSchema.parse(await f.value('ci_run', { suite: 'integration', scope: 'full', gate: true,
+      commit: 'a'.repeat(40), commandId: randomUUID() }))
+    await ci.dispatch()
+    await ci.drain()
+    const read = async () => CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: gate.ticketId }))
+    const initial = await read()
+    const checks = initial.partitions!.filter(run => run.suite !== 'integration')
+    const planned = initial.partitions!.filter(run => run.suite === 'integration'
+      && run.plannedHostKey?.startsWith('cloud-'))
+    expect(planned.length).toBeGreaterThan(1)
+    expect(initial.partitions!.filter(run => run.suite === 'integration').flatMap(run => run.files).sort())
+      .toEqual([...files].sort())
+    const firstCloud = fleet.started.filter(run => run.key.startsWith('cloud-'))
+    expect(firstCloud).toHaveLength(8)
+    for (const started of firstCloud) expect(checks.some(run => run.id === started.runId)).toBe(true)
+    expect(initial.partitions!.filter(run => run.suite === 'integration' && run.state === 'running')
+      .every(run => run.computer!.hostRef.kind === 'main')).toBe(true)
+    const finished = new Set<string>()
+    for (let wave = 0; wave < checks.length; wave++) {
+      const current = await read()
+      for (const run of current.partitions!.filter(run => run.suite !== 'integration' && run.state === 'running')) {
+        fleet.finish(run.id, { collection: 'unsupported' })
+        finished.add(run.id)
+      }
+      await ci.dispatch()
+      await ci.drain()
+      const running = (await read()).partitions!.filter(run => run.suite === 'integration'
+        && run.state === 'running' && run.computer?.hostRef.kind === 'cloud')
+      if (running.length !== planned.length) continue
+      for (const run of running) {
+        const slot = `cloud-${run.computer!.hostRef.slot}`
+        const first = firstCloud.find(started => started.key === slot)!
+        expect(finished.has(first.runId)).toBe(true)
+        expect(run.id).not.toBe(first.runId)
+      }
+      const active = (await database.pool.query<{ host_key: string; count: number }>(`select host_key,count(*)::int as count
+        from ci_runs where state in ('starting','running') group by host_key`)).rows
+      expect(active.filter(row => row.host_key.startsWith('cloud-') && row.count > 1)).toEqual([])
+      return
+    }
+    throw new Error('The completed check slots did not start every integration part')
+  } finally { await f.close() }
+})
 
 it('keeps reserved cloud slots out of a gate plan and starts a fix verification on one within a dispatch pass', async () => {
   const clouds = cloudSlots(6)

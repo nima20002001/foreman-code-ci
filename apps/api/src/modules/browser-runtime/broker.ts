@@ -257,26 +257,26 @@ export class BrowserBroker implements BrowserLifecyclePort {
       const preparation = await this.options.journal.read(preparationKey)
       if (preparation && preparation.inputHash !== preparationHash) throw new DomainError('COMMAND_ID_CONFLICT', 'This preparation command belongs to a different saved assignment.', 409)
       if (!preparation) await this.options.journal.write(preparationKey, { inputHash: preparationHash, state: 'reserved' })
+      const completed = [...this.sessions.values()].find(value => value.record.session.subject
+        && browserInputHash(value.record.session.subject) === key && value.record.prepareCommandId === input.commandId)
+      let existing = completed ?? this.openSubjectSession(key)
+      if (existing && (existing.record.session.profileId !== input.browser.profileId || existing.record.readOnly !== binding.readOnly)) {
+        if (input.subject.kind !== 'conversation') throw new DomainError('BROWSER_SCOPE_MISMATCH',
+          'Close the previous saved browser assignment before preparing this subject with a different profile or access mode.', 409)
+        if ((await this.closeOwned(existing)).state === 'pending') {
+          return { kind: 'unavailable', reason: 'profile_busy', retryable: true }
+        }
+        existing = undefined
+      }
       if (binding.availability !== 'ready') return { kind: 'unavailable', reason: binding.availability, retryable: true }
       await this.options.authority.assertCurrent(input.subject)
       if (!this.admission) return { kind: 'unavailable', reason: 'runtime_missing', retryable: true }
-      const completed = [...this.sessions.values()].find(value => value.record.session.subject
-        && browserInputHash(value.record.session.subject) === key && value.record.prepareCommandId === input.commandId)
       if (completed?.record.session.state === 'closed') return { kind: 'unavailable', reason: 'profile_busy', retryable: false }
-      const existing = completed ?? this.openSubjectSession(key)
       if (existing) {
-        if (existing.record.session.profileId !== input.browser.profileId || existing.record.readOnly !== binding.readOnly) {
-          if (input.subject.kind !== 'conversation') throw new DomainError('BROWSER_SCOPE_MISMATCH',
-            'Close the previous saved browser assignment before preparing this subject with a different profile or access mode.', 409)
-          if ((await this.closeOwned(existing)).state === 'pending') {
-            return { kind: 'unavailable', reason: 'profile_busy', retryable: true }
-          }
-        } else {
-          if (existing.record.closing || !['ready', 'paused'].includes(existing.record.session.state)) {
-            return { kind: 'unavailable', reason: 'profile_busy', retryable: true }
-          }
-          return { kind: 'ready', session: structuredClone(existing.record.session), control: structuredClone(existing.record.control) }
+        if (existing.record.closing || !['ready', 'paused'].includes(existing.record.session.state)) {
+          return { kind: 'unavailable', reason: 'profile_busy', retryable: true }
         }
+        return { kind: 'ready', session: structuredClone(existing.record.session), control: structuredClone(existing.record.control) }
       }
       if (!input.browser.profileId) return { kind: 'unavailable', reason: 'profile_missing', retryable: false }
       const live = await this.allocate(input.browser.profileId, input.commandId, binding.readOnly, input.subject)
@@ -391,10 +391,15 @@ export class BrowserBroker implements BrowserLifecyclePort {
     }
   }
 
+  private async assertCurrent(live: LiveSession): Promise<void> {
+    const { subject, profileId } = live.record.session
+    if (subject) await this.options.authority.assertCurrent(subject, { profileId })
+  }
+
   checkedDispatch(sessionId: string, tabId: string, actor: BrowserActor, onDispatch?: () => void): BrowserNativeDispatch {
     const live = this.requireSession(sessionId)
     return async (method, params = {}) => {
-      if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+      await this.assertCurrent(live)
       const owned = this.lease(live, tabId, actor.browserGeneration)
       return live.gate.dispatch(actor.kind === 'agent', () => this.assertActor(live, actor), () => {
         if (live.dialogBarrier && method !== 'Page.handleJavaScriptDialog' && method !== 'Foreman.dialog') {
@@ -409,7 +414,7 @@ export class BrowserBroker implements BrowserLifecyclePort {
   async action(input: { sessionId: string; tabId: string; actor: BrowserActor; commandId: string; action: BrowserHostAction }): Promise<{ state: 'completed'; result: unknown }> {
     const live = this.requireSession(input.sessionId)
     if (live.record.readOnly && input.actor.kind === 'agent') throw new DomainError('READ_ONLY', 'This agent can observe the browser but cannot change it.', 403)
-    if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+    await this.assertCurrent(live)
     return this.command(`${input.sessionId}:action:${input.commandId}`, input, async markEffect => {
       if (input.actor.kind === 'agent') await live.gate.waitForAgent()
       this.assertActor(live, input.actor); this.lease(live, input.tabId, input.actor.browserGeneration)
@@ -607,7 +612,7 @@ export class BrowserBroker implements BrowserLifecyclePort {
     attach: (apply: (privatePath: string) => Promise<void>) => Promise<unknown>) {
     const live = this.requireSession(input.sessionId)
     if (live.record.readOnly && input.actor.kind === 'agent') throw new DomainError('READ_ONLY', 'This agent cannot attach files.', 403)
-    if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+    await this.assertCurrent(live)
     return this.command(`${input.sessionId}:file-attach:${input.commandId}`, input, async markEffect => {
       if (input.actor.kind === 'agent') await live.gate.waitForAgent()
       this.assertActor(live, input.actor); this.lease(live, input.tabId, input.actor.browserGeneration)
@@ -635,7 +640,7 @@ export class BrowserBroker implements BrowserLifecyclePort {
   async createTab(input: { sessionId: string; actor: BrowserActor; commandId: string }) {
     const live = this.requireSession(input.sessionId)
     if (live.record.readOnly && input.actor.kind === 'agent') throw new DomainError('READ_ONLY', 'This agent cannot create browser tabs.', 403)
-    if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+    await this.assertCurrent(live)
     const created = await this.command(`${input.sessionId}:tab-create:${input.commandId}`, input, async markEffect => {
       const tab = await live.gate.dispatch(input.actor.kind === 'agent', () => this.assertActor(live, input.actor),
         () => { markEffect(); return this.options.driver.createTab(live.record.session.profileId, input.actor.browserGeneration) })
@@ -650,7 +655,7 @@ export class BrowserBroker implements BrowserLifecyclePort {
 
   async selectTab(input: { sessionId: string; tabId: string; actor: BrowserActor; commandId: string }) {
     const live = this.requireSession(input.sessionId)
-    if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+    await this.assertCurrent(live)
     return this.command(`${input.sessionId}:tab-select:${input.commandId}`, input, async markEffect => {
       this.lease(live, input.tabId, input.actor.browserGeneration)
       this.assertActor(live, input.actor)
@@ -665,7 +670,7 @@ export class BrowserBroker implements BrowserLifecyclePort {
   async closeTab(input: { sessionId: string; tabId: string; actor: BrowserActor; commandId: string }) {
     const live = this.requireSession(input.sessionId)
     if (live.record.readOnly && input.actor.kind === 'agent') throw new DomainError('READ_ONLY', 'This agent cannot close browser tabs.', 403)
-    if (live.record.session.subject) await this.options.authority.assertCurrent(live.record.session.subject)
+    await this.assertCurrent(live)
     await this.command(`${input.sessionId}:tab-close:${input.commandId}`, input, async markEffect => {
       const owned = this.lease(live, input.tabId, input.actor.browserGeneration)
       await live.gate.dispatch(input.actor.kind === 'agent', () => this.assertActor(live, input.actor),

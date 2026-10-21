@@ -30,6 +30,11 @@ export function executorSpeedKey(computer: HostCiComputer): string {
   return computer.hostRef.kind === 'cloud' ? `cloud:${computer.hostRef.provider}` : computer.key
 }
 
+export function executorSpeedFactor(computer: HostCiComputer, speeds: ExecutorSpeeds): number {
+  const speed = speeds.get(executorSpeedKey(computer))
+  return typeof speed === 'number' ? speed : speed?.factor ?? 1
+}
+
 /** Recent passed parts, newest first, measure file work per wall time. Cloud slowdown estimates undo the
  * previously applied factor and exclude parts planned for a different executor. */
 export function estimateExecutorSpeeds(runs: readonly ExecutorSpeedRun[],

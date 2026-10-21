@@ -131,9 +131,9 @@ it('serializes concurrent alias claims and preserves the chosen login in saved r
   expect(CiRunRecordSchema.parse(saved.record).computer?.hostRef).toEqual(reserveSlot.hostRef)
 })
 
-it('shares the threshold and UTC reset policy used by planning and new-start checks', async () => {
+it('shares provider-refusal and confirmed recovery policy across month boundaries and new-start checks', async () => {
   let now = Date.parse('2026-10-31T23:59:59Z')
-  let remaining = 20_000
+  const remaining = 20_000
   const cache = new CircleCreditCache()
   const selector = new CircleStandby(async () => [
     { owner: 'alpha', circleAccountId: 'default', role: 'primary', ready: true, mirrorNames: new Set(['site-ci']) },
@@ -141,16 +141,22 @@ it('shares the threshold and UTC reset policy used by planning and new-start che
   ], { reading: async (owner?: string) => now >= Date.parse('2026-11-01T00:00:00Z') ? { credits: null }
     : { credits: { total: 400_000, used: 400_000 - (owner === 'alpha' ? remaining : 400_000),
       remaining: owner === 'alpha' ? remaining : 400_000, asOf: new Date(now).toISOString() } } }, cache, () => now)
+  await selector.recordCreditRefusal('alpha')
   expect(await selector.eligible('alpha', 'default', 'site-ci')).toBe(false)
   expect(await selector.eligible('delta', 'reserve', 'site-ci')).toBe(true)
-  remaining = 20_001
+  now = Date.parse('2026-10-31T23:59:59Z') + 5 * 60_000
+  expect(await selector.eligible('alpha', 'default', 'site-ci')).toBe(false)
+  expect(await selector.eligible('delta', 'reserve', 'site-ci')).toBe(true)
+  expect(await selector.admitStart('alpha', 'default', 'site-ci', 'probe')).toBe(true)
+  await selector.recordCreditAcceptance('alpha', 'default', 'probe')
   expect(await selector.eligible('alpha', 'default', 'site-ci')).toBe(true)
   expect(await selector.eligible('delta', 'reserve', 'site-ci')).toBe(false)
-  remaining = 0
+  now = Date.parse('2026-10-31T23:59:59Z')
+  await selector.recordCreditRefusal('alpha')
   await selector.roles('site-ci')
   now += 1000
-  expect(await selector.eligible('alpha', 'default', 'site-ci')).toBe(true)
-  expect(await selector.eligible('delta', 'reserve', 'site-ci')).toBe(false)
+  expect(await selector.eligible('alpha', 'default', 'site-ci')).toBe(false)
+  expect(await selector.eligible('delta', 'reserve', 'site-ci')).toBe(true)
 })
 
 it('cannot claim a stale standby row after its registration has been removed', async () => {
@@ -214,11 +220,13 @@ it('reads persisted account assignments and credits through authenticated MCP af
       if (path.endsWith('collaborations')) return Response.json([{ id: `org-${owner}`, name: owner }])
       if (init?.method === 'POST') return Response.json({ usage_export_job_id: 'job' })
       if (path.endsWith('/job')) return Response.json({ state: 'completed', download_urls: ['https://signed.example/usage'] })
-      return new Response(`TOTAL_CREDITS\n${id === 'default' ? 380000 : 25000}\n`)
+      return new Response(`COMPUTE_CREDITS\n${id === 'default' ? 380000 : 25000}\n`)
     } })
+  const usagePath = join(database.directory, 'circle-usage.json')
+  let now = Date.now()
   const credits = new CircleCreditUsage(http, {
     allowance: async () => ({ defaultMonthlyCredits: 400_000, accounts: {} }), primaryOwner: async () => null,
-  })
+  }, { cache: new CircleCreditCache(usagePath) })
   await Promise.all([credits.reading('alpha'), credits.reading('delta', 'reserve')])
   await vi.waitFor(async () => {
     expect((await credits.reading('alpha')).credits?.remaining).toBe(20_000)
@@ -229,10 +237,12 @@ it('reads persisted account assignments and credits through authenticated MCP af
       owner: id === 'default' ? 'alpha' : 'delta', circleAccountId: id,
       role: id === 'default' ? 'primary' : 'standby', mirrorNames: new Set(['site-ci']),
     }), async () => 'alpha/site-ci', join(database.directory, 'clouds', id)))
-  const selector = new CircleStandby(async () => clouds.map(cloud => ({
+  const createSelector = () => new CircleStandby(async () => clouds.map(cloud => ({
     owner: cloud.provider.account!.owner, circleAccountId: cloud.provider.circleAccountId!,
     role: cloud.provider.account!.role!, mirrorNames: cloud.provider.account!.mirrorNames, ready: true,
-  })), credits)
+  })), credits, new CircleCreditCache(usagePath), () => now)
+  let selector = createSelector()
+  await selector.recordCreditRefusal('alpha')
   for (const cloud of clouds) cloud.setCircleStandby(selector)
   const commands = new PostgresCommandCoordinator(pool)
   const endpoint = new ProductionHostCiEndpoint(pool, mainId, () => undefined,
@@ -269,12 +279,15 @@ it('reads persisted account assignments and credits through authenticated MCP af
     expect((await call('ci_computers_list', denied.token)).isError).toBe(true)
     expect((await call('computer_activity_list', denied.token)).isError).toBe(true)
     await services.ci.close()
+    now += 5 * 60_000
+    selector = createSelector()
+    for (const cloud of clouds) cloud.setCircleStandby(selector)
     services.ci = create()
     const listed = CiComputersOutputSchema.parse(decodeMcpToolResult(await call('ci_computers_list')))
     expect(listed.computers.find(value => value.hostRef.circleAccountId === 'reserve')).toMatchObject({
       schedulingRole: 'active', credits: { remaining: 375_000 } })
     expect(listed.computers.find(value => value.hostRef.account === 'alpha')).toMatchObject({
-      schedulingRole: 'exhausted', credits: { remaining: 20_000 } })
+      schedulingRole: 'exhausted', creditProbeAvailable: true, credits: { remaining: 20_000 } })
     const activity = ComputerActivityListSchema.parse(decodeMcpToolResult(await call('computer_activity_list')))
     expect(activity.cloud).toMatchObject([
       { account: 'alpha', schedulingRole: 'exhausted', running: 0, credits: { remaining: 20_000 } },

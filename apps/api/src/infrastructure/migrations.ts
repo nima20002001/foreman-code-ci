@@ -56,6 +56,7 @@ import { ciRequestSharingMigration } from './ciRequestSharingMigration.js'
 import { ciDirectoryRetentionMigration } from './ciDirectoryRetentionMigration.js'
 import { ciExecutionHistoryMigration } from './ciExecutionHistoryMigration.js'
 import { ciSharedActivityMigration } from './ciSharedActivityMigration.js'
+import { ciActivityRequesterLookupMigration } from './ciActivityRequesterLookupMigration.js'
 import { ciRequesterHistoryMigration } from './ciRequesterHistoryMigration.js'
 import { stateDeadlinesMigration } from './stateDeadlinesMigration.js'
 import { sessionControlsMigration } from './sessionControlsMigration.js'
@@ -1023,7 +1024,8 @@ export const migrations = [
   ciRetainedExecutorsMigration,
   workReturnGroupMigration,
   workReturnNodeGroupingMigration,
-  workflowHierarchyMigration,
+  ciActivityRequesterLookupMigration,
+  { ...workflowHierarchyMigration, version: 2026102100 },
   hierarchyGroupsMigration,
   hierarchyDirectionMigration,
   workflowCollaborationMigration,

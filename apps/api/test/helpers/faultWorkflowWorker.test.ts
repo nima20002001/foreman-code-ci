@@ -6,6 +6,28 @@ import type { NativeSessionReference } from '@foreman-code/contracts'
 import { input } from '../fixtures/codex-test-helpers.js'
 import { faultWorkflowWorker } from './faultWorkflowWorker.js'
 
+it('reopens the Worker journal without waiting for Main to send another request', async () => {
+  const scratch = join(homedir(), '.cache', 'foreman-tmp')
+  await mkdir(scratch, { recursive: true })
+  const directory = await mkdtemp(join(scratch, 'workflow-restart-'))
+  const worker = await faultWorkflowWorker(directory)
+  try {
+    const before = { ...worker.connection }
+    const incarnationId = worker.incarnationId
+    await worker.restart()
+    expect(worker.connection).toMatchObject({
+      ...before, bootId: expect.any(String), connectionGeneration: before.connectionGeneration + 1,
+    })
+    expect(worker.connection.bootId).not.toBe(before.bootId)
+    expect(worker.incarnationId).not.toBe(incarnationId)
+    expect(worker.methods).toEqual([])
+    expect(await worker.journal.status('unsubmitted-operation')).toMatchObject({ status: 'unknown' })
+  } finally {
+    await worker.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 it.each(['session', 'turn'] as const)('runs a scoped workflow with correlation supplied at %s creation', async binding => {
   const scratch = join(homedir(), '.cache', 'foreman-tmp')
   await mkdir(scratch, { recursive: true })

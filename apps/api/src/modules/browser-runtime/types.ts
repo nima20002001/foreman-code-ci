@@ -69,7 +69,7 @@ export interface BrowserPreparedBinding {
 export interface BrowserSubjectAuthority {
   /** Resolve exact saved configuration and existing credential scope; never accept caller-invented subject authority. */
   resolve(subject: AgentSubject): Promise<BrowserPreparedBinding>
-  assertCurrent(subject: AgentSubject): Promise<void>
+  assertCurrent(subject: AgentSubject, assignment?: { profileId: string }): Promise<void>
 }
 
 export interface BrowserRuntimeReceipt {

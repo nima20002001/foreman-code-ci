@@ -81,8 +81,11 @@ function fixture() {
       if (!binding) throw new DomainError('BROWSER_SCOPE_MISMATCH', 'Unknown exact subject.', 403)
       return structuredClone(binding)
     }),
-    assertCurrent: vi.fn(async subject => {
+    assertCurrent: vi.fn(async (subject, assignment?: { profileId: string }) => {
       if (ended.has(subjectKey(subject))) throw new DomainError('AGENT_SUBJECT_ENDED', 'The exact subject has ended.', 403)
+      if (assignment && assignments.get(subjectKey(subject))?.browser.profileId !== assignment.profileId) {
+        throw new DomainError('BROWSER_SCOPE_MISMATCH', 'The browser profile assignment changed.', 409)
+      }
     }),
   }
   const broker = new BrowserBroker({ computerId: 'main', driver, journal, authority })
@@ -93,8 +96,8 @@ function fixture() {
   }
   return { driver, journal, authority, broker, request,
     end: (subject: AgentSubject) => { ended.add(subjectKey(subject)) },
-    assignment: (subject: AgentSubject, browser: NodeBrowserSettings) => {
-      assignments.set(subjectKey(subject), { subject, browser, computerId: 'main', readOnly: false, availability: 'ready' })
+    assignment: (subject: AgentSubject, browser: NodeBrowserSettings, availability: BrowserPreparedBinding['availability'] = 'ready') => {
+      assignments.set(subjectKey(subject), { subject, browser, computerId: 'main', readOnly: false, availability })
     } }
 }
 
@@ -203,6 +206,58 @@ it('keeps a changed conversation assignment pending until its previous native le
   const second = ready(await f.broker.prepare(input)).session
   expect(f.broker.read(first.id).session.state).toBe('closed')
   expect(second.profileId).toBe('second-profile')
+})
+
+it.each(['profile_missing', 'runtime_missing'] as const)(
+  'retires an obsolete conversation browser before waiting for replacement %s', async availability => {
+    const f = fixture()
+    const subject: AgentSubject = { kind: 'conversation', agent: execution().agent, conversationId: 'conversation' }
+    const first = ready(await f.broker.prepare(f.request(subject, 'first-turn'))).session
+    const peer = ready(await f.broker.prepare(f.request(execution('peer'), 'peer-turn'))).session
+    const browser = { enabled: true, profileId: 'replacement-profile' }
+    f.assignment(subject, browser, availability)
+    const result = await f.broker.prepare({ subject, browser, computerId: 'main', commandId: 'replacement-turn' })
+    expect(result).toEqual({ kind: 'unavailable', reason: availability, retryable: true })
+    expect(f.broker.read(first.id)).toMatchObject({ session: { state: 'closed', selectedTabId: null }, tabs: [] })
+    expect(f.broker.read(first.id).control.epoch).toBeGreaterThan(0)
+    expect(f.broker.read(peer.id).session.state).toBe('ready')
+    expect(f.driver.openProfile).not.toHaveBeenCalledWith('replacement-profile')
+    expect(await f.broker.action({ sessionId: peer.id, tabId: peer.selectedTabId!, actor: agent(peer),
+      commandId: 'peer-still-usable', action: { kind: 'click', x: 1, y: 2 } })).toMatchObject({ state: 'completed' })
+  },
+)
+
+it('rejects obsolete conversation dispatch before replacement preparation runs', async () => {
+  const f = fixture()
+  const subject: AgentSubject = { kind: 'conversation', agent: execution().agent, conversationId: 'conversation' }
+  const first = ready(await f.broker.prepare(f.request(subject, 'first-turn'))).session
+  const dispatch = f.broker.checkedDispatch(first.id, first.selectedTabId!, agent(first))
+  f.assignment(subject, { enabled: true, profileId: 'missing-profile' }, 'profile_missing')
+  await expect(dispatch('Fixture.obsolete-profile')).rejects.toMatchObject({ code: 'BROWSER_SCOPE_MISMATCH' })
+  await expect(f.broker.action({ sessionId: first.id, tabId: first.selectedTabId!, actor: agent(first),
+    commandId: 'obsolete-action', action: { kind: 'click', x: 1, y: 2 } }))
+    .rejects.toMatchObject({ code: 'BROWSER_SCOPE_MISMATCH' })
+  expect(f.driver.dispatch).not.toHaveBeenCalled()
+})
+
+it('keeps an unavailable replacement fenced while obsolete native tab cleanup retries', async () => {
+  const f = fixture()
+  const subject: AgentSubject = { kind: 'conversation', agent: execution().agent, conversationId: 'conversation' }
+  const first = ready(await f.broker.prepare(f.request(subject, 'first-turn'))).session
+  const dispatch = f.broker.checkedDispatch(first.id, first.selectedTabId!, agent(first))
+  const browser = { enabled: true, profileId: 'missing-profile' }
+  f.assignment(subject, browser, 'profile_missing')
+  vi.mocked(f.driver.closeTab).mockRejectedValueOnce(new Error('Native tab closure is not confirmed'))
+  const input = { subject, browser, computerId: 'main', commandId: 'replacement-turn' }
+  expect(await f.broker.prepare(input)).toEqual({ kind: 'unavailable', reason: 'profile_busy', retryable: true })
+  expect(f.broker.read(first.id).control).toMatchObject({ state: 'paused', epoch: 1 })
+  await expect(dispatch('Fixture.blocked-during-cleanup')).rejects.toMatchObject({ code: 'BROWSER_SCOPE_MISMATCH' })
+  expect(await f.broker.prepare(input)).toEqual({ kind: 'unavailable', reason: 'profile_missing', retryable: true })
+  expect(f.broker.read(first.id).session.state).toBe('closed')
+  expect(f.driver.createTab).toHaveBeenCalledTimes(1)
+  f.assignment(subject, browser)
+  expect(ready(await f.broker.prepare(input)).session.profileId).toBe('missing-profile')
+  expect(f.driver.createTab).toHaveBeenCalledTimes(2)
 })
 
 it('waits for the old conversation profile process after its tabs have closed', async () => {

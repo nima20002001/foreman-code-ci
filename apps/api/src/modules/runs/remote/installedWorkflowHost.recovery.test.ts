@@ -97,7 +97,7 @@ describe('installed worker cold recovery', () => {
         .toEqual(payload)
     } finally { await restarted.close() }
   })
-  it('requires authenticated Main authority before closing the retained original owner', async () => {
+  it('reauthorizes retained physical readback after the status carrier request completes', async () => {
     const f = await restartedInstalledFixture()
     await f.journal.close()
     const host = await f.startHost()
@@ -116,6 +116,11 @@ describe('installed worker cold recovery', () => {
       expect(reply.payload).toMatchObject({ status: 'known', receipt: { phase: 'confirmed_terminal', stopFence: true,
         native: { ...f.native, turnId: 'original-turn' }, terminal: { kind: 'cancelled' } } })
       const status = reply.payload as { receipt: { sequence: number } }
+      f.deny()
+      await expect(host.extensions[0]!.handle!({ method: 'physical-readout', intent: f.intent, placement: f.placement,
+        receiptSequence: status.receipt.sequence, sourceDigest: remoteWorkflowSourceDigest({ type: 'boundary' }) }, f.context))
+        .rejects.toThrow('Main denied recovery')
+      f.allow()
       const physical = await host.extensions[0]!.handle!({ method: 'physical-readout', intent: f.intent, placement: f.placement,
         receiptSequence: status.receipt.sequence, sourceDigest: remoteWorkflowSourceDigest({ type: 'boundary' }) }, f.context)
       expect(physical.payload).toMatchObject({ session: f.session, launch: f.launch,

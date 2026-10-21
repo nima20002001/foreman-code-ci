@@ -70,7 +70,7 @@ function runtime(pool: pg.Pool, repository: PostgresOperatorConversationReposito
   return { manager, ready, frames, options: () => options }
 }
 
-it.each(['aborted', 'resident-write-loss', 'restart-without-proof', 'restart-with-stored-proof', 'restart-wrong-generation',
+it.each(['aborted', 'resident-write-loss', 'resident-stream-after-recovery', 'restart-without-proof', 'restart-with-stored-proof', 'restart-wrong-generation',
   'terminal-after-response', 'restart-after-terminal', 'concurrent-poll', 'concurrent-poll-write-loss'] as const)(
   'recovers %s Claude approval through authenticated MCP with no response or prompt replay', async scenario => {
     await nim2691TaskDatabase(async (pool, directory) => {
@@ -216,7 +216,8 @@ it.each(['aborted', 'resident-write-loss', 'restart-without-proof', 'restart-wit
         expect(callbackRecords[0].record).toMatchObject({ identity: { nativeMessageId: message.uuid,
           nativeRequestId: input.nativeRequestId }, inputHash: expect.any(String), toolName: 'Read' })
         expect(callbackRecords[0].record.input).toBeUndefined()
-        if (scenario === 'resident-write-loss' || scenario === 'terminal-after-response' || scenario === 'restart-after-terminal') {
+        if (scenario === 'resident-write-loss' || scenario === 'resident-stream-after-recovery'
+          || scenario === 'terminal-after-response' || scenario === 'restart-after-terminal') {
           await callbacks.hooks!.PostToolUse![0]!.hooks[0]!({ ...hook, hook_event_name: 'PostToolUse', tool_response: 'read-completed' },
             'read-tool', { signal: new AbortController().signal })
         }
@@ -260,7 +261,8 @@ it.each(['aborted', 'resident-write-loss', 'restart-without-proof', 'restart-wit
         }
         await chat.reconcileActive()
         const receipt = await readReceipt()
-        const completed = scenario === 'resident-write-loss' || scenario === 'restart-with-stored-proof'
+        const completed = scenario === 'resident-write-loss' || scenario === 'resident-stream-after-recovery'
+          || scenario === 'restart-with-stored-proof'
           || scenario === 'terminal-after-response' || scenario === 'restart-after-terminal'
           || concurrentPoll
         expect(receipt.status).toBe(completed ? 'completed' : original.status)
@@ -289,6 +291,19 @@ it.each(['aborted', 'resident-write-loss', 'restart-without-proof', 'restart-wit
         const summary = activity?.kind === 'interaction' ? activity.interaction : undefined
         expect(summary?.providerAcknowledged).toBe(completed)
         if (!completed) expect(summary?.delivery).not.toBe('delivered')
+        if (scenario === 'resident-stream-after-recovery') {
+          void owned.frames.offer({ type: 'assistant', uuid: 'after-recovery-answer', session_id: session.nativeSessionId,
+            user_message_uuid: message.uuid, parent_tool_use_id: null,
+            message: { id: 'after-recovery', content: [{ type: 'text', text: 'Live output after recovery.' }] } })
+          await vi.waitFor(async () => {
+            const continued = await graphRpc(app, owner.token, 'tools/call', {
+              name: 'operator_chat_get', arguments: { conversationId: id },
+            })
+            expect(continued.result?.isError).not.toBe(true)
+            expect((graphRpcValue(continued.result) as OperatorConversationState).messages)
+              .toContainEqual(expect.objectContaining({ content: 'Live output after recovery.' }))
+          }, { timeout: 20_000, interval: 50 })
+        }
         const replay = await graphRpc(app, owner.token, 'tools/call', { name: 'operator_chat_respond', arguments: { conversationId: id, request: input } })
         expect(Boolean(replay.result?.isError)).toBe(!completed)
         expect(offers).toEqual([message.uuid])

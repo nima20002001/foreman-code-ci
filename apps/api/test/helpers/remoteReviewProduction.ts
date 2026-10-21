@@ -1,4 +1,5 @@
 import { readUntil } from './observableCondition.js'
+import { callProductionMcpTool } from './productionMcpCall.js'
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createHash, randomUUID, sign, X509Certificate } from 'node:crypto'
@@ -319,7 +320,8 @@ export async function remoteReviewProduction(options: {
             })
           }
           const event = parsed as { level?: unknown; code?: unknown; errorCode?: unknown; stackFrames?: unknown;
-            namespace?: unknown; tool?: unknown; runId?: unknown; err?: { code?: unknown; stack?: unknown; message?: unknown; type?: unknown }; msg?: unknown;
+            namespace?: unknown; tool?: unknown; runId?: unknown; err?: { code?: unknown; stack?: unknown; message?: unknown;
+              type?: unknown; cause?: { stack?: unknown } }; msg?: unknown;
             phase?: unknown; errorType?: unknown; errorLocation?: unknown; reason?: unknown }
           const code = event.err?.code ?? event.code ?? event.errorCode
             ?? (event.msg === 'Device extension request failed' ? 'DEVICE_EXTENSION_FAILED' : undefined)
@@ -327,6 +329,9 @@ export async function remoteReviewProduction(options: {
           if (!['warn', 'error', 'fatal'].includes(String(event.level)) || typeof code !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{1,127}$/.test(code)) continue
           const frames = Array.isArray(event.stackFrames)
             ? event.stackFrames.filter((frame): frame is string => typeof frame === 'string').slice(0, 4) : []
+          if (typeof event.err?.cause?.stack === 'string') {
+            frames.push(...event.err.cause.stack.split('\n').slice(1, 5).map(frame => `cause: ${frame}`))
+          }
           const sourceMessage = event.err?.message
           const errorDetail = code === 'source-reconciliation-unconfirmed' && typeof sourceMessage === 'string'
             && /^Process \d+ (?:still |could not be inspected|exceeded )/.test(sourceMessage)
@@ -420,7 +425,7 @@ export async function remoteReviewProduction(options: {
         clients.set(token, connected)
       }
       const client = await connected
-      return client.callTool({ name, arguments: args })
+      return callProductionMcpTool(client, { name, arguments: args })
     }
     async function value(name: string, args: Record<string, unknown>) {
       const seenBefore = failuresSeen

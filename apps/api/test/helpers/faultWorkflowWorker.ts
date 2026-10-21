@@ -16,7 +16,6 @@ import { RemoteNativeSessionManager } from '../../src/modules/runs/remote/native
 import { RemoteOperationJournal } from '../../src/modules/runs/remote/operationJournal.js'
 import { ActivityProductionReplay } from './activityProductionReplay.js'
 import { pageNativeHistory } from '../../src/modules/runs/remote/nativeHistoryPage.js'
-import { deferred, type Deferred } from './deferred.js'
 
 const digest = 'a'.repeat(64)
 
@@ -96,7 +95,6 @@ export async function faultWorkflowWorker(directory: string, options: { mcpUnava
   const operations = new Set<string>()
   const interruptedExecutions = new Set<string>()
   let connected = true
-  let interruptedRequest: Deferred<void> | undefined
   let rejectedRequests = 0
   const methods: string[] = []
   return {
@@ -117,9 +115,7 @@ export async function faultWorkflowWorker(directory: string, options: { mcpUnava
     disconnect() { connected = false },
     reconnect() { connected = true },
     async restart() {
-      interruptedRequest = deferred()
       connected = false
-      await interruptedRequest.promise
       for (const operationId of operations) {
         const status = await journal.status(operationId)
         if (status.status === 'known' && status.receipt.native && !status.receipt.terminal) {
@@ -161,7 +157,6 @@ export async function faultWorkflowWorker(directory: string, options: { mcpUnava
           methods.push(method)
           if (!connected) {
             rejectedRequests += 1
-            interruptedRequest?.resolve()
             const error = new DomainError('DEVICE_TRANSPORT_ERROR', 'The recorded Worker connection was interrupted.', 503)
             error.cause = new DeviceConnectionError('transport')
             throw error

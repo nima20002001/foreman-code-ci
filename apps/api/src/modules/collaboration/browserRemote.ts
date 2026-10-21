@@ -141,7 +141,8 @@ export function createMainBrowserRemote(options: {
         return { payload: await options.authority.resolve(request.subject, { readyComputerId: binding.computerId }) }
       }
       if (request.operation === 'subject-current') {
-        await options.authority.assertCurrent(request.subject, binding.computerId)
+        await options.authority.assertCurrent(request.subject,
+          definedProperties({ computerId: binding.computerId, profileId: request.profileId }))
         return { payload: { current: true } }
       }
       if (request.operation === 'session-authorize') {

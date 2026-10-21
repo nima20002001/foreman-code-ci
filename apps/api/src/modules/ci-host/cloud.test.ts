@@ -11,6 +11,7 @@ import { cloudSuiteRunner } from './cloudRunner.testSupport.js'
 
 import { confirmCancellation, fixture } from './cloud.testSupport.js'
 import { expectCliRunMessage } from './cloudAssertions.testSupport.js'
+import { deferred } from '../../../test/helpers/deferred.js'
 
 function confirmCircleCiCancellation(f: Awaited<ReturnType<typeof fixture>>) {
   const original = f.ports.run.bind(f.ports)
@@ -874,6 +875,56 @@ describe('GitHub Actions CI on a public mirror', () => {
     f.advance(4_000)
     expect(await f.cloud.handle({ operation: 'read', runId, afterOffset: 0, maxBytes: 1 }))
       .toMatchObject({ run: { state: 'running' } })
+  })
+
+  it('waits for status-triggered CircleCI recovery before the cloud fixture dispatch settles', async () => {
+    const f = await fixture({}, { provider: 'circleci' })
+    f.circle.lookupError = 'run.not_found'
+    const runId = randomUUID()
+    const started = await f.cloud.handle({ operation: 'start', workspaceId: 'ci-workspace', runId,
+      repository: 'octo/site', commit: f.commit, suite: 'integration', scope: 'full' })
+    if (started.operation !== 'start') throw new Error('Expected a start reply')
+    const main = cloudService(f.cloud, started.run, f.commit)
+    await main.service.dispatch()
+    await f.cloud.waitForMirrorCleanup('octo/site', 'octo/site-ci')
+    const lookupEntered = deferred()
+    const releaseLookup = deferred()
+    const cancellationEntered = deferred()
+    const releaseCancellation = deferred()
+    const run = f.ports.run.bind(f.ports)
+    vi.spyOn(f.ports, 'run').mockImplementation(async (file, args, options) => {
+      if (file === 'circleci' && args[0] === 'run' && args[1] === 'get') {
+        lookupEntered.resolve()
+        await releaseLookup.promise
+      }
+      const result = await run(file, args, options)
+      if (file === 'circleci' && args[0] === 'run' && args[1] === 'cancel') {
+        cancellationEntered.resolve()
+        await releaseCancellation.promise
+      }
+      return result
+    })
+    f.advance(75_000)
+    await f.cloud.handle({ operation: 'status' })
+    await lookupEntered.promise
+    const dispatching = main.service.dispatch()
+    try {
+      // Main can finish its journal observation while the status-triggered provider read is blocked.
+      await main.service.drain()
+      releaseLookup.resolve()
+      const first = await Promise.race([
+        dispatching.then(() => 'dispatch'),
+        cancellationEntered.promise.then(() => 'cancel'),
+      ])
+      expect(first).toBe('cancel')
+      expect(f.circle.canceled).toEqual(['run-1'])
+    } finally {
+      releaseLookup.resolve()
+      releaseCancellation.resolve()
+      await dispatching
+      await main.service.close()
+      await f.cloud.waitForMirrorCleanup('octo/site', 'octo/site-ci')
+    }
   })
 
   it('requeues an unreadable unstarted CircleCI ticket and releases its Main slot', async () => {

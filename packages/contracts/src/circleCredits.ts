@@ -1,17 +1,17 @@
 import { z } from 'zod'
 
 /**
- * CircleCI's Free plan grants each organization 400,000 credits per month for Linux open-source builds and refills
- * them at the start of the next month; CircleCI exposes no API for this balance:
+ * CircleCI advertises 400,000 monthly credits for Linux open-source builds. This is a reporting estimate,
+ * not an admission limit: Free-plan open-source builds continue when the credit balance is exhausted.
  * https://circleci.com/docs/guides/plans-pricing/credits/
  */
 export const CIRCLE_OPEN_SOURCE_MONTHLY_CREDITS = 400_000
 
-/** An estimate: the organization's monthly allowance minus the credits CircleCI's usage export reports for this month. */
+/** Reporting only: the configured allowance minus monthly compute usage, not CircleCI's available balance. */
 export const CircleCreditsSchema = z.object({
   /** The configured monthly allowance. */
   total: z.number().nonnegative(),
-  /** Credits used this calendar month (UTC) according to CircleCI's usage export. */
+  /** Compute credits used this calendar month (UTC), excluding storage and other charges. */
   used: z.number().nonnegative(),
   remaining: z.number().nonnegative(),
   /** When the usage was read from CircleCI. */
@@ -36,4 +36,6 @@ export type CircleSchedulingRole = z.infer<typeof CircleSchedulingRoleSchema>
 export const circleSchedulingShape = {
   schedulingRole: CircleSchedulingRoleSchema.optional(),
   schedulingReason: z.string().max(300).optional(),
+  /** One recovery build may be admitted while this organization remains exhausted. */
+  creditProbeAvailable: z.boolean().optional(),
 }

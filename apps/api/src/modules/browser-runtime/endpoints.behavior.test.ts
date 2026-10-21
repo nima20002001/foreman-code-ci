@@ -116,6 +116,26 @@ it.each(browserSubjects())('preserves $kind scope through MCP preparation, tab o
   await expect(agent.callTool({ name: 'browser_session_get', arguments: f.reference('browser_session_get', { sessionId }) })).rejects.toThrow()
 })
 
+it('denies obsolete conversation browser input and retires it while its replacement profile is unavailable over MCP', async () => {
+  const f = await fixture()
+  const subject = browserSubjects().find(value => value.kind === 'conversation')!
+  const request = f.bindSubject(subject)
+  f.addCaller('agent', { subject })
+  f.addCaller('other-scope', { subject, wrongScope: true })
+  const client = await f.connect('agent')
+  const denied = await f.connect('other-scope')
+  const first = ready(await value(f, client, 'browser_session_open', { intent: 'prepare', request })).session
+  const replacement = f.bindSubject(subject, 'missing-profile', false, { availability: 'profile_missing' })
+  errorCode(await call(f, client, 'browser_action', { sessionId: first.id, tabId: first.selectedTabId!,
+    actor: browserAgent(first), commandId: 'obsolete-profile-action', action: { kind: 'navigate', url: 'https://fixture.test/' } }),
+  'BROWSER_SCOPE_MISMATCH')
+  errorCode(await call(f, denied, 'browser_session_get', { sessionId: first.id }), 'ACCESS_DENIED')
+  expect(await value(f, client, 'browser_session_open', { intent: 'prepare', request: replacement }))
+    .toEqual({ kind: 'unavailable', reason: 'profile_missing', retryable: true })
+  expect(await value(f, client, 'browser_session_get', { sessionId: first.id }))
+    .toMatchObject({ session: { id: first.id, state: 'closed', selectedTabId: null }, tabs: [] })
+})
+
 it('uses one authenticated setup lease for tabs, views, control, native fallback, input and replay-safe close', async () => {
   const f = await fixture(), client = await f.connect()
   const opened = await f.http('browser_session_open', { intent: 'setup', profileId: 'profile', computerId: 'main', commandId: 'setup' }, 'POST', '/api/browser/sessions/open')

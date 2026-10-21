@@ -3,12 +3,14 @@ import { useLocation, useNavigate } from '@tanstack/react-router'
 import { boardSidePanelFromSearch, runInspectionKey, type BoardSidePanel, type RepeatGraphScopeV3 } from '@foreman-code/contracts/wave25'
 import type { WorkflowExecutionChatTarget } from '@foreman-code/contracts'
 import type { RunsSelectorSearchSchema } from '../runs-selector/search'
+import { useSelectedRun } from '../runs-selector/useSelectedRun'
 import { useSidePanelPresentation } from './sidePanelPresentation'
 
 /** Navigation belongs to the URL. Drafts and scroll stay in their existing local owners. */
 export function useWorkflowSidePanel(workspaceId: string, workflowId: string, run?: RepeatGraphScopeV3,
   beforeBrowserHide?: () => void) {
   const location = useLocation(), navigate = useNavigate()
+  const { generation, isCurrent } = useSelectedRun({ workspaceId, workflowId })
   const search = location.search
   const pathname = location.pathname
   const scope = JSON.stringify([workspaceId, workflowId])
@@ -42,6 +44,7 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
       ? { runId, workflowVersionId, executionSemanticsVersion } : {}) }),
   [workflowId, runId, workflowVersionId, executionSemanticsVersion])
   const selectPanel = useCallback((next: BoardSidePanel) => {
+    if (!isCurrent(generation)) return
     if (panel.kind === 'browser' && search.boardMemory !== true
       && (next.kind !== 'browser' || next.nodeId !== panel.nodeId || next.executionId !== panel.executionId)) releaseBrowser()
     if (panel.kind === 'none' && next.kind !== 'none') {
@@ -75,7 +78,7 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
         }
         return selected
       } })
-  }, [navigate, pathname, workflowId, keepRun, scope, panel, search.boardMemory, releaseBrowser])
+  }, [navigate, pathname, workflowId, keepRun, scope, panel, search.boardMemory, releaseBrowser, generation, isCurrent])
   const closeOperator = useCallback(() => {
     const previous = useSidePanelPresentation.getState().beforeOperator[scope]
     const current = keepRun(search)
@@ -91,14 +94,16 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
     }))
   }, [scope, selectPanel, keepRun, search])
   const selectView = useCallback((view: 'graph' | 'overview') => {
+    if (!isCurrent(generation)) return
     void navigate({ to: pathname, hash: true,
       search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardView: view }) })
-  }, [navigate, pathname, workflowId, keepRun])
+  }, [navigate, pathname, workflowId, keepRun, generation, isCurrent])
   const setMemoryOpen = useCallback((open: boolean) => {
+    if (!isCurrent(generation)) return
     if (open && panel.kind === 'browser' && search.boardMemory !== true) releaseBrowser()
     void navigate({ to: pathname, hash: true,
       search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardMemory: open ? true : undefined }) })
-  }, [navigate, pathname, workflowId, keepRun, panel.kind, search.boardMemory, releaseBrowser])
+  }, [navigate, pathname, workflowId, keepRun, panel.kind, search.boardMemory, releaseBrowser, generation, isCurrent])
   const selectTeam = useCallback((nodeId?: string) => {
     void navigate({ to: pathname, hash: true,
       search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous

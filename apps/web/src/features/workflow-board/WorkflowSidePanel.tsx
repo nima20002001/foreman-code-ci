@@ -47,6 +47,7 @@ const destinations = [
 export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workflowVersionId,
   opener, selection, agentSelection, onSelect, onSelectTarget, onSelectRun, bodyRef, modalOpen, slots }: WorkflowSidePanelProps) {
   const panelRef = useRef<HTMLElement>(null)
+  const heldFocus = useRef(false)
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const width = useSidePanelPresentation(state => state.widths[scope] ?? 420)
   const conversationId = useOperatorChatStore(state => state.selectedConversationId)
@@ -76,16 +77,34 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
   }, [active, modalOpen])
   useEffect(() => {
     const panel = panelRef.current
-    if (!active || modalOpen || !panel) return
+    if (!active || modalOpen || !panel) {
+      heldFocus.current = false
+      return
+    }
+    if (document.activeElement && document.activeElement !== document.body) {
+      heldFocus.current = panel.contains(document.activeElement)
+    }
     const close = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
+      const focused = document.activeElement
+      const inside = panel.contains(focused)
+      const orphaned = heldFocus.current && (!focused || focused === document.body)
+      if (!(inside || orphaned) || document.querySelector('dialog[open]')
+        || focused?.closest('[role="listbox"], .n-menu')) return
       event.preventDefault()
       event.stopPropagation()
       onSelect({ kind: 'none' })
     }
-    // Portal content bubbles through the DOM rail, but not its React owner tree.
-    panel.addEventListener('keydown', close)
-    return () => panel.removeEventListener('keydown', close)
+    const rememberFocus = (event: FocusEvent) => {
+      heldFocus.current = panel.contains(event.target as Node | null)
+    }
+    // A removed focused portal control leaves focus on body; other surfaces retain their own Escape.
+    document.addEventListener('keydown', close)
+    document.addEventListener('focusin', rememberFocus)
+    return () => {
+      document.removeEventListener('keydown', close)
+      document.removeEventListener('focusin', rememberFocus)
+    }
   }, [active, modalOpen, onSelect])
   useEffect(() => {
     if (!active) return

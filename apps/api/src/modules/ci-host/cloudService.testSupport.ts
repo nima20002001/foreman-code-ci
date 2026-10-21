@@ -48,9 +48,13 @@ export function cloudService(cloud: CloudCi, run: CiHostRun, commit: string,
   const authority: CiAuthority = { resolve: async () => ({ principal, workspaceId: 'workspace' }) }
   const service = new HostCiService(pool, {} as PostgresCommandCoordinator, authority, {} as CiCommits,
     { computers: async () => [computer], request: async (_computer, request) => cloud.handle(request) })
-  // A dispatch pass observes tickets in the background; wait for those observations to settle before the test reads.
+  // Status starts cloud recovery outside Main's work queues; settle both before tests read or advance the clock.
   const dispatch = service.dispatch.bind(service)
-  service.dispatch = async () => { await dispatch(); await service.drain() }
+  service.dispatch = async () => {
+    await dispatch()
+    await service.drain()
+    await cloud.waitForMirrorCleanup('octo/site', 'octo/site-ci')
+  }
   return { service, read: (testStatus?: CiTestStatus[]) => service.get(principal,
     { workspaceId: 'workspace', ticketId: record.id, ...(testStatus ? { testStatus } : {}) }) }
 }

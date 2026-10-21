@@ -11,6 +11,8 @@ import { queuedTicket, readyStatus } from './dispatchFleet.testSupport.js'
 import { HostCiService, type CiCommits, type HostCiComputer, type HostCiEndpoint } from './service.js'
 import { deferred } from '../../../test/helpers/deferred.js'
 import { ProductionHostCiEndpoint } from './endpoint.js'
+import { ciComputerStatusKey } from './computerStatus.js'
+import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -60,6 +62,53 @@ function executor(slot: number): HostCiComputer {
     hostRef: { kind: 'device', mainId: 'main', deviceId: `device-${slot}` } }
   return { ...cloud, key: `cloud:${slot}`, hostRef: { ...cloud.hostRef, slot } }
 }
+
+it('dispatches cloud work while an earlier computer listing waits on the saturated shared pool', async () => {
+  vi.useFakeTimers()
+  const run = queuedTicket()
+  const db = database([run])
+  const caller = { id: 'fixture-operator', audience: 'operator' } as ManagementPrincipal
+  const authority: CiAuthority = { resolve: async () => ({ principal: caller, workspaceId: run.workspaceId }) }
+  const computers = [cloud, { ...cloud, key: 'cloud:1', hostRef: { ...cloud.hostRef, slot: 1 } }]
+  const held: pg.PoolClient[] = []
+  const starts: string[] = []
+  let listingSettled = false
+  const endpoint: HostCiEndpoint = {
+    statusKey: ciComputerStatusKey,
+    computers: async () => {
+      if (!held.length) held.push(...await Promise.all(Array.from({ length: 4 }, () => db.pool.connect())))
+      return computers
+    },
+    request: async (_computer, request) => {
+      if (request.operation === 'status') return readyStatus()
+      if (request.operation !== 'start') throw new Error('Unexpected executor request')
+      starts.push(request.runId)
+      return { operation: 'start', run: { runId: request.runId, state: 'running', step: 'build',
+        startedAt: new Date().toISOString(), finishedAt: null, exitCode: null, message: null, logBytes: 0 } }
+    },
+  }
+  const service = new HostCiService(db.pool, {} as PostgresCommandCoordinator, authority, {} as CiCommits, endpoint)
+  const listing = service.computers(caller, { workspaceId: run.workspaceId })
+    .then(value => { listingSettled = true; return value })
+  let dispatch: Promise<void> | undefined
+  try {
+    await vi.advanceTimersByTimeAsync(1)
+    expect(held).toHaveLength(4)
+    expect(db.pool.waitingCount).toBe(1)
+    dispatch = service.dispatch()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(listingSettled).toBe(false)
+    expect(starts).toEqual([run.id])
+    expect(db.read(run.id).record).toMatchObject({ state: 'running', computer: { hostRef: cloud.hostRef } })
+  } finally {
+    for (const client of held) client.release()
+    await vi.advanceTimersByTimeAsync(3001)
+    await listing
+    await dispatch
+    await service.close()
+    await db.close()
+  }
+})
 
 it('claims 110 queued parts without starving the two-connection dispatch pool while admission holds a lease', async () => {
   vi.useFakeTimers()

@@ -187,7 +187,9 @@ export const settingsTools = [
       + '(400,000: the CircleCI Free plan grants each organization that for Linux open-source builds) applies to every '
       + 'organization without an entry in accounts, which is keyed by the GitHub owner of the CircleCI org. '
       + 'ci_computers_list and computer_activity_list report each CircleCI org\u2019s remaining credits as this '
-      + 'allowance minus that org\u2019s usage this month read from CircleCI. Exports are sampled at most every '
+      + 'allowance minus that org\u2019s compute usage this month, excluding storage and other charges. This is reporting '
+      + 'only; usage reports never block standby eligibility. Credit refusals allow one coordinated recovery probe '
+      + 'after five minutes, keeping the replacement active until CircleCI starts the probe job. Exports are sampled at most every '
       + 'three hours; readings are usable for four hours from export window end. Primary and standby orgs '
       + 'have separate usage estimates. Requires global settings:read.',
     inputSchema: z.object({}).strict(), outputSchema: ManagedCircleCreditAllowanceSchema,
@@ -199,7 +201,7 @@ export const settingsTools = [
     requires: [['settings:update', 'global']],
     enabled: s => !!s.settings,
     description: 'Replace the monthly CircleCI credit allowance: defaultMonthlyCredits plus per-organization overrides keyed '
-      + 'by the GitHub owner of the CircleCI org. Paid plans differ from the Free plan, so set the real allowance. '
+      + 'by the GitHub owner of the CircleCI org. This changes reporting only and never blocks CI starts. '
       + 'Requires global settings:update. Omit expectedRevision for last write wins; supply it to reject a stale '
       + 'revision. Reuse commandId with identical input after an uncertain save. Read back with '
       + 'circle_credit_allowance_get; the new total applies to the next ci_computers_list at once. This grants no CI or credential permissions.',

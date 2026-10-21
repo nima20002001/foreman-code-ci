@@ -39,15 +39,20 @@ it('refreshes conversation browser pins only when a turn accepts a later saved v
     const subject = (await authority.conversation(conversationId)).context.subject
     expect(await authority.details(subject)).toMatchObject({ active: true, workflowVersionId: first.id,
       browser: { enabled: true, profileId: 'first-profile' } })
+    await expect(authority.assertCurrent(subject, { profileId: 'first-profile' })).resolves.toBeUndefined()
     const second = await saveProfile('second-profile')
     expect(second.id).not.toBe(first.id)
     expect(await authority.details(subject)).toMatchObject({ active: true, workflowVersionId: first.id,
       browser: { profileId: 'first-profile' } })
+    await expect(authority.assertCurrent(subject, { profileId: 'first-profile' })).resolves.toBeUndefined()
     await send('second-browser-turn')
     expect((await authority.conversation(conversationId)).context.subject).toEqual(subject)
     expect(await authority.details(subject)).toMatchObject({ active: true, workflowVersionId: second.id,
       browser: { enabled: true, profileId: 'second-profile' } })
     await expect(authority.resolve(subject)).resolves.toMatchObject({ browser: { profileId: 'second-profile' } })
+    await expect(authority.assertCurrent(subject, { profileId: 'first-profile' }))
+      .rejects.toMatchObject({ code: 'BROWSER_SCOPE_MISMATCH' })
+    await expect(authority.assertCurrent(subject, { profileId: 'second-profile' })).resolves.toBeUndefined()
     await expect(authority.assertCurrent(subject)).resolves.toBeUndefined()
   } finally { await f.close() }
 })

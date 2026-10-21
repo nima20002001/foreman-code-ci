@@ -34,7 +34,7 @@ it('waits for a background usage download and its persisted state before CI shut
       }
       downloading()
       await blocked
-      return new Response('TOTAL_CREDITS\n380000\n')
+      return new Response('COMPUTE_CREDITS\n380000\n')
     },
   })
   const usage = new CircleCreditUsage(http, {

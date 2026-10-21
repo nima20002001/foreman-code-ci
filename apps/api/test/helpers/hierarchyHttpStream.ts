@@ -30,6 +30,9 @@ export async function openHierarchyEvents(address: string, path: string, token: 
         }
       } finally { clearTimeout(timeout) }
     },
-    async close() { abort.abort(); await reader.cancel().catch(() => undefined) },
+    async close() {
+      abort.abort()
+      await reader.cancel().catch(() => { /* ignore: aborting the fetch can already have errored the stream being canceled. */ })
+    },
   }
 }

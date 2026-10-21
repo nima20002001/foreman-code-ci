@@ -89,6 +89,13 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
   const startupCi = { pending: false, error: null };
   const startupLifetime = new AbortController();
   let startupTask;
+  const pairingReads = new Set();
+  const readPairing = async () => {
+    const task = loadWorkerPairing(stateDirectory);
+    pairingReads.add(task);
+    try { return await task; }
+    finally { pairingReads.delete(task); }
+  };
   const bindingDrains = new Set();
   const bindingFailures = [];
   const bindingLost = binding => {
@@ -107,8 +114,9 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
     browser?.stopAdmission();
     await browserStarting;
     const updaterClosing = updater?.close();
+    // Connection cancellation ends its deadline wait, but pairing reads can still write identity state.
     const results = await Promise.allSettled([execution?.close(), installed?.close(),
-      installed?.rsyncWriters?.close(), updaterClosing, startupTask, browser?.close()]);
+      installed?.rsyncWriters?.close(), updaterClosing, startupTask, browser?.close(), ...pairingReads]);
     while (bindingDrains.size) await Promise.allSettled([...bindingDrains]);
     const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []).concat(bindingFailures);
     if (failures.length) throw new AggregateError(failures, 'Worker shutdown remains incomplete.');
@@ -213,7 +221,7 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
       }
     }
     connection = createWorkerConnection({ pairing, bootId, appVersion: manifest.version,
-      readPairing: () => loadWorkerPairing(stateDirectory),
+      readPairing,
       onBindingLost: bindingLost,
       onReady: () => {
         browserStarting = browser?.start().catch(error => {

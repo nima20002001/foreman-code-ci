@@ -217,6 +217,7 @@ it('reads separate account roles and running counts without hiding a draining le
   ], { reading: async organization => ({ credits: { total: 400_000,
     used: organization === 'alpha' ? 380_000 : 100_000, remaining: organization === 'alpha' ? 20_000 : 300_000,
     asOf: '2026-10-17T12:00:00Z' } }) })
+  await selector.recordCreditRefusal('alpha')
   const clouds: CloudCiService[] = [
     { provider: { id: 'circleci', label: 'Primary alpha', slots: 30, account: { owner: 'alpha' } },
       ready: async () => true, schedulingReading: () => selector.reading('alpha') },

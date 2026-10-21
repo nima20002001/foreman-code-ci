@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.114] - 2026-10-21
+
+### Fixed
+- Operator MCP parity: closed gaps in workspace, workflow and settings tools found by a parity sweep.
+- Agent chat: configuration transitions use serialized request sizing; transport limit restored to 1,048,576 characters for HTTP and MCP.
+- CI gates cancel unfinished parts once a sibling part fails, so a failed gate no longer blocks the next one.
+- CI gate planning: provider status reads no longer exhaust the database pool; integration uses cloud slots as a second wave when checks fill the free slots.
+- Board side panel keeps Escape working after the focused control disappears; board URL state is isolated between views.
+- Worker shutdown drains pairing reads before releasing its lock.
+- Operator chat recovery waits for queued terminal settlement and reconciles submitted live turns.
+- Flaky tests fixed at the root: preparation deadline process read, remote recovery initialization, cloud requeue recovery, Worker restart history read.
+
 ## [0.0.113] - 2026-10-19
 
 Review fan-outs converge, and CI tests are steadier.

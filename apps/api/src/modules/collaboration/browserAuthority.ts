@@ -184,13 +184,16 @@ export class BrowserAuthority implements BrowserSubjectAuthority, BrowserSession
     return { subject: details.subject, browser: details.browser, computerId: details.computerId,
       readOnly: details.readOnly, availability }
   }
-  async assertCurrent(subject: AgentSubject, computerId?: string) {
+  async assertCurrent(subject: AgentSubject, assignment?: { computerId?: string; profileId?: string }) {
     const details = await this.details(subject)
-    if (computerId && details.computerId !== computerId) throw new DomainError('BROWSER_COMPUTER_SCOPE',
+    if (assignment?.computerId && details.computerId !== assignment.computerId) throw new DomainError('BROWSER_COMPUTER_SCOPE',
       'This subject belongs to another execution computer.', 403)
     if (!details.browser.enabled || !details.active) {
       this.forget(subject)
       throw new DomainError('BROWSER_SUBJECT_SETTLED', 'This saved Agent no longer owns an enabled browser.', 409)
+    }
+    if (assignment?.profileId !== undefined && details.browser.profileId !== assignment.profileId) {
+      throw new DomainError('BROWSER_SCOPE_MISMATCH', 'This browser session belongs to a previous profile assignment.', 409)
     }
   }
   callerId(principal: ManagementPrincipal) { return principal.id }

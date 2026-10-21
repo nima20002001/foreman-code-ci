@@ -41,7 +41,8 @@ it('reads the estimated CircleCI credits per org through authenticated ci_comput
     const orgId = /\/organizations\/([^/]+)\/usage_export_job/.exec(url.pathname)?.[1]
     if (init?.method === 'POST') return json({ usage_export_job_id: `job-${orgId}`, state: 'created' })
     if (url.pathname.includes('/usage_export_job/job-')) return json({ state: 'completed', download_urls: [`https://signed.example/${orgId}.csv`] })
-    return new Response(`PROJECT_NAME,TOTAL_CREDITS\nsite,${url.pathname.includes('org-beta') ? 380000 : 5690}\n`)
+    return new Response('PROJECT_NAME,COMPUTE_CREDITS,STORAGE_CREDITS,TOTAL_CREDITS\n'
+      + `site,${url.pathname.includes('org-beta') ? 380000 : 5690},500000,${url.pathname.includes('org-beta') ? 880000 : 505690}\n`)
   }
   const allowance: CircleCreditAllowance = { defaultMonthlyCredits: 400000, accounts: {} }
   const credits = new CircleCreditUsage(() => new CloudHttp(ports, 'circleci', { fetch: circleFetch, circleToken: async () => 'fixture-token' }),

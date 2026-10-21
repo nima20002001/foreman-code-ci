@@ -17,7 +17,8 @@ it.each(['poll request', 'poll sleep', 'download', 'download body'] as const)(
     const cache = new CircleCreditCache(path)
     let now = Date.parse('2026-10-17T12:00:00Z')
     const job = { id: 'job', periodStart: circleMonthStart(now), windowEnd: new Date(now).toISOString() }
-    const snapshot = { used: 100, asOf: job.windowEnd, periodStart: job.periodStart, windowEnd: job.windowEnd }
+    const snapshot = { basis: 'compute' as const, used: 100, asOf: job.windowEnd,
+      periodStart: job.periodStart, windowEnd: job.windowEnd }
     await cache.transaction(states => {
       states[circleCreditKey('acme')] = { orgId: 'org', attempts: [now], lastAttemptAt: now, job, snapshot }
     })
@@ -72,13 +73,13 @@ it.each(['poll request', 'poll sleep', 'download', 'download body'] as const)(
               void release.promise.then(() => {
                 signal.removeEventListener('abort', abort)
                 if (signal.aborted) return
-                controller.enqueue(new TextEncoder().encode('TOTAL_CREDITS\n1000\n'))
+                controller.enqueue(new TextEncoder().encode('COMPUTE_CREDITS\n1000\n'))
                 controller.close()
               })
             },
           }))
         }
-        return new Response('TOTAL_CREDITS\n1000\n')
+        return new Response('COMPUTE_CREDITS\n1000\n')
       },
     })
     const create = () => new CircleCreditUsage(http, {

@@ -46,7 +46,7 @@ export async function recoverInstalledWorkflowReply(input: {
   signal: AbortSignal
   lifetimeSignal: AbortSignal
   assertCurrent(): void
-  authorize(action: 'read' | 'stop' | 'control'): Promise<void>
+  authorize(action: 'read' | 'stop' | 'control', signal: AbortSignal): Promise<void>
 }): Promise<{ payload: unknown } | undefined> {
   const { frame, journal, binding } = input
   if (await journal.isRetired(frame.intent.operationId) && frame.method !== 'status'
@@ -62,7 +62,7 @@ export async function recoverInstalledWorkflowReply(input: {
       || entry.connection.authorizationRevision !== binding.authorizationRevision) {
       throw new Error('Original unentered workflow capture changed')
     }
-    await input.authorize('read')
+    await input.authorize('read', input.signal)
     input.assertCurrent()
     const receipt = await journal.accept(entry.intent, entry.connection, randomUUID())
     state = { status: 'known', receipt }
@@ -90,7 +90,7 @@ export async function recoverInstalledWorkflowReply(input: {
       || !isDeepStrictEqual(frame.transition.nextOwner, frame.intent.owner)) {
       throw new Error('Original workflow renewal ownership changed')
     }
-    await input.authorize('control')
+    await input.authorize('control', input.signal)
     input.assertCurrent()
     receipt = await journal.reconcileOwner(frame.transition)
   }
@@ -103,7 +103,7 @@ export async function recoverInstalledWorkflowReply(input: {
   }
   let action: 'read' | 'stop' | 'control' = 'read'
   if (frame.method === 'control') action = frame.command.action.kind === 'stop' ? 'stop' : 'control'
-  await input.authorize(action)
+  await input.authorize(action, input.signal)
   input.assertCurrent()
   if (frame.method === 'history' && frame.metadata) {
     return { payload: input.recovery.historyPages.read(frame) }
@@ -178,7 +178,8 @@ export async function recoverInstalledWorkflowReply(input: {
       ...(result ? { output } : {}) })
     const assertOwnerCurrent = async () => {
       input.assertCurrent()
-      await input.authorize('read')
+      // The status carrier has finished before a later request reads this retained observation.
+      await input.authorize('read', input.lifetimeSignal)
       const current = await journal.status(frame.intent.operationId)
       if (current.status !== 'known' || !isDeepStrictEqual(current.receipt, status.receipt)) {
         throw new Error('Original workflow recovery receipt changed')

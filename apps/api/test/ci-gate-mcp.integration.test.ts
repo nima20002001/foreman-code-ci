@@ -430,7 +430,7 @@ it.each(['cloud', 'build'] as const)('requeues a cloud setup failure once on ano
   } finally { await f.close() }
 })
 
-it('fails the gate on a second setup failure and does not retry a failure after tests start', async () => {
+it('fails the gate on a second setup failure without a third attempt', async () => {
   const f = await fixture()
   try {
     const started = CiRunOutputSchema.parse(await f.value('ci_run', {
@@ -438,25 +438,28 @@ it('fails the gate on a second setup failure and does not retry a failure after 
     }))
     await settle(f.ci)
     const initial = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: started.ticketId }))
-    const parts = initial.partitions!.filter(run => run.state === 'running' && run.suite === 'unit'
+    const part = initial.partitions!.find(run => run.state === 'running' && run.suite === 'unit'
       && run.computer?.hostRef.kind === 'cloud')
-    const part = parts[0]!
-    const other = parts[1]!
+    expect(part).toBeDefined()
+    // The planned gate occupies every executor; the setup retry needs a spare.
+    f.computers.push({ key: 'cloud-spare', label: 'Spare cloud', priority: 30,
+      hostRef: { kind: 'cloud', mainId: 'main', provider: 'github', slot: 24 },
+      userSystemd: { supported: true, reason: null } })
     const reason = 'Setup failed before the first test started'
-    for (const [run, testsStarted] of [[part, false], [other, true]] as const) {
-      const failed = { ...f.runs.get(run.id)!, state: 'failed' as const, exitCode: 1,
-        finishedAt: new Date().toISOString(), message: reason, testsStarted }
-      f.runs.set(run.id, failed)
-    }
+    f.runs.set(part!.id, { ...f.runs.get(part!.id)!, state: 'failed', exitCode: 1,
+      finishedAt: new Date().toISOString(), message: reason, testsStarted: false })
     await settle(f.ci)
-    const retried = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part.id }))
+    const retried = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part!.id }))
     expect(retried.run).toMatchObject({ state: 'running', setupRetry: { reason } })
-    expect(CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: other.id })).run)
-      .toMatchObject({ state: 'failed' })
+    expect(retried.group?.state).not.toBe('failed')
     const request = f.started.findLast(value => value.request.operation === 'start'
-      && value.request.suite === part.suite && value.request.part === part.part)!.request
+      && value.request.runId === retried.run.setupRetry!.runId)!.request
     if (request.operation !== 'start') throw new Error('Expected a retry start')
-    expect(request.runId).not.toBe(part.id)
+    expect(request.runId).not.toBe(part!.id)
+    expect(f.started.filter(value => value.request.operation === 'start'
+      && value.request.runId === part!.id)).toHaveLength(1)
+    expect(f.started.filter(value => value.request.operation === 'start'
+      && value.request.runId === request.runId)).toHaveLength(1)
     // No test started, so the executor has no results to report.
     const failed = { ...f.runs.get(request.runId)!, state: 'failed' as const, exitCode: 2,
       finishedAt: new Date().toISOString(), message: 'Second setup failure', testsStarted: false,
@@ -464,10 +467,53 @@ it('fails the gate on a second setup failure and does not retry a failure after 
     f.runs.set(request.runId, failed)
     const attempts = f.started.length
     await settle(f.ci)
-    const finished = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part.id }))
+    const finished = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part!.id }))
     expect(finished.run).toMatchObject({ state: 'failed', exitCode: 2,
       message: 'Second setup failure', setupRetry: { reason } })
     expect(finished.group?.state).toBe('failed')
+    expect(finished.partitions).toHaveLength(initial.partitions!.length)
+    expect(finished.partitions!.filter(run => run.id !== part!.id).every(run => run.state === 'canceled')).toBe(true)
+    expect(f.started).toHaveLength(attempts)
+  } finally { await f.close() }
+})
+
+it('does not retry a failure after tests start and cancels a sibling setup retry through MCP', async () => {
+  const f = await fixture()
+  try {
+    const started = CiRunOutputSchema.parse(await f.value('ci_run', {
+      suite: 'integration', scope: 'full', gate: true, commandId: randomUUID(), commit: 'a'.repeat(40),
+    }))
+    await settle(f.ci)
+    const initial = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: started.ticketId }))
+    const [part, other] = initial.partitions!.filter(run => run.state === 'running' && run.suite === 'unit'
+      && run.computer?.hostRef.kind === 'cloud')
+    expect(part).toBeDefined()
+    expect(other).toBeDefined()
+    f.computers.push({ key: 'cloud-spare', label: 'Spare cloud', priority: 30,
+      hostRef: { kind: 'cloud', mainId: 'main', provider: 'github', slot: 24 },
+      userSystemd: { supported: true, reason: null } })
+    const reason = 'Setup failed before the first test started'
+    f.runs.set(part!.id, { ...f.runs.get(part!.id)!, state: 'failed', exitCode: 1,
+      finishedAt: new Date().toISOString(), message: reason, testsStarted: false })
+    await settle(f.ci)
+    const retried = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part!.id }))
+    expect(retried.run).toMatchObject({ state: 'running', setupRetry: { reason } })
+    expect(retried.run.setupRetry!.runId).not.toBe(part!.id)
+    expect(f.started.filter(value => value.request.operation === 'start'
+      && value.request.runId === retried.run.setupRetry!.runId)).toHaveLength(1)
+    const attempts = f.started.length
+    const message = 'A test failed after execution started'
+    f.runs.set(other!.id, { ...f.runs.get(other!.id)!, state: 'failed', exitCode: 1,
+      finishedAt: new Date().toISOString(), message, testsStarted: true, collection: 'unsupported' })
+    await settle(f.ci)
+    const finished = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: other!.id }))
+    expect(finished.run).toMatchObject({ state: 'failed', exitCode: 1, message })
+    expect(finished.run).not.toHaveProperty('setupRetry')
+    expect(finished.group?.state).toBe('failed')
+    const canceled = CiGetOutputSchema.parse(await f.value('ci_get', { ticketId: part!.id }))
+    expect(canceled.run).toMatchObject({ state: 'canceled', setupRetry: retried.run.setupRetry })
+    expect(finished.partitions).toHaveLength(initial.partitions!.length)
+    expect(finished.partitions!.filter(run => run.id !== other!.id).every(run => run.state === 'canceled')).toBe(true)
     expect(f.started).toHaveLength(attempts)
   } finally { await f.close() }
 })

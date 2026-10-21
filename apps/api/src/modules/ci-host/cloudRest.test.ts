@@ -214,7 +214,7 @@ it('reads CircleCI workflows, steps and live output without polling subprocesses
   expect(await withProviderPoll(async () => {
     expect(await provider.find(run)).toBe('42')
     return provider.status(run)
-  })).toEqual({ done: false, steps: [{ key: 'job:1', name: 'Tests', state: 'running' }],
+  })).toEqual({ done: false, executionStarted: true, steps: [{ key: 'job:1', name: 'Tests', state: 'running' }],
     output: { key: 'job:1', text: 'failure\ndetails\n' } })
   expect(server.requests.filter(request => request.url === '/api/v2/pipeline/42')).toHaveLength(1)
   expect(cli.calls).not.toHaveBeenCalled()
@@ -238,13 +238,13 @@ it('polls CircleCI status repeatedly and collects raw Suite output through REST'
   })
   const cli = ports()
   const provider = new CircleCiProvider(cli.value, { ...server, circleToken: async () => 'circle-test-token' })
-  const expected = { done: false, steps: [
+  const expected = { done: false, executionStarted: true, steps: [
     { key: 'job:1', name: 'Suite', state: 'running' },
     { key: 'job:2', name: 'Suite', state: 'running' },
   ], output: { key: 'job:2', text: 'progress 2\nfailure\n' } }
   expect(await provider.find(run)).toBe('42')
   expect(await provider.status(run)).toEqual(expected)
-  expect(await provider.status(run)).toEqual({ done: false, steps: expected.steps })
+  expect(await provider.status(run)).toEqual({ done: false, executionStarted: true, steps: expected.steps })
   expect(cli.calls).not.toHaveBeenCalled()
   expect(await provider.log(run)).toBe(`Suite\n${stdout}${stderr}\n${stdout}${stderr}`)
   expect(server.requests.some(request => request.url === '/api/v3/jobs/job/stdout?filter%5Bexecution%5D=1&filter%5Bstep_num%5D=2'))
@@ -284,7 +284,7 @@ it.each([true, false])('bounds live CircleCI log reads while continuing status p
   expect(await provider.status(run)).toMatchObject({ done: false, output: { key: 'job:1' } })
   for (let poll = 1; poll < 15; poll++) {
     now += 4_000
-    expect(await provider.status(run)).toEqual({ done: false,
+    expect(await provider.status(run)).toEqual({ done: false, executionStarted: true,
       steps: [{ key: 'job:1', name: 'Suite', state: 'running' }] })
   }
   expect(outputReads()).toBe(1)
@@ -428,7 +428,8 @@ it.each(['success', 'failed', 'canceled'])(
     const provider = new CircleCiProvider(cli.value, { ...server, circleToken: async () => 'circle-test-token' })
     const conclusions: Record<string, string> = { success: 'success', failed: 'failure', canceled: 'cancelled' }
     const conclusion = conclusions[status]
-    expect(await provider.status(run)).toEqual({ done: true, conclusion, finishedAt, steps: [] })
+    expect(await provider.status(run)).toEqual({ done: true, conclusion, finishedAt, steps: [],
+      ...(conclusion === 'success' ? { executionStarted: true } : {}) })
     expect(server.requests.filter(request => request.url === '/api/v3/jobs/job')).toHaveLength(1)
     expect(cli.calls).not.toHaveBeenCalled()
   },
@@ -452,7 +453,7 @@ it.each(['success', 'failed', 'canceled'])(
     const provider = new CircleCiProvider(cli.value, { ...server, circleToken: async () => 'circle-test-token' })
     const conclusions: Record<string, string> = { success: 'success', failed: 'failure', canceled: 'cancelled' }
     expect(await provider.status(run)).toEqual({
-      done: true, conclusion: conclusions[status], finishedAt,
+      done: true, executionStarted: true, conclusion: conclusions[status], finishedAt,
       steps: [
         { key: 'job:1', name: 'Checkout', state: 'passed' },
         { key: 'job:2', name: 'Suite', state: 'running' },
@@ -479,7 +480,8 @@ it.each([
   })
   const cli = ports()
   const provider = new CircleCiProvider(cli.value, { ...server, circleToken: async () => 'circle-test-token' })
-  expect(await provider.status(run)).toEqual({ done: false, steps: [{ key: 'job:1', name: 'Tests', state }] })
+  expect(await provider.status(run)).toEqual({ done: false, steps: [{ key: 'job:1', name: 'Tests', state }],
+    ...(['succeeded', 'failed'].includes(outcome) ? { executionStarted: true } : {}) })
   expect(cli.calls).not.toHaveBeenCalled()
 })
 
@@ -554,7 +556,7 @@ it.each([false, true])('keeps best-effort CircleCI live output while propagating
     await expect(provider.status(run)).rejects.toMatchObject({ code: 'CI_CLOUD_RATE_LIMITED',
       message: 'CircleCI rate limit reached; polling paused.' })
   } else {
-    expect(await provider.status(run)).toEqual({ done: false, steps: [{ key: 'job:1', name: 'Tests', state: 'running' }] })
+    expect(await provider.status(run)).toEqual({ done: false, executionStarted: true, steps: [{ key: 'job:1', name: 'Tests', state: 'running' }] })
   }
 })
 

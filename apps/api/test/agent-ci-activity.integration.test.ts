@@ -35,6 +35,7 @@ import { hostCiActivityMigration } from '../src/infrastructure/hostCiActivityMig
 import { ciActivityRunLockMigration } from '../src/infrastructure/ciActivityRunLockMigration.js'
 import { runActivityCommitLockMigration } from '../src/infrastructure/runActivityCommitLockMigration.js'
 import { ciSharedActivityMigration } from '../src/infrastructure/ciSharedActivityMigration.js'
+import { ciActivityRequesterLookupMigration } from '../src/infrastructure/ciActivityRequesterLookupMigration.js'
 import { changeRunState, graphFixture, graphRpc, graphRpcValue, ownedGraph } from './eng04-graph-composition-fixture.js'
 import { agentWorkflowNode } from './helpers/agentWorkflowFixture.js'
 import { insertCurrentRunFixture } from './helpers/eng04CurrentRunFixture.js'
@@ -754,7 +755,8 @@ describe.skipIf(!postgresEnabled)('Agent Host CI in public Run activity', () => 
   it('observes retained Host CI once without inventing earlier transitions', async () => {
     // Defer activity function replacements with the migrations that define those functions.
     const f = await fixture({ deferMigration: [hostCiActivityMigration.version, ciActivityRunLockMigration.version,
-      databaseHotQueriesMigration.version, ciSharedActivityMigration.version, runActivityCommitLockMigration.version] })
+      databaseHotQueriesMigration.version, ciSharedActivityMigration.version, runActivityCommitLockMigration.version,
+      ciActivityRequesterLookupMigration.version] })
     try {
       const ticket = await f.submit()
       expect((await f.activity()).items.filter(item => item.kind === 'job_work')).toEqual([])

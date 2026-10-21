@@ -37,8 +37,8 @@ export function registerWorkflowHierarchyRoutes(app: FastifyInstance, service: W
     reply.hijack()
     reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
     let closed = false, polling = false, cursor: string | undefined
-    let timer: ReturnType<typeof setInterval> | undefined
-    const close = () => { closed = true; if (timer) clearInterval(timer); writer.close(); reply.raw.end() }
+    const interval: { timer?: ReturnType<typeof setInterval> } = {}
+    const close = () => { closed = true; if (interval.timer) clearInterval(interval.timer); writer.close(); reply.raw.end() }
     const writer = createSseWriter(reply.raw, () => !closed, close)
     const publish = (next: WorkflowHierarchyChange) => {
       if (next.cursor !== cursor) {
@@ -56,8 +56,8 @@ export function registerWorkflowHierarchyRoutes(app: FastifyInstance, service: W
         if (!closed) { writer.write('event: unavailable\ndata: {}\n\n'); close() }
       } finally { polling = false }
     }
-    timer = setInterval(() => { void poll() }, 2000)
-    timer.unref()
-    reply.raw.once('close', () => { closed = true; if (timer) clearInterval(timer); writer.close() })
+    interval.timer = setInterval(() => { void poll() }, 2000)
+    interval.timer.unref()
+    reply.raw.once('close', () => { closed = true; if (interval.timer) clearInterval(interval.timer); writer.close() })
   })
 }

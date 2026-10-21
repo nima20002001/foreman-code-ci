@@ -20,6 +20,8 @@ export interface HostCiEndpoint {
   computers(): Promise<HostCiComputer[]>
   request(computer: HostCiComputer, request: CiHostRequest,
     options?: { priority: DeviceRequestPriority }): Promise<CiHostReply>
+  /** Computers with this key share the full status reply. Omit for endpoints with per-slot occupancy. */
+  statusKey?(computer: HostCiComputer): string
   publishMirror?(input: CiMirrorInput): Promise<void>
 }
 /** Resolves the commit to test and makes sure GitHub has it, so build computers can fetch it. */

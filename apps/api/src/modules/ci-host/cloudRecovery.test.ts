@@ -10,7 +10,7 @@ import { CloudCi } from './cloud.js'
 import { CircleCiProvider } from './cloudProviders.js'
 import { CircleStandby } from './circleStandby.js'
 
-it('drains a saved standby run through its original login after UTC reset while refusing new starts there', async () => {
+it('drains a saved standby run through its original login after primary recovery while refusing new starts there', async () => {
   const f = await fixture({}, { provider: 'circleci', account: 'delta' })
   let now = Date.parse('2026-10-31T23:59:00Z')
   const provider = new CircleCiProvider(f.ports, { circleToken: async () => null }, {
@@ -18,12 +18,14 @@ it('drains a saved standby run through its original login after UTC reset while 
   })
   const cloud = new CloudCi('main-1', provider, async () => 'octo/site-ci', join(f.root, 'ci-cloud'), f.ports, f.git,
     { home: f.root, user: 'fixture-user', host: 'fixture-host' })
-  cloud.setCircleStandby(new CircleStandby(async () => [
+  const standby = new CircleStandby(async () => [
     { owner: 'alpha', circleAccountId: 'default', role: 'primary', ready: true, mirrorNames: new Set(['site-ci']) },
     { owner: 'delta', circleAccountId: 'reserve', role: 'standby', ready: true, mirrorNames: new Set(['site-ci']) },
   ], { reading: async owner => now >= Date.parse('2026-11-01T00:00:00Z') ? { credits: null }
     : { credits: { total: 400_000, used: owner === 'alpha' ? 380_000 : 0,
-      remaining: owner === 'alpha' ? 20_000 : 400_000, asOf: new Date(now).toISOString() } } }, undefined, () => now))
+      remaining: owner === 'alpha' ? 20_000 : 400_000, asOf: new Date(now).toISOString() } } }, undefined, () => now)
+  cloud.setCircleStandby(standby)
+  await standby.recordCreditRefusal('alpha')
   const runId = randomUUID()
   const request = { operation: 'start', workspaceId: 'ci-workspace', runId, repository: 'octo/site',
     commit: f.commit, suite: 'lint', scope: 'full' }
@@ -33,6 +35,9 @@ it('drains a saved standby run through its original login after UTC reset while 
     expect(await cloud.handle({ operation: 'read', runId, afterOffset: 0, maxBytes: 100 }))
       .toMatchObject({ run: { state: 'running' } })
     expect(await cloud.handle(request)).toMatchObject({ run: { state: 'running' } })
+    now += 5 * 60_000
+    expect(await standby.admitStart('alpha', 'default', 'site-ci', 'probe')).toBe(true)
+    await standby.recordCreditAcceptance('alpha', 'default', 'probe')
     await expect(cloud.handle({ ...request, runId: randomUUID() })).rejects.toMatchObject({ code: 'CI_CLOUD_UNAVAILABLE' })
     expect(f.circle.triggered).toHaveLength(1)
     const saved = JSON.parse(await fs.readFile(join(f.root, 'ci-cloud', 'runs', runId, 'meta.json'), 'utf8'))
@@ -40,33 +45,38 @@ it('drains a saved standby run through its original login after UTC reset while 
   } finally { await cloud.waitForMirrorCleanup('octo/site', 'octo/site-ci') }
 })
 
-it.each(['UTC month resets', 'credits reach the reserve'])('rejects standby starts when %s during the final journal write', async boundary => {
+it.each(['primary recovers', 'CircleCI refuses credits'])('rejects standby starts when %s during the final journal write', async boundary => {
   const f = await fixture({}, { provider: 'circleci', account: 'delta' })
   const runId = randomUUID()
   let now = Date.parse('2026-10-31T23:59:59Z')
-  let reserveReached = false
-  const reason = boundary === 'UTC month resets' ? /standby/i : /20,000 reserve/i
+  const reason = boundary === 'primary recovers' ? /standby/i : /refused credits/i
   const provider = new CircleCiProvider(f.ports, { circleToken: async () => null }, {
     owner: 'delta', circleAccountId: 'reserve', role: 'standby', mirrorNames: new Set(['site-ci']),
   })
   const cloud = new CloudCi('main-1', provider, async () => 'octo/site-ci', join(f.root, 'ci-cloud'), f.ports, f.git,
     { home: f.root, user: 'fixture-user', host: 'fixture-host' })
-  cloud.setCircleStandby(new CircleStandby(async () => [
+  const standby = new CircleStandby(async () => [
     { owner: 'alpha', circleAccountId: 'default', role: 'primary', ready: true, mirrorNames: new Set(['site-ci']) },
     { owner: 'delta', circleAccountId: 'reserve', role: 'standby', ready: true, mirrorNames: new Set(['site-ci']) },
   ], { reading: async owner => {
     if (now >= Date.parse('2026-11-01T00:00:00Z')) return { credits: null }
-    const remaining = owner === 'alpha' || reserveReached ? 20_000 : 400_000
+    const remaining = owner === 'alpha' ? 20_000 : 400_000
     return { credits: { total: 400_000, used: 400_000 - remaining, remaining, asOf: new Date(now).toISOString() } }
-  } }, undefined, () => now))
+  } }, undefined, () => now)
+  cloud.setCircleStandby(standby)
+  await standby.recordCreditRefusal('alpha')
   const actual = await vi.importActual<typeof fs>('node:fs/promises')
   vi.mocked(fs.writeFile).mockImplementation(async (path, data, options) => {
     await actual.writeFile(path, data, options)
     if (typeof data !== 'string' || !data.startsWith('{')) return
     const saved = JSON.parse(data) as { runId?: string; dispatch?: { uncertain?: boolean } }
     if (saved.runId !== runId || !saved.dispatch?.uncertain) return
-    if (boundary === 'UTC month resets') now = Date.parse('2026-11-01T00:00:00Z')
-    else reserveReached = true
+    if (boundary === 'primary recovers') {
+      now = Date.parse('2026-11-01T00:05:00Z')
+      expect(await standby.admitStart('alpha', 'default', 'site-ci', 'probe')).toBe(true)
+      await standby.recordCreditAcceptance('alpha', 'default', 'probe')
+    }
+    else await standby.recordCreditRefusal('delta', 'reserve')
   })
   try {
     expect(await cloud.handle({ operation: 'start', workspaceId: 'ci-workspace', runId, repository: 'octo/site',

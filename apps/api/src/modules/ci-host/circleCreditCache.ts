@@ -14,10 +14,12 @@ const entrySchema = z.object({
   retryAt: z.number().optional(),
   refreshingUntil: z.number().optional(),
   job: z.object({ id: z.string(), periodStart: period, windowEnd: period }).optional(),
-  snapshot: z.object({ used: z.number().nonnegative(), asOf: period, periodStart: period, windowEnd: period }).optional(),
+  snapshot: z.object({ used: z.number().nonnegative(), asOf: period, periodStart: period, windowEnd: period,
+    basis: z.literal('compute').optional() }).optional(),
   failure: z.string().optional(),
   policy: z.object({ month: period, exhausted: z.boolean(), activated: z.boolean(),
-    replacement: z.string().optional() }).optional(),
+    replacement: z.string().optional(), creditRefusedUntil: z.number().optional(),
+    creditProbeRunId: z.string().optional() }).optional(),
 }).strict()
 const cacheSchema = z.record(z.string(), entrySchema)
 export type CircleCreditState = z.infer<typeof entrySchema>

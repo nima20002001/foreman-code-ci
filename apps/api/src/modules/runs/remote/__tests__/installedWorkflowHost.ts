@@ -476,7 +476,8 @@ export async function restartedInstalledFixture(captureOptions: { accepted?: boo
       endpoint: 'wss://unit.invalid/device', mainPublicKeyFingerprint: 'a'.repeat(64), credential: 'b'.repeat(64),
       expiresAt: '2099-01-01T00:00:00.000Z' }, configuration: { path: file, ownerUid: process.getuid!() },
     currentBinding: () => f.context.binding, captureRequest: () => ({ binding: f.context.binding,
-      request: async payload => {
+      request: async (payload, requestOptions) => {
+        requestOptions?.signal?.throwIfAborted()
         if (!authorized) throw new Error('Main denied recovery')
         const request = ExecutionAuthorityRequestSchema.parse(payload)
         return { payload: { version: 1, action: request.action, operationId: request.intent.operationId,

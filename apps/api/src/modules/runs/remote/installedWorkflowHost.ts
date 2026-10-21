@@ -932,7 +932,7 @@ class InstalledWorkflowHostRuntime {
       return recoverInstalledWorkflowReply({ frame, binding: context.binding, journal: log,
         recovery: this.recovery, registry: this.registry, physical: this.physical,
         signal: context.signal, lifetimeSignal: this.signal, assertCurrent: () => this.current(context.binding),
-        authorize: async action => { await authorize(frame.intent, frame.placement, action, context.signal) } })
+        authorize: async (action, signal) => { await authorize(frame.intent, frame.placement, action, signal) } })
     })
   }
 
@@ -958,8 +958,8 @@ class InstalledWorkflowHostRuntime {
       return recoverInstalledWorkflowReply({ frame, binding: context.binding,
         journal: await this.journal(), recovery: this.recovery, registry: this.registry, physical: this.physical,
         signal: context.signal, lifetimeSignal: this.signal, assertCurrent: () => this.current(context.binding),
-        authorize: async action => {
-          await workerExecutionAuthorizer(this.forBinding(context.binding))(frame.intent, frame.placement, action, context.signal,
+        authorize: async (action, signal) => {
+          await workerExecutionAuthorizer(this.forBinding(context.binding))(frame.intent, frame.placement, action, signal,
               frame.method === 'control' && frame.command.workflowControl ? frame.command : undefined)
         } })
     })
@@ -1033,8 +1033,8 @@ class InstalledWorkflowHostRuntime {
       const recovered = await recoverInstalledWorkflowReply({ frame, binding: context.binding,
         journal: log, recovery: this.recovery, registry: this.registry, physical: this.physical, signal: context.signal, lifetimeSignal: this.signal,
         assertCurrent: () => this.current(context.binding),
-        authorize: async action => {
-          await workerExecutionAuthorizer(this.forBinding(context.binding))(frame.intent, placement, action)
+        authorize: async (action, signal) => {
+          await workerExecutionAuthorizer(this.forBinding(context.binding))(frame.intent, placement, action, signal)
         } })
       if (recovered) return recovered
     }

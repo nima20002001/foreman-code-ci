@@ -101,6 +101,31 @@ function terminal(events: NativeHarnessEvent[]): NativeHistory {
 }
 
 describe('remote native history streaming', () => {
+  it.each([false, true])('reconciles a failed Worker closure with native terminal history=%s', async nativeTerminal => {
+    const history: NativeHistory = nativeTerminal ? terminal([event(0)]) : {
+      events: [event(0)], pendingInteractions: [], correlationId: 'execution:execution',
+      nativeTurnId: 'native-turn', firstRetainedSequence: 0, nextSequence: 1,
+    }
+    const f = setup(() => history)
+    const session = await f.proxy.createSession(f.start)
+    f.receipt.phase = 'confirmed_terminal'
+    f.receipt.terminal = { kind: 'failed', closureEvidenceDigest: 'b'.repeat(64),
+      result: { outcome: 'failed', error: { code: 'EXECUTION_INTERRUPTED',
+        message: 'The Worker restarted before the turn completed.', retryable: true } } }
+    f.receipt.sequence++
+    if (nativeTerminal) {
+      await expect(f.proxy.reconcile(session, 'execution:execution')).resolves.toEqual(history)
+    } else {
+      await expect(f.proxy.reconcile(session, 'execution:execution')).rejects.toMatchObject({
+        code: 'EXECUTION_INTERRUPTED',
+      })
+    }
+    expect(f.observeOriginalSource).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'confirmed_terminal' }),
+      { type: 'history', history })
+    expect(f.controlFor).not.toHaveBeenCalled()
+    expect(f.request.mock.calls.map(([method]) => method)).toEqual(['prepare', 'history'])
+  })
+
   it.each(['settled', 'unfinished'] as const)(
     'reconciles a %s retained review when Worker cleanup closes its process', async state => {
       const result = { outcome: 'succeeded' as const, output: { text: 'review completed' } }

@@ -13,7 +13,7 @@ import { CircleCreditCache, circleCreditKey } from './circleCreditCache.js'
 const newPorts = (): HostCiPorts => ({ run: async () => ({ code: 1, stdout: '', stderr: '' }), now: () => new Date(),
   cpus: 4, memoryBytes: 2 ** 30 })
 /** CircleCI's real export names its columns in capitals. */
-const CSV = ['PROJECT_NAME,TOTAL_CREDITS,JOB_NAME', 'site,1000,unit',
+const CSV = ['PROJECT_NAME,COMPUTE_CREDITS,JOB_NAME', 'site,1000,unit',
   '"site, two",234.4,"quoted ""job"""', 'site,0.2,lint', ''].join('\r\n')
 
 /** CircleCI's HTTP at the cloud HTTP boundary: collaborations, usage export create/read, and the signed CSV link. */
@@ -50,6 +50,40 @@ function circle(options: { states?: string[]; csv?: string; csvByOrg?: Record<st
 }
 const settled = () => new Promise(resolve => setTimeout(resolve, 50))
 
+it('reports compute usage separately from storage, network and total credits', async () => {
+  const f = circle({ csv: 'PROJECT_NAME,TOTAL_CREDITS,COMPUTE_CREDITS,STORAGE_CREDITS,NETWORK_CREDITS\r\n'
+    + '"site, public",884997,552142,332855,0\r\n' })
+  await f.usage.reading('acme')
+  await f.usage.close()
+  expect((await f.usage.reading('acme')).credits).toEqual({ total: 400_000, used: 552_142, remaining: 0,
+    asOf: '2026-10-17T12:00:00.000Z' })
+})
+
+it('reports an export without compute credits as unavailable instead of using its total', async () => {
+  const f = circle({ csv: 'TOTAL_CREDITS\n884997\n' })
+  await f.usage.reading('acme')
+  await f.usage.close()
+  expect(await f.usage.reading('acme')).toEqual({ credits: null,
+    creditsUnavailable: 'CircleCI usage export has no compute_credits column.' })
+})
+
+it('does not relabel old total snapshots as compute or bypass the persisted export interval', async () => {
+  const now = Date.parse('2026-10-17T12:00:00Z')
+  const cache = new CircleCreditCache()
+  await cache.transaction(states => {
+    states[circleCreditKey('acme')] = { attempts: [now], lastAttemptAt: now, snapshot: {
+      used: 884_997, asOf: new Date(now).toISOString(), windowEnd: new Date(now).toISOString(),
+      periodStart: '2026-10-01T00:00:00.000Z',
+    } }
+  })
+  const usage = new CircleCreditUsage(() => { throw new Error('Unexpected export before the refresh interval') }, {
+    allowance: async () => DEFAULT_CIRCLE_CREDIT_ALLOWANCE, primaryOwner: async () => 'acme',
+  }, { cache, now: () => now })
+  expect((await usage.reading('acme')).credits).toBeNull()
+  await usage.close()
+  expect(await cache.transaction(states => states[circleCreditKey('acme')]!.attempts)).toEqual([now])
+})
+
 it('estimates credits left from the month usage export and reads CircleCI only once per interval', async () => {
   const f = circle()
   expect((await f.usage.reading('acme')).credits).toBeNull()
@@ -75,7 +109,7 @@ it('estimates credits left from the month usage export and reads CircleCI only o
 it('gives each CircleCI org its own usage against its own 400,000 open-source credits', async () => {
   const f = circle({ collaborations: [{ id: 'org-acme', name: 'acme', slug: 'gh/acme', vcs_type: 'github' },
     { id: 'org-beta', name: 'beta', slug: 'gh/beta', vcs_type: 'github' }],
-  csvByOrg: { 'org-acme': 'PROJECT_NAME,TOTAL_CREDITS\nsite,125000\n', 'org-beta': 'PROJECT_NAME,TOTAL_CREDITS\nsite,380000\n' } })
+  csvByOrg: { 'org-acme': 'PROJECT_NAME,COMPUTE_CREDITS\nsite,125000\n', 'org-beta': 'PROJECT_NAME,COMPUTE_CREDITS\nsite,380000\n' } })
   await f.usage.reading('acme')
   await f.usage.reading('beta')
   await settled()
@@ -151,7 +185,7 @@ it('keeps exports account scoped, sums all compressed parts, and preserves an in
         'https://signed.example/first', 'https://signed.example/second',
       ] })
       const credits = id === 'default' ? 100 : 200
-      return new Response(new Uint8Array(gzipSync(`TOTAL_CREDITS\n${credits}\n`)))
+      return new Response(new Uint8Array(gzipSync(`COMPUTE_CREDITS\n${credits}\n`)))
     } })
   const clients = new Map(['default', 'reserve'].map(id => [id, http(id)]))
   const usage = new CircleCreditUsage(id => clients.get(id)!, {
@@ -179,7 +213,7 @@ it('persists creation attempts and pending jobs across readers and recreation wi
       if (init?.method === 'POST') { posts++; return Response.json({ usage_export_job_id: 'job' }) }
       if (path.endsWith('/job')) return Response.json({ state: completed ? 'completed' : 'processing',
         download_urls: completed ? ['https://signed.example/usage'] : null })
-      return new Response('TOTAL_CREDITS\n380000\n')
+      return new Response('COMPUTE_CREDITS\n380000\n')
     } })
     const create = () => {
       const reader = new CircleCreditUsage(http, {
@@ -281,7 +315,7 @@ it('cannot apply a late previous-month export to the new month', async () => {
     if (path.endsWith('/job')) return Response.json({ state: 'completed', download_urls: ['https://signed.example/usage'] })
     downloading()
     await blocked
-    return new Response('TOTAL_CREDITS\n400000\n')
+    return new Response('COMPUTE_CREDITS\n400000\n')
   } })
   const usage = new CircleCreditUsage(http, {
     allowance: async () => ({ defaultMonthlyCredits: 400_000, accounts: {} }), primaryOwner: async () => 'acme',

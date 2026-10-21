@@ -3,11 +3,18 @@ import { rm } from 'node:fs/promises'
 import { expect, it, vi } from 'vitest'
 import { privateFixtureDirectory } from './helpers/privateFixtureDirectory.js'
 
+const pairingRead = vi.hoisted(() => ({ afterRead: undefined as (() => Promise<void>) | undefined }))
+
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, readFile: async (...args: Parameters<typeof actual.readFile>) =>
-    args[0] instanceof URL && args[0].pathname.endsWith('/apps/worker/manifest.json')
-      ? JSON.stringify({ version: '0.1.0' }) : actual.readFile(...args) }
+  return { ...actual, readFile: async (...args: Parameters<typeof actual.readFile>) => {
+    if (args[0] instanceof URL && args[0].pathname.endsWith('/apps/worker/manifest.json')) {
+      return JSON.stringify({ version: '0.1.0' })
+    }
+    const result = await actual.readFile(...args)
+    if (typeof args[0] === 'string' && args[0].endsWith('/pairing.json')) await pairingRead.afterRead?.()
+    return result
+  } }
 })
 vi.mock('../../worker/src/diagnostics.mjs', async importOriginal => {
   const actual = await importOriginal<Record<string, unknown>>()
@@ -54,13 +61,32 @@ it('starts and stops the configured device connection and releases its Worker in
     })
     for (let attempt = 0; attempt < 2; attempt++) {
       const worker = await startConfiguredWorker({ stateDirectory, executionDomains: {} })
+      let releaseRead!: () => void
+      let readStarted!: () => void
+      const reading = new Promise<void>(resolve => { readStarted = resolve })
+      const release = new Promise<void>(resolve => { releaseRead = resolve })
+      pairingRead.afterRead = async () => {
+        readStarted()
+        await release
+      }
       try {
+        await reading
         expect(worker.connection.status()).toMatchObject({ desired: true, phase: 'connecting', generation: 1 })
         expect(await readWorkerStatus(stateDirectory)).toMatchObject({
           active: true, phase: 'connecting', workerInstallationId: identity.workerInstallationId,
         })
       } finally {
-        await worker.stop()
+        let stopped = false
+        const stopping = worker.stop().then(() => { stopped = true })
+        try {
+          // Let socket shutdown finish while the filesystem refresh remains blocked.
+          await new Promise<void>(resolve => setTimeout(resolve, 50))
+          expect(stopped, 'shutdown must join the pairing refresh before fixture cleanup').toBe(false)
+        } finally {
+          releaseRead()
+          pairingRead.afterRead = undefined
+          await stopping
+        }
       }
       expect(worker.connection.status()).toMatchObject({ desired: false, phase: 'disconnected' })
       expect(await readWorkerStatus(stateDirectory)).toBeNull()

@@ -10,6 +10,7 @@ import { readWorkflowClosure } from '../../src/modules/interactions/workflowClos
 export async function assertWorkerOutputSettlement(cut: 'pending' | 'retired' = 'pending'): Promise<void> {
   const f = await remoteReviewProduction({ workflow: 'single', executionHost: 'worker',
     parallelSetup: true, parallelProfileChecks: true, includeNodeRuntimePayload: false })
+  const failures: unknown[] = []
   try {
     await writeFile(join(f.provider.directory, 'workflow-answers.json'), JSON.stringify([JSON.stringify({
       data: 'Completed work', summary: 'Completed work.', board: { kind: 'none', reason: 'no_access' },
@@ -52,6 +53,11 @@ export async function assertWorkerOutputSettlement(cut: 'pending' | 'retired' = 
     expect(await readWorkflowClosure(f.db.pool, execution)).toMatchObject({
       session: { nativeSessionId: execution.nativeSessionId },
     })
+    await f.reconcile()
+    expect((await f.details(started.run.id)).run).toMatchObject({ executionState: 'completed', outcome: 'succeeded' })
+    expect(await readWorkflowClosure(f.db.pool, execution)).toMatchObject({
+      session: { nativeSessionId: execution.nativeSessionId },
+    })
     const calls = await f.provider.calls()
     expect(calls.filter(call => call.method === 'turn/start'
       && call.correlationId === `execution:${execution.id}`)).toHaveLength(1)
@@ -63,8 +69,12 @@ export async function assertWorkerOutputSettlement(cut: 'pending' | 'retired' = 
       outputValidationComplete: true, terminal: { kind: 'completed' }, native: { sessionId: execution.nativeSessionId },
     })
   } catch (error) {
+    failures.push(error)
     console.error('Worker output settlement failed', error)
     console.error('Worker output failure details', JSON.stringify(f.failures()))
-    throw error
-  } finally { f.resumeWorkerConnection(); await f.close() }
+  }
+  f.resumeWorkerConnection()
+  try { await f.close() } catch (error) { failures.push(error) }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'Worker settlement and cleanup failed.')
 }

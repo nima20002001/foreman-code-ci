@@ -27,7 +27,7 @@ export const BrowserDeviceRequestSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('command'), envelope: BrowserPrivateEnvelopeSchema }).strict(),
   z.object({ operation: z.literal('authorize'), envelope: BrowserPrivateEnvelopeSchema }).strict(),
   z.object({ operation: z.literal('subject'), subject: AgentSubjectSchema }).strict(),
-  z.object({ operation: z.literal('subject-current'), subject: AgentSubjectSchema }).strict(),
+  z.object({ operation: z.literal('subject-current'), subject: AgentSubjectSchema, profileId: IdSchema.optional() }).strict(),
   z.object({ operation: z.literal('session-authorize'), principalId: IdSchema, session: z.unknown(), mutate: z.boolean(),
     authorizationId: z.uuid() }).strict(),
   z.object({ operation: z.literal('subject-authorize'), principalId: IdSchema, authorizationId: z.uuid(),

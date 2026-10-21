@@ -10,13 +10,14 @@ it.each(['cancel', 'recheck policy'] as const)('recovers a failed pre-trigger po
   const f = await fixture({}, { provider: 'circleci', account: 'fixture-org' })
   const failure = new Error('Fixture credit allowance read failed')
   let readings = 0
-  f.cloud.setCircleStandby(new CircleStandby(async () => [{ owner: 'fixture-org', circleAccountId: 'default',
+  const policy = new CircleStandby(async () => [{ owner: 'fixture-org', circleAccountId: 'default',
     role: 'primary', ready: true, mirrorNames: new Set(['site-ci']) }], { reading: async () => {
     readings++
     if (readings === 3) throw failure
     const remaining = readings > 3 ? 0 : 400_000
     return { credits: { total: 400_000, used: 400_000 - remaining, remaining, asOf: f.ports.now().toISOString() } }
-  } }))
+  } })
+  f.cloud.setCircleStandby(policy)
   const original = f.ports.run
   vi.spyOn(f.ports, 'run').mockImplementation(async (file, args, options) => {
     if (file === 'circleci' && args[0] === 'api') {
@@ -30,10 +31,46 @@ it.each(['cancel', 'recheck policy'] as const)('recovers a failed pre-trigger po
   expect(f.circle.triggered).toEqual([])
   const read = { operation: 'read', runId, afterOffset: 0, maxBytes: 1024 } as const
   if (recovery === 'cancel') await f.reopen().handle({ operation: 'cancel', runId })
+  else await policy.recordCreditRefusal('fixture-org')
   f.advance(75_001)
   const cloud = recovery === 'cancel' ? f.reopen() : f.cloud
   expect(await cloud.handle(read)).toMatchObject({ run: { state: recovery === 'cancel' ? 'canceled' : 'failed' } })
   expect(f.circle.triggered).toEqual([])
+})
+
+it('rechecks active policy after a pre-trigger read failure and submits once despite a zero usage estimate', async () => {
+  const f = await fixture({}, { provider: 'circleci', account: 'fixture-org' })
+  const failure = new Error('Fixture credit allowance read failed')
+  let readings = 0
+  f.cloud.setCircleStandby(new CircleStandby(async () => [{ owner: 'fixture-org', circleAccountId: 'default',
+    role: 'primary', ready: true, mirrorNames: new Set(['site-ci']) }], { reading: async () => {
+    readings++
+    if (readings === 3) throw failure
+    const remaining = readings > 3 ? 0 : 400_000
+    return { credits: { total: 400_000, used: 400_000 - remaining, remaining, asOf: f.ports.now().toISOString() } }
+  } }))
+  const discovery = vi.fn(async () => ({ code: 0,
+    stdout: JSON.stringify({ items: [], next_page_token: null }), stderr: '' }))
+  const original = f.ports.run
+  vi.spyOn(f.ports, 'run').mockImplementation(async (file, args, options) =>
+    file === 'circleci' && args[0] === 'api' ? discovery() : original(file, args, options))
+  const runId = randomUUID()
+  await expect(f.cloud.handle({ operation: 'start', runId, workspaceId: 'ci-workspace', repository: 'octo/site',
+    commit: f.commit, suite: 'lint', scope: 'full' })).rejects.toBe(failure)
+  expect(f.circle.triggered).toEqual([])
+  const read = { operation: 'read', runId, afterOffset: 0, maxBytes: 1024 } as const
+  f.advance(74_999)
+  expect(await f.cloud.handle(read)).toMatchObject({ run: { state: 'starting' } })
+  expect(f.circle.triggered).toEqual([])
+  f.advance(2)
+  expect(await f.cloud.handle(read)).toMatchObject({ run: { state: 'starting' } })
+  expect(f.circle.triggered).toHaveLength(1)
+  expect(await f.cloud.schedulingReading('site-ci')).toMatchObject({ schedulingRole: 'active', credits: { remaining: 0 } })
+  f.advance(4_001)
+  expect(await f.cloud.handle(read)).toMatchObject({ run: { state: 'running' } })
+  expect(f.circle.triggered).toHaveLength(1)
+  expect(f.circle.canceled).toEqual([])
+  expect(discovery).not.toHaveBeenCalled()
 })
 
 it.each([false, true])('adopts an accepted CircleCI submission after its reply is lost, delayed visibility: %s', async delayed => {

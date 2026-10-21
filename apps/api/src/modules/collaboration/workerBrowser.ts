@@ -100,7 +100,9 @@ export function createInstalledBrowserComposition(options: {
   }
   const subjectAuthority: BrowserSubjectAuthority = {
     resolve: async subject => BrowserPreparedBindingSchema.parse(await request({ operation: 'subject', subject })),
-    assertCurrent: async subject => { await request({ operation: 'subject-current', subject }) },
+    assertCurrent: async (subject, assignment) => {
+      await request({ operation: 'subject-current', subject, ...(assignment ? { profileId: assignment.profileId } : {}) })
+    },
   }
   const keys = createBrowserHostKeyRequests(async (_binding, input) => request({ operation: 'keys', input }), pairing, codecs)
   const runtime = options.createRuntime({ ...options, expected: { protocolVersion: 1, identityFormat: 1 }, pairing, subjectAuthority, keys })

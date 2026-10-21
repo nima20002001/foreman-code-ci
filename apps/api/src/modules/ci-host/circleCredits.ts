@@ -24,8 +24,8 @@ export interface CircleCreditsReader {
 type UsageHttp = Pick<CloudHttp, 'request' | 'check' | 'json' | 'downloadUrl'>
 type HttpSource = UsageHttp | ((circleAccountId: string) => UsageHttp | Promise<UsageHttp>)
 
-/** Sums the total_credits column of one usage export CSV (RFC 4180 quoting). */
-export function sumTotalCredits(csv: string): number {
+/** Sums compute separately from storage and other charges in a usage export (RFC 4180 quoting). */
+export function sumComputeCredits(csv: string): number {
   let column = -1
   let total = 0
   let row = 0
@@ -33,14 +33,16 @@ export function sumTotalCredits(csv: string): number {
   let value = ''
   let quoted = false
   const endField = () => {
-    if (row === 0) { if (value.trim().toLowerCase() === 'total_credits') column = field }
+    if (row === 0) { if (value.trim().toLowerCase() === 'compute_credits') column = field }
     else if (field === column) { const credits = Number(value); if (Number.isFinite(credits)) total += credits }
     value = ''
     field++
   }
   const endRow = () => {
     endField()
-    if (row === 0 && column === -1) throw new DomainError('CI_CLOUD_FAILED', 'CircleCI usage export has no total_credits column.', 502)
+    if (row === 0 && column === -1) {
+      throw new DomainError('CI_CLOUD_FAILED', 'CircleCI usage export has no compute_credits column.', 502)
+    }
     row++
     field = 0
   }
@@ -105,7 +107,7 @@ export class CircleCreditUsage implements CircleCreditsReader {
       this.refreshing.set(key, task)
     }
     const snapshot = state.snapshot
-    const fresh = snapshot && this.now() - Date.parse(snapshot.windowEnd) <= MAX_AGE_MS
+    const fresh = snapshot?.basis === 'compute' && this.now() - Date.parse(snapshot.windowEnd) <= MAX_AGE_MS
       && snapshot.periodStart === circleMonthStart(this.now())
     if (!fresh) return { credits: null, creditsUnavailable: state.failure ?? 'Credits are still being read.' }
     const allowance = await this.source.allowance()
@@ -142,7 +144,7 @@ export class CircleCreditUsage implements CircleCreditsReader {
       for (const url of urls) {
         this.shutdown.signal.throwIfAborted()
         const file = await http.downloadUrl(url, 120_000, this.shutdown.signal)
-        used += sumTotalCredits((file[0] === 0x1f && file[1] === 0x8b ? gunzipSync(file) : file).toString('utf8'))
+        used += sumComputeCredits((file[0] === 0x1f && file[1] === 0x8b ? gunzipSync(file) : file).toString('utf8'))
       }
       await this.cache.transaction(states => {
         const current = states[key]!
@@ -152,7 +154,7 @@ export class CircleCreditUsage implements CircleCreditsReader {
         // Old jobs may drain after midnight, but can never become a new month's balance.
         if (job.periodStart === circleMonthStart(this.now())) current.snapshot = {
           used: Math.round(used), asOf: new Date(this.now()).toISOString(),
-          periodStart: job.periodStart, windowEnd: job.windowEnd,
+          periodStart: job.periodStart, windowEnd: job.windowEnd, basis: 'compute',
         }
       })
     } catch (error) {

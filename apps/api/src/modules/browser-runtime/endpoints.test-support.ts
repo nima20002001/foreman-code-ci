@@ -245,7 +245,13 @@ export async function endpointFixture(options: {
   }
   const subjectAuthority: BrowserSubjectAuthority = {
     resolve: async subject => { const binding = assignments.get(subjectKey(subject)); if (!binding) throw new DomainError('BROWSER_SCOPE_MISMATCH', 'The subject has no saved assignment.', 403); return structuredClone(binding) },
-    assertCurrent: async subject => { if (!assignments.has(subjectKey(subject))) throw new DomainError('AGENT_SUBJECT_ENDED', 'This subject ended.', 403) },
+    assertCurrent: async (subject, assignment?: { profileId: string }) => {
+      const accepted = assignments.get(subjectKey(subject))
+      if (!accepted) throw new DomainError('AGENT_SUBJECT_ENDED', 'This subject ended.', 403)
+      if (assignment && accepted.browser.profileId !== assignment.profileId) {
+        throw new DomainError('BROWSER_SCOPE_MISMATCH', 'The browser profile assignment changed.', 409)
+      }
+    },
   }
   const driver = nativeFixture(), broker = new BrowserBroker({ computerId: 'main', driver, journal: memoryJournal(), authority: subjectAuthority })
   const media = new BrowserMediaService(broker), files = new BrowserFileStore(join(root, 'files'), async (input, mutate) => {
@@ -357,9 +363,10 @@ export async function endpointFixture(options: {
         enabled: options.enabled ?? true, wrongScope: options.wrongScope ?? false })
       return principal
     },
-    bindSubject(subject: AgentSubject, profileId = 'profile', readOnly = false) {
+    bindSubject(subject: AgentSubject, profileId = 'profile', readOnly = false,
+      options: { availability?: BrowserPreparedBinding['availability'] } = {}) {
       const browser = { enabled: true, profileId }
-      assignments.set(subjectKey(subject), { subject, browser, computerId: 'main', readOnly, availability: 'ready' })
+      assignments.set(subjectKey(subject), { subject, browser, computerId: 'main', readOnly, availability: options.availability ?? 'ready' })
       return { subject, browser, computerId: 'main', commandId: randomUUID() }
     },
     revoke(id: string) { const value = callers.get(id); if (value) value.principal = { ...value.principal, revokedAt: new Date().toISOString() } },

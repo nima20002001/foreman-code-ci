@@ -578,10 +578,11 @@ describe('original physical directory revalidation after native closure',()=>{
   })
   it('refuses the inspection when Main denies its initial authorization', async () => {
     const f = await physicalFixture()
-    const authorize = vi.fn(async () => { throw new Error('Original Main read authority revoked') })
+    const denial = new Error('Original Main read authority revoked')
+    const authorize = vi.fn(async () => { throw denial })
     await expect(assertOriginalPhysicalDirectories({ source: f.readout.source, runtimeLeaf: f.readout.runtimeLeaf,
       placement: f.placement, approvedRoots: f.approvedRoots, signal: new AbortController().signal,
-      assertCurrent: () => {}, authorize })).rejects.toMatchObject({ code: 'REMOTE_NATIVE_PHYSICAL_UNAVAILABLE' })
+      assertCurrent: () => {}, authorize })).rejects.toMatchObject({ code: 'REMOTE_NATIVE_PHYSICAL_UNAVAILABLE', cause: denial })
     expect(authorize).toHaveBeenCalledOnce()
     await f.sqlConnection.close()
   })

@@ -20,6 +20,7 @@ import { inspectionBoardFixture } from './inspectionFixtures'
 import { useInspectionPresentation } from './presentation'
 import { executionPagesKey, runInspectionQueryKey } from './queries'
 import { currentRunKey } from '../currentRunQuery'
+import { queryKeys } from '../../../shared/api/query'
 import { base as childRoute, child, detail, message, tool } from '../../run-subagents/testFixtures'
 import { clearBoardStopStorage, readBoardStop, recordBoardStopReceipt, reserveBoardStop, type BoardStopJournal } from '../stopOutbox'
 
@@ -619,26 +620,44 @@ describe('Live Run status on the Board', () => {
           page: { before: null, nextCursor: null, hasMore: false } } } : {}) })
       }),
     )
-    const { cache } = await mount(href(scope))
-    const agentNode = (node: typeof first) => within(pinnedCanvas()).getByRole('button', { name: `Inspect Run node ${nameOf(node)}` })
-      .closest<HTMLElement>('.n-agent')!
+    const { cache, router } = await mount(href(scope))
+    const canvas = await screen.findByLabelText('Selected Run pinned topology')
+    expect(canvas).toHaveRole('region')
+    expect(canvas).toBeVisible()
+    const agentButton = (node: typeof first) => within(canvas).getByLabelText(`Inspect Run node ${nameOf(node)}`, { selector: 'button' })
+    const agentNode = (node: typeof first) => agentButton(node).closest<HTMLElement>('.n-agent')!
+    const expectAgentVisible = (node: typeof first) => {
+      expect(agentButton(node)).toHaveRole('button')
+      expect(agentButton(node)).toBeVisible()
+    }
     const nodeState = (node: typeof first) => agentNode(node).getAttribute('data-state')
     const advance = async (next: () => void) => act(async () => {
       next()
-      await cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true })
-      await cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'board-activity'] })
-      await cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] })
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true }),
+        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'board-activity'] }),
+        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
+        cache.refetchQueries({
+          queryKey: queryKeys.interactions(scope.workspaceId, scope.workflowId, 'pending', undefined, 100),
+          exact: true,
+        }),
+      ])
     })
 
     // The first Agent's turn: it is visibly running, the next one is queued, not idle.
+    // Keep polling predicates cheap so DOM style calculations do not starve the HTTP polling timers.
     await waitFor(() => expect(nodeState(first)).toBe('running'))
     expect(nodeState(added)).toBe('queued')
-    expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
+    expectAgentVisible(first)
+    expectAgentVisible(added)
+    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
 
     // The turn passes; the second Agent runs CI on a cloud computer. CI lives on the CI server, not in a strip on top.
     ciState = 'running'
     await advance(() => cut('2', 'running', [execution(first, 'completed'), execution(added, 'running')]))
-    const ciServerButton = await within(pinnedCanvas()).findByRole('button', { name: /^CI server, 1 running/ })
+    const ciServerButton = await within(canvas).findByLabelText(/^CI server, 1 running/, { selector: 'button' })
+    expect(ciServerButton).toHaveRole('button')
+    expect(ciServerButton).toBeVisible()
     expect(screen.queryByRole('list', { name: 'CI jobs' })).not.toBeInTheDocument()
     fireEvent.click(ciServerButton)
     const ciDialog = await screen.findByRole('dialog', { name: 'CI server' })
@@ -650,15 +669,24 @@ describe('Live Run status on the Board', () => {
     await waitFor(() => expect(nodeState(added)).toBe('waiting'))
     expect(within(agentNode(added)).getByText('Waiting for CI build-api · running')).toBeVisible()
     expect(nodeState(first)).toBe('completed')
-    expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
+    expectAgentVisible(first)
+    expectAgentVisible(added)
+    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
 
     // CI finished and the second Agent's node now explains the pending decision.
     ciState = 'passed'; decision = true
     await advance(() => cut('3', 'waiting', [execution(first, 'completed'), execution(added, 'completed')]))
-    await waitFor(() => expect(within(agentNode(added)).getByText('Waiting for your decision')).toBeVisible())
+    expect(router.state.location.search).toMatchObject({ workflowId: scope.workflowId, runId: scope.runId,
+      workflowVersionId: scope.workflowVersionId, executionSemanticsVersion: 3 })
+    const decisionLabel = await waitFor(() => within(agentNode(added)).getByText('Waiting for your decision'))
+    expect(decisionLabel).toBeVisible()
     expect(nodeState(added)).toBe('waiting')
-    expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Open human approval inbox, 1 pending' }))
+    expectAgentVisible(added)
+    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
+    const inboxButton = screen.getByLabelText('Open human approval inbox, 1 pending', { selector: 'button' })
+    expect(inboxButton).toHaveRole('button')
+    expect(inboxButton).toBeVisible()
+    await userEvent.setup().click(inboxButton)
     expect(await screen.findByRole('dialog', { name: 'Human approval inbox' })).toBeVisible()
   }, 15_000)
 })

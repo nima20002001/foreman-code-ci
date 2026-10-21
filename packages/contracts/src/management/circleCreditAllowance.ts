@@ -3,7 +3,7 @@ import { CIRCLE_OPEN_SOURCE_MONTHLY_CREDITS } from '../circleCredits.js'
 import { optionalCommandId } from './commands.js'
 
 const credits = z.number().int().min(0).max(1_000_000_000)
-/** Monthly CircleCI credit allowance per organization (GitHub owner of the CircleCI org); other organizations use the default. */
+/** Monthly compute reporting allowance per CircleCI organization; it does not control admission. */
 export const CircleCreditAllowanceSchema = z.object({
   defaultMonthlyCredits: credits,
   accounts: z.record(z.string().trim().min(1).max(100), credits)

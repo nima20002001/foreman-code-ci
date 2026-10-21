@@ -22,6 +22,7 @@ import { workerBundleErrorMessage } from '../computers/workerBundleReadiness.js'
 import { withCiDatabaseReservation, withoutCiDatabasePriority } from '../../infrastructure/ciDatabasePriority.js'
 
 import { RetryBackoff } from '../../infrastructure/retryBackoff.js'
+import { ciComputerStatusKey } from './computerStatus.js'
 
 const log = componentLogger('jobs')
 
@@ -43,6 +44,8 @@ export class ProductionHostCiEndpoint implements HostCiEndpoint {
     private readonly devices: () => DeviceRequests | undefined, private readonly local: Pick<HostCiRunner, 'handle'>,
     private readonly clouds: CloudCi[] = [], private readonly discoverClouds?: () => Promise<void>,
     private readonly workerExecution = new WorkerExecutionPolicy()) {}
+
+  statusKey(computer: HostCiComputer): string { return ciComputerStatusKey(computer) }
 
   async publishMirror(input: CiMirrorInput): Promise<void> {
     // Publication is shared by provider and slot; readiness remains a dispatch concern. Further CircleCI orgs publish

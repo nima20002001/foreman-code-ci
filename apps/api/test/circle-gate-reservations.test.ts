@@ -51,6 +51,7 @@ it('reserves ordinary cloud capacity on active standby orgs instead of exhausted
     })), { reading: async owner => ({ credits: { total: 400_000,
       used: owners.indexOf(owner!) < 3 ? 400_000 : 0, remaining: owners.indexOf(owner!) < 3 ? 0 : 400_000, asOf: now,
     } }) })
+    for (const owner of owners.slice(0, 3)) await selector.recordCreditRefusal(owner)
     const started: string[] = []
     const endpoint: HostCiEndpoint = { computers: async () => [...github, ...organizations],
       request: async (computer, request) => {

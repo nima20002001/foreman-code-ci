@@ -1,4 +1,5 @@
 import { decodeMcpToolResult } from '@foreman-code/contracts/operator-mcp'
+import { callProductionMcpTool } from './productionMcpCall.js'
 import assert from 'node:assert/strict'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
@@ -323,7 +324,7 @@ export async function pairedWorkerApplication(options: { harnesses?: readonly Ag
     }
     await connectClients()
     const tool = async (name: string, args: Record<string, unknown>) => {
-      const result = await client!.callTool({ name, arguments: args }, { timeout: 180000 })
+      const result = await callProductionMcpTool(client!, { name, arguments: args }, { timeout: 180000 })
       if (result.isError) {
         const content = result.content.find(value => value.type === 'text')
         const failure = content?.type === 'text'

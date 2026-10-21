@@ -27,7 +27,7 @@ it('shares a slow credit-policy read with start admission without inheriting the
   try {
     await cache.transaction(states => {
       states[circleCreditKey('fixture-org')] = { attempts: [], lastAttemptAt: now,
-        snapshot: { used: 0, asOf: at, windowEnd: at, periodStart: circleMonthStart(now) } }
+        snapshot: { basis: 'compute', used: 0, asOf: at, windowEnd: at, periodStart: circleMonthStart(now) } }
     })
     const usage = new CircleCreditUsage(() => { throw new Error('Unexpected fixture export') }, {
       allowance: () => withCiDatabaseReservation(database.pool, async () => (await repository.getCircleCreditAllowance()).value),
@@ -84,7 +84,7 @@ it('finishes a background usage export after the read that requested it ends', a
       if (url.pathname.endsWith('/fixture-export')) {
         return Response.json({ state: 'completed', download_urls: ['https://fixture.invalid/usage.csv'] })
       }
-      if (url.hostname === 'fixture.invalid') return new Response('TOTAL_CREDITS\n10\n')
+      if (url.hostname === 'fixture.invalid') return new Response('COMPUTE_CREDITS\n10\n')
       throw new Error(`Unexpected fixture HTTP request: ${url.pathname}`)
     },
   })
