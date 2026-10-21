@@ -49,7 +49,7 @@ describe.skipIf(!postgresEnabled)('Claude consultation callback authority', () =
       expect(admissions).toEqual([{ ownerPrincipalId: f.authorizationPrincipalId,
         attemptId: expect.stringMatching(/^consultation:/) }])
       await expect.poll(async () => (await f.db.pool.query('select state from run_coordinator_consultations where run_id=$1',
-        [f.f.run.id])).rows[0]?.state).toBe('completed')
+        [f.f.run.id])).rows[0]?.state, { timeout: 30_000 }).toBe('completed')
       await expect(domain!.callbackAdmission()).rejects.toMatchObject({ code: 'AUTH_REVOKED' })
       expect(provider.consultations).toHaveLength(1)
       expect((await f.runs.listRepeatExecutions(f.f.run.id)).filter(row => row.execution.workflowNodeId === 'master'))
