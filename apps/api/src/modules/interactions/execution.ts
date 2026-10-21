@@ -3729,7 +3729,7 @@ export class ApprovalExecutionCoordinator {
             const original = await observation.bookkeeping(() =>
               this.runs.readWorkflowTerminalSettlement(observation.execution, input.owner))
             if (original) await this.publishCommittedTerminalSettlement(observation.execution, input.owner,
-              observation.session!, nativeManager, lane, original, observed).catch((error: unknown) => { console.error('DEBUGSETTLE', observation.execution.workflowNodeId, error); throw error })
+              observation.session!, nativeManager, lane, original, observed)
           } else if (nativeManager.settleTurn) {
             await this.finishOutputSettlement(ownedSession, input.owner, observed.terminalTurn!, nativeManager, lane)
           }
