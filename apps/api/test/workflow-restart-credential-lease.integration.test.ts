@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { HostHarnessInstanceCheckResultSchema } from '@foreman-code/contracts/harness-registry'
 import { installationUpdateFixture, startWhenReady, runningTurn, completedRun, profileReader, profiles }
   from './helpers/harnessInstallationUpdate.js'
@@ -10,6 +12,10 @@ describe('planned API restart near a worker credential expiry', () => {
     const fixture = await installationUpdateFixture({ workflow: 'single', executionHost: 'main' })
     let blocked = false
     try {
+      // Started Runs use the coordination result protocol, so the Agent's final answer must be its JSON envelope.
+      await writeFile(join(fixture.provider.directory, 'workflow-answers.json'), JSON.stringify([JSON.stringify({
+        data: 'Completed work', summary: 'Completed work.', board: { kind: 'none', reason: 'no_access' },
+      })]))
       await fixture.provider.blockWorkflowTurns()
       blocked = true
       const started = (await startWhenReady(fixture))!
