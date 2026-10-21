@@ -173,6 +173,7 @@ export class CloudCi {
   private following = 0
   private readonly waiting: { run: CloudRun; resume: () => void }[] = []
   private readonly reading = new Map<string, number>()
+  private stopped = false
 
   constructor(private readonly mainId: string, readonly provider: CloudProvider, private readonly mirrors: Mirrors,
     private readonly root = join(homedir(), '.local/share/foreman-code/ci-cloud', cloudCiId(provider)),
@@ -181,6 +182,9 @@ export class CloudCi {
     private readonly identity = { home: homedir(), user: userInfo().username, host: hostname() }) {}
 
   setCircleStandby(standby: CircleStandby) { this.standby = standby }
+
+  /** API shutdown: work it interrupts (for example through the closed database pool) is not a ticket outcome. */
+  stop() { this.stopped = true }
 
   invalidateReadiness() { this.checked = undefined }
 
@@ -505,9 +509,16 @@ export class CloudCi {
     }
   }
 
-  private async recordStartFailure(runId: string, error: unknown) {
+  private async recordStartFailure(runId: string, error: unknown,
+    request?: Extract<CiHostRequest, { operation: 'start' }>) {
     const latest = await this.read(runId)
     if (latest.state !== 'starting') return
+    if (this.stopped && request && !latest.dispatch?.attempts && !latest.providerRunId && !latest.dispatchHistory?.length) {
+      // Our own shutdown interrupted publication before any submission; the next API process publishes it again.
+      await this.save({ ...latest, publicationRequest: request, message: 'Publishing the checked CI mirror snapshot.',
+        mirrorPublication: { ...latest.mirrorPublication!, state: 'pending', finishedAt: null } })
+      return
+    }
     if (latest.dispatch?.attempts || latest.providerRunId || latest.dispatchHistory?.length) {
       const message = latest.dispatch?.notSent && !latest.dispatch.uncertain
         ? 'Cloud submission was not sent; start admission will be retried.'
@@ -527,10 +538,11 @@ export class CloudCi {
 
   private publishInBackground(run: CloudRun) {
     const key = `${this.root}\n${run.runId}`
-    if (pendingPublications.has(key)) return
-    const task = this.publishAndStart(run.publicationRequest!, run.mirror).then(() => undefined).catch(async error => {
+    if (pendingPublications.has(key) || this.stopped) return
+    const request = run.publicationRequest!
+    const task = this.publishAndStart(request, run.mirror).then(() => undefined).catch(async error => {
       log.warn({ err: error, runId: run.runId }, 'CI mirror publication failed')
-      await this.serializeRun(run.runId, () => this.recordStartFailure(run.runId, error))
+      await this.serializeRun(run.runId, () => this.recordStartFailure(run.runId, error, request))
     }).catch(error => {
       log.error({ err: error, runId: run.runId }, 'CI mirror failure could not be recorded; recovery will retry')
     }).finally(() => {
