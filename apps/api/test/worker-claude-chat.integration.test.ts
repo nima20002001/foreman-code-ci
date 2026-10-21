@@ -100,9 +100,6 @@ it('preserves remote Claude cold recovery, ownership and non-delivery through au
         const result = await call(writer.token, 'agent_chat_send', { request })
         expect(result.result?.isError, JSON.stringify(result)).not.toBe(true)
         await terminal.promise
-        const debugTurn = await repository.turn(id, request.requestId)
-        if (debugTurn?.delivery !== delivery) console.error('TURN_DEBUG', JSON.stringify({ turn: debugTurn,
-          row: await repository.get(id), worker: await worker!.journal.conversations.read(worker!.binding) }, null, 1))
         expect((await repository.turn(id, request.requestId))?.delivery).toBe(delivery)
         return result
       } finally { unsubscribe() }
@@ -183,9 +180,6 @@ it('preserves remote Claude cold recovery, ownership and non-delivery through au
     expect(SessionControlStateSchema.parse(graphRpcValue(readControls.result)).applied?.autoCompact).toBe('off')
     await call(writer.token, 'agent_chat_send', { request: failedInput })
     expect(worker!.offers).toHaveLength(4)
-  } catch (error) {
-    console.error('ORIGINAL_FAILURE', error)
-    throw error
   } finally {
     try { await chat?.shutdown() }
     finally {

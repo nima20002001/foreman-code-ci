@@ -48,6 +48,19 @@ describe('accepted cold/queued Worker inputs through the actual Main/Worker publ
     expect((await f.journal.conversations.read(f.binding))?.appliedPreferences).toEqual(SessionPreferencesSchema.parse({ contextBudget: 4096 }))
   })
 
+  it('delivers follow-up settings with the turn instead of reconfiguring an open native session', async () => {
+    f.control({ openSessionSettingsRejected: true })
+    const manager = f.manager()
+    await collect(manager.startInitialTurn!(f.start('A'), input('A', 'Initial task', 'regular')))
+    const next = { ...input('B', 'Follow-up task', 'regular'), sessionPreferences: SessionPreferencesSchema.parse({ contextBudget: 8192 }) }
+    await collect(manager.startTurn(f.session, next))
+    expect(f.creates()).toBe(1)
+    expect(f.inputs).toMatchObject([{ correlationId: 'A', preferences: { contextBudget: 4096 } },
+      { correlationId: 'B', mode: 'regular', preferences: { contextBudget: 8192 } }])
+    expect((await f.journal.conversations.read(f.binding))?.turns.map(turn => [turn.correlationId, turn.status]))
+      .toEqual([['A', 'completed'], ['B', 'completed']])
+  })
+
   it('retains proof across replacement and rejects prompt/settings/credential growth before any native input', async () => {
     const first = f.manager(), original = input('proof', 'The admitted input')
     const accepted = await preflightChatInput({ content: original.prompt }, { workerRequired: true, prompt: original.prompt,

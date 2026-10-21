@@ -652,7 +652,6 @@ export class WorkerConversationHost {
         const history = await resident.allocation.manager.reconcile(record.session, request.correlationId, this.lifetime.signal)
         await this.finish(resident.binding, request.correlationId, history)
       } catch (error) {
-        console.error('PUMP_DEBUG', streamStarted, request.method, error)
         const notDelivered = !streamStarted
           || error instanceof NativeDeliveryError && error.delivery === 'not_sent' && error.cleanup === 'confirmed'
           || error && typeof error === 'object'
@@ -1111,10 +1110,7 @@ export class WorkerConversationHost {
     }
     if (this.hasRunningOperation(id) || record.turns.some(turn => !['completed', 'rejected'].includes(turn.status))
       || record.compactions.some(control => compactionBlocksSend(control.state))) {
-      unavailable('Finish the active operation before releasing its native process. DEBUG ' + JSON.stringify({
-        running: [...this.running.keys()], compactions: [...this.runningCompactions.keys()],
-        turns: record.turns.map(turn => ({ c: turn.correlationId, s: turn.status })),
-        compact: record.compactions.map(control => control.state) }))
+      unavailable('Finish the active operation before releasing its native process.')
     }
     if (this.allocating.has(id)) unavailable('The native conversation is busy.')
     const closing = (async () => {

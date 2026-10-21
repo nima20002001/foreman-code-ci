@@ -27,11 +27,17 @@ export async function workerDeliveryFixture() {
   const releases = new Map<string, () => void>()
   let creates = 0, closed = false, hold = false, liveInputs = 0, maximumInputs = 0
   let denyAfterBind = false, dropSessionCallback = false, preferences: SessionPreferences | null = null
+  // Claude semantics: creation settings are accepted only before a native runtime opens.
+  let openSessionSettingsRejected = false
   const native: NativeHarnessSessionManager = {
     harness: 'codex', capabilities: async () => { throw new Error('No installation qualification in a provider fixture.') },
     inspectMcp: async () => { throw new Error('No installation inspection in a provider fixture.') },
     createSession: async () => { creates++; return f.session }, attachSession: async () => f.session,
-    configureSessionPreferences: async next => { preferences = structuredClone(next) }, appliedSessionPreferences: () => preferences,
+    configureSessionPreferences: async next => {
+      if (openSessionSettingsRejected && creates > 0) throw new Error('These settings require a safe resume or a new session.')
+      preferences = structuredClone(next)
+    },
+    appliedSessionPreferences: () => preferences,
     async *startTurn(_session, input, signal) {
       liveInputs++; maximumInputs = Math.max(maximumInputs, liveInputs)
       inputs.push({ correlationId: input.clientCorrelationId, prompt: input.prompt,
@@ -90,8 +96,9 @@ export async function workerDeliveryFixture() {
     environment: { agentId: configuration.operatorId, variables: { FOREMAN_CODE_MCP_TOKEN: token } } })
   return { ...f, binding, configuration, journal, bridge, host, ports, inputs, frames, credentials, manager, start,
     creates: () => creates, maximumInputs: () => maximumInputs,
-    control: (next: { hold?: boolean; denyAfterBind?: boolean; dropSessionCallback?: boolean }) => {
+    control: (next: { hold?: boolean; denyAfterBind?: boolean; dropSessionCallback?: boolean; openSessionSettingsRejected?: boolean }) => {
       hold = next.hold ?? hold; denyAfterBind = next.denyAfterBind ?? denyAfterBind; dropSessionCallback = next.dropSessionCallback ?? dropSessionCallback
+      openSessionSettingsRejected = next.openSessionSettingsRejected ?? openSessionSettingsRejected
     },
     finish: (correlationId: string, result: ExecutionResult = { outcome: 'succeeded', output: { text: 'Original result' } }) => {
       const history = histories.get(correlationId)
