@@ -219,6 +219,22 @@ export const handlers: RequestHandler[] = [
   // The Board polls each workflow's Run list; tests that need Runs install their own page.
   http.get('*/api/management/workspaces/:workspaceId/workflows/:workflowId/runs/summaries',
     () => HttpResponse.json({ items: [], pageInfo: { nextCursor: null } })),
+  // A Board reads the saved Master hierarchy of every selected Run; fixtures carry none unless a test installs its own.
+  http.get('*/api/management/workspaces/:workspaceId/workflows/:workflowId/hierarchy', ({ request, params }) => {
+    const query = new URL(request.url).searchParams, runId = query.get('runId')
+    return HttpResponse.json({ workspaceId: String(params.workspaceId), workflowId: String(params.workflowId),
+      workflowVersionId: query.get('workflowVersionId'), revision: 1, hierarchy: null, agents: [],
+      ...(runId ? { run: { runId, state: 'completed' } } : {}) })
+  }),
+  // Workspace and Workflow Memory boards open with no cards unless a test installs its own board.
+  http.get('/api/memory-boards', ({ request }) => {
+    const query = new URL(request.url).searchParams, scope = query.get('scope')
+    if (!scope || (query.get('view') ?? 'board') !== 'board') return undefined
+    const page = { items: [], hasMore: false, nextCursor: null, revision: 0 }
+    return HttpResponse.json({ board: { id: 'board-empty', scope: JSON.parse(scope), revision: 0 },
+      openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
+      counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
+  }),
   http.get('/api/management/workspaces/:workspaceId/repository', ({ params, request }) => {
     const workspaceId = String(params.workspaceId)
     if (new URL(request.url).searchParams.has('commandId')) {

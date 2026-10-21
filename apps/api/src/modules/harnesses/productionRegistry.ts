@@ -1,5 +1,4 @@
 import type { discoverInstalledClaudeSdk } from './claudeSdk/currentPin.js'
-import { ev } from '../../diagTemp.js'
 import { withTransaction } from '../../infrastructure/transaction.js'
 import { harnessConnectionGeneration, harnessSessionConnectionGeneration, matchesHarnessConnectionGeneration } from './hostConnectionGeneration.js'
 import type pg from 'pg'
@@ -101,10 +100,6 @@ export class ProductionHarnessRegistry {
     return task
   }
   private async collectMain(signal?: AbortSignal): Promise<void> {
-    ev('collectMain begin')
-    try { await this.collectMain2(signal) } finally { ev('collectMain end') }
-  }
-  private async collectMain2(signal?: AbortSignal): Promise<void> {
     this.assertOpen(); signal?.throwIfAborted()
     const generation = ++this.refreshGeneration
     const managed = await this.managedDefaults()

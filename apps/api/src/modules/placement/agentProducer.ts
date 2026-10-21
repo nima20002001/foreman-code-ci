@@ -1,5 +1,4 @@
 import { COORDINATION_RESULT_PROTOCOL } from '@foreman-code/contracts'
-import { ev } from '../../diagTemp.js'
 import { randomUUID } from 'node:crypto'
 import { posix } from 'node:path'
 import type pg from 'pg'
@@ -75,7 +74,6 @@ export class AgentPlacementProducer implements RunPlacementAdmissionPort {
     const savedVersion = initial.version
     signal?.throwIfAborted()
     if (!sameWorkflowValue(savedVersion.agentConfigurationVersionIds, input.expectedAgentConfigurationVersionIds)) this.conflict()
-    ev('producer.prepare hosts')
     const hosts = savedVersion.definition.nodes.filter(node => node.kind !== 'job')
       .map(node => node.placement?.hostRef ?? initial.root?.selection.hostRef
         ?? { kind: 'main' as const, mainId: this.mainId })

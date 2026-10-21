@@ -16,9 +16,7 @@ import { PostgresOperatorConversationRepository } from '../src/modules/conversat
 import { runChatStorageKey } from '../src/modules/conversations/selectedRunChat.js'
 import type { NativeSteerInput } from '../src/modules/harnesses/port.js'
 import type { PostgresRunRepository } from '../src/modules/runs/postgres.js'
-import { qualifiedAgentChatSteer } from '../src/modules/conversations/chatSteerQualification.js'
 import { AgentChatF5Native } from './helpers/agentChatF5.js'
-import { immutableVersionRow, isRunVersionRead, isSavedVersionRead } from './helpers/chatWorkflowVersion.js'
 import { deferred } from './helpers/deferred.js'
 
 class SteeringNative extends AgentChatF5Native {
@@ -66,10 +64,7 @@ it('keeps new, in-steer replay and ordinary replay responses on the explicitly s
       agentConfigurationVersionId: saved.version.agentConfigurationVersionIds[entry.agentId], position: entry.position ?? { x: 0, y: 0 },
       size: { width: entry.width ?? 208, height: entry.height ?? 112 } })), edges: saved.version.definition.edges })
   const controls = memorySessionControlPool()
-  const versionRow = immutableVersionRow(saved.version)
   const query = vi.fn(async (sql: string, values: unknown[] = []) => {
-    if (isRunVersionRead(sql)) return { rows: values[0] === saved.run.id ? [{ workflow_version_id: saved.version.id }] : [] }
-    if (isSavedVersionRead(sql)) return { rows: values[0] === versionRow.id ? [versionRow] : [] }
     if (sql.includes('conversation_session_') || sql.includes('as compaction')) {
       return controls.query(sql, values)
     }
@@ -104,7 +99,6 @@ it('keeps new, in-steer replay and ordinary replay responses on the explicitly s
       latestRequestId: receipts.get(id)?.at(-1)?.requestId ?? null, activeStartedAt: id === selected.id ? new Date(saved.createdAt) : null,
       unfinishedActivities: [], publicationReceipts: [], activityPage: { activities: [], itemRevisions: {}, nextCursor: null } })),
     open: vi.fn(async () => [selected]), restoreUnsettled: vi.fn(async () => selected),
-    turnPreparedInput: vi.fn(async () => undefined),
     turnPrincipalId: vi.fn(async (id: string, requestId: string) =>
       receipts.get(id)?.some(turn => turn.requestId === requestId) ? principal.id : undefined),
     abandon: vi.fn(async (id: string, requestId: string, message: string) => {
@@ -144,8 +138,7 @@ it('keeps new, in-steer replay and ordinary replay responses on the explicitly s
   const attach = vi.spyOn(native, 'attachSession')
   vi.spyOn(native, 'reconcile').mockResolvedValue({ correlationId: agentChatCorrelation(selected.id, 'active-e2'),
     nativeTurnId: 'turn-e2', events: [], pendingInteractions: [] })
-  // Production composition qualifies Codex steering for the live owner; this fixture composes the same port.
-  const managers = Object.assign(vi.fn(() => native), { qualifiedSteer: qualifiedAgentChatSteer })
+  const managers = vi.fn(() => native)
   const runPort = { getForWorkspace: async () => ({ ...saved.run, executionState: 'completed', outcome: 'succeeded' }),
     getExecution: async (id: string) => executions.find(item => item.id === id),
     async *executionPages() { yield executions } }

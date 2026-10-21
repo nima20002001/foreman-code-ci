@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { ev } from '../../diagTemp.js'
 import { addAbortListener } from 'node:events'
 import type pg from 'pg'
 import type { CanonicalMachineReference } from '@foreman-code/contracts/device-identity'
@@ -145,11 +144,9 @@ export class HarnessInstallationMonitor {
     priority: DiscoveryPriority = 'foreground'): Promise<void> {
     this.stopping.signal.throwIfAborted()
     signal?.throwIfAborted()
-    ev(`refreshHosts begin ${priority}`)
     const selected = new Map(hosts.map(host => [harnessHostKey(host), host]))
     const tasks = [...selected.values()].map(host => this.refreshHost(host, priority, signal))
     const completed = Promise.all(tasks).then(refreshed => {
-      ev(`refreshHosts end ${priority}`)
       if (refreshed.some(result => result !== 'refreshed')) throw new DomainError('HARNESS_INVENTORY_UNAVAILABLE',
         'Harness installation inventory could not be refreshed on a required computer.', 503)
     })

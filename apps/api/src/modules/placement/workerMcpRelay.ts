@@ -76,7 +76,6 @@ export class MainWorkerMcpRelay {
   async handle(raw: unknown, connection: DeviceConnectionIdentity, signal?: AbortSignal) {
     signal?.throwIfAborted()
     const input = WorkerMcpRelayRequestSchema.parse(raw), app = input.applicationAccess
-    { const d = ((globalThis as { __diag?: Record<string, number> }).__diag ??= {}); const k = `relay:${input.operation}`; d[k] = (d[k] ?? 0) + 1 }
     const principal = await this.access.authenticate(app.token, 'worker').catch((error: unknown) => { throw databaseReadFailure(error) })
     if (principal.audience !== 'worker' || principal.agentId !== app.agentId || input.placement.payload.kind !== 'agent'
       || input.placement.payload.agentId !== app.agentId || input.intent.executionId !== app.executionId
@@ -173,7 +172,6 @@ export class MainWorkerMcpRelay {
       ...authorization, outputOperation: input.outputOperation, nativeSessionId: input.nativeSessionId, turnId: input.turnId, scope: nativeScope,
     })
     if (input.operation === 'worker-mcp.authorize-native-output-declarations') return WorkerNativeOutputDeclarationsAuthorizationSchema.parse({ ...authorization, ...declarations })
-    if (input.operation === 'worker-mcp.native-output-readiness') { const d = ((globalThis as { __diag?: Record<string, number> }).__diag ??= {}); const k = `ready:${ready}`; d[k] = (d[k] ?? 0) + 1 }
     if (input.operation === 'worker-mcp.native-output-readiness') return WorkerNativeOutputReadinessSchema.parse({
       ...authorization, nativeSessionId: input.nativeSessionId, turnId: input.turnId, ready,
     })

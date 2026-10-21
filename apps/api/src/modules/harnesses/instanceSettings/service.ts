@@ -1,5 +1,4 @@
 import type pg from 'pg'
-import { ev } from '../../../diagTemp.js'
 import { isDeepStrictEqual } from 'node:util'
 import type { HarnessConfiguration } from '@foreman-code/contracts'
 import { HarnessProfileSelectionSchema, type HarnessProfileSelection } from '@foreman-code/contracts/harness-registry'
@@ -45,11 +44,6 @@ export class HostHarnessOverrideService {
   get qualificationSupported(): boolean { return Boolean(this.profileChecks) }
   async closeChecks(): Promise<void> { await this.profileChecks?.close() }
   async ensureReady(value: HostHarnessOverride): Promise<void> {
-    ev('ensureReady begin')
-    try { await this.ensureReady2(value) } catch (error) { ev(`ensureReady error ${(error as { code?: string }).code}`); throw error }
-    ev('ensureReady ok')
-  }
-  private async ensureReady2(value: HostHarnessOverride): Promise<void> {
     if (!value.enabled || value.driverId === 'opencode') return
     this.profileChecks?.assertReady(value)
     const evidence = await this.evidence(value)

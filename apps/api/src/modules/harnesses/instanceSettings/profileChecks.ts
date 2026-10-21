@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { ev } from '../../../diagTemp.js'
 import { setTimeout as delay } from 'node:timers/promises'
 import { RETIRED_OPENCODE_MESSAGE } from '@foreman-code/contracts'
 import type pg from 'pg'
@@ -210,7 +209,6 @@ export class HostHarnessInstanceProfileChecks {
     return task
   }
   private async recheckInstalledProfiles(input: AutomaticHostProfileCheck, batch: AutomaticProfileCheckBatch): Promise<void> {
-    ev('recheckInstalledProfiles begin')
     const profiles = await this.settings.list(input.host, input.applicationInstallationId)
     const qualified: HostHarnessOverride[] = []
     for (const value of profiles) {
@@ -249,7 +247,6 @@ export class HostHarnessInstanceProfileChecks {
             return this.settings.replaceInstallation(client, saved, target)
           })
         }
-        ev(`checkProfile prepFailure=${preparationFailure ? (preparationFailure as Error).message?.slice(0, 80) : 'none'}`)
         if (preparationFailure && value.driverId === 'codex') throw preparationFailure
         const request = { commandId: checkId, instanceId: value.instanceId,
           expectedRevision: value.revision, target: value.target }

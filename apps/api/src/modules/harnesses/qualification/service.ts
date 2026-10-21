@@ -1,5 +1,4 @@
 import { runAsQualificationCandidate } from './gate.js'
-import { ev } from '../../../diagTemp.js'
 import { setTimeout as delay } from 'node:timers/promises'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -185,7 +184,6 @@ export class HarnessQualificationService {
           throw new CompatibilityCheckError('CLI_CHANGED', 'The CLI changed during qualification. Retry after the installation has finished.', { cause: error })
         }
         const milliseconds = VERSION_RETRY_DELAYS[attempt]
-        ev(`retryInvalidVersion attempt ${attempt} delay ${milliseconds}`)
         if (milliseconds === undefined) throw error
         await delay(milliseconds, undefined, { signal: this.cancellation.signal, ref: false })
         this.assertRunning(harness)
@@ -208,7 +206,6 @@ export class HarnessQualificationService {
   private async prepare(harness: CompatibilityHarness, options: PreparationOptions & { onlyQualified: true }): Promise<HarnessQualification | null>
   private async prepare(harness: CompatibilityHarness, options: PreparationOptions & { onlyQualified?: false }): Promise<HarnessQualification>
   private async prepare(harness: CompatibilityHarness, options: PreparationOptions): Promise<HarnessQualification | null> {
-    ev(`prepare ${JSON.stringify(options)}`)
     const suite = this.suites[harness]
     await this.refreshInstalled?.(harness, this.cancellation.signal)
     this.assertRunning(harness)
