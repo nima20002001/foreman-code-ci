@@ -112,6 +112,8 @@ export class CircleCiAccounts {
           await this.add(known)
         }
         known.registered = true
+        // A role change on a registered login applies to its known orgs at the next discovery.
+        known.role = account.role
         try {
           const ports = this.options.context ? (await this.options.context(account.id)).ports : this.ports
           if (account.id !== 'default' && !this.options.context) throw new Error('CircleCI account context is unavailable.')
