@@ -10,9 +10,9 @@ export type SubagentsScope = RunBoardSnapshotGetInput
 export const subagentsKey = (scope: SubagentsScope) => ['run-subagents', sessionGeneration(), scope.workspaceId, scope.workflowId, scope.runId] as const
 export const accessFailed = (error: unknown) => Boolean(error) && !isTransientReadError(error)
 const pollInterval = (error: unknown) => accessFailed(error) ? false : 2500
-export function useRunSubagents(scope: SubagentsScope, enabled = true) {
+export function useRunSubagents(scope: SubagentsScope) {
   return useInfiniteQuery({
-    queryKey: [...subagentsKey(scope), 'list'], initialPageParam: undefined as string | undefined, enabled,
+    queryKey: [...subagentsKey(scope), 'list'], initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) => {
       const page = await subagentsApi.list({ workspaceId: scope.workspaceId, runId: scope.runId, limit: SUBAGENT_LIMITS.page, cursor: pageParam }, { signal })
       if (page.items.some(({ subagent }) => subagent.workflowId !== scope.workflowId)) {
@@ -23,17 +23,17 @@ export function useRunSubagents(scope: SubagentsScope, enabled = true) {
     getNextPageParam: (page, _pages, _cursor, cursors) => page.nextCursor
       && !cursors.includes(page.nextCursor) ? page.nextCursor : undefined,
     retry: false, staleTime: 1000, gcTime: 60_000,
-    refetchInterval: (query) => enabled ? pollInterval(query.state.error) : false,
+    refetchInterval: (query) => pollInterval(query.state.error),
   })
 }
-export function useSubagentDetail(scope: SubagentsScope, subagentId: string, enabled = true) {
-  return useQuery({ queryKey: [...subagentsKey(scope), subagentId, 'detail'], enabled,
+export function useSubagentDetail(scope: SubagentsScope, subagentId: string) {
+  return useQuery({ queryKey: [...subagentsKey(scope), subagentId, 'detail'],
     queryFn: async ({ signal }) => {
       const detail = await subagentsApi.detail({ workspaceId: scope.workspaceId, runId: scope.runId, subagentId }, { signal })
       if (detail.subagent.workflowId !== scope.workflowId) throw new ApiError({ code: 'INVALID_RESPONSE', message: 'Subagent belongs to a different workflow.' })
       return detail
     }, retry: false, staleTime: 1000, gcTime: 60_000,
-    refetchInterval: (query) => enabled ? pollInterval(query.state.error) : false,
+    refetchInterval: (query) => pollInterval(query.state.error),
   })
 }
 export function useSubagentMessages(scope: SubagentsScope, subagentId: string, enabled: boolean) {

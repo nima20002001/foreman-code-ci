@@ -155,13 +155,6 @@ export async function assertWorkflowRunSettlementLocked(sql: GraphTransactionSql
   const retainedPrincipals: string[] = []
   if (intent === 'restart') {
     await assertRestartAttemptsLocked(sql, run, owner, retained)
-    const consultations = (await sql.query<{ principal_id: string }>(`select b.principal_id
-      from worker_credential_bindings b join run_coordinator_consultations c
-        on c.run_id=b.run_id and c.id=b.consultation_id and c.binding=b.consultation_binding
-      join run_coordinator_mailboxes m on m.run_id=c.run_id and m.active_consultation_id=c.id
-      where b.run_id=$1 and b.purpose='consultation' and c.native_target is not null
-        and c.state in ('active','unknown','settling') and m.state='consultation'`, [run.id])).rows
-    retainedPrincipals.push(...consultations.map(row => row.principal_id))
   } else {
     await visitRepeatNativeAttemptsLocked(sql, run.id, { kind: 'run' }, async ids => {
       await assertSettlementLocked(sql, run, ids, owner)
@@ -185,10 +178,7 @@ export async function assertWorkflowRunSettlementLocked(sql: GraphTransactionSql
     or exists(select 1 from approval_execution_state b join harness_executions e on e.id=b.execution_id
       where e.run_id=$1 and (b.active_started_at is not null or b.approval_wait_started_at is not null)
       and not (e.id=any($2::text[])))
-    or ($4<>'restart' and exists(select 1 from run_coordinator_consultations c where c.run_id=$1
-      and (c.state not in ('completed','failed','canceled')
-        or c.browser_input is not null and c.browser_state is distinct from 'released')))
-    ) as pending`, [run.id, retained, retainedPrincipals, intent])).rows[0]
+    ) as pending`, [run.id, retained, retainedPrincipals])).rows[0]
   if (pending?.pending !== false) return conflict('REPEAT_CLEANUP_PENDING')
 }
 

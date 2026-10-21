@@ -4,14 +4,12 @@ import { useSessionControls } from '../sessionControls/useSessionControls'
 import { compactionBlocksSend, parseSessionCommand } from '@foreman-code/contracts'
 import { useMemo, type ReactNode } from 'react'
 import type { AgentChatContext } from '@foreman-code/contracts/agent-chat'
-import type { SelectedRunChatExecution } from '@foreman-code/contracts/selected-run-chat'
 import { ChatAttachmentControl, useConversationAttachments } from '../../attachments'
 import { ChatAttachmentBoundary } from '../ChatAttachmentBoundary'
 
-import { Button, CodeBlock, Dialog, IconButton, Select, Tooltip } from '../../../shared/ui/nocturne'
+import { Alert, Button, CodeBlock, Dialog, IconButton, LoadingState, Select, Tooltip } from '../../../shared/ui/nocturne'
 import { createFileCardHttpClient, MessageFileCards } from '../../file-cards'
 import { ApiError } from '../../../shared/api/client'
-import { identityEpoch } from '../../../shared/api/protectedChatStorage'
 import { useFileDrop } from '../../../shared/ui/useFileDrop'
 import { AgentChatComposer } from './AgentChatComposer'
 import { AgentChatHeader, AgentChatStatus } from './AgentChatHeader'
@@ -21,9 +19,7 @@ import { ConversationViewport } from '../ConversationViewport'
 import { useConversationDraftStore } from '../conversationDraftStore'
 import { chatBackgroundWork } from '../chatWorkStatus'
 import { AgentChatTranscript } from './AgentChatTranscript'
-import { RetainedAgentCommands } from './RetainedAgentCommand'
-import { AgentChatAccessState } from './AgentChatAccessState'
-import { agentChatContextKey, chatBusy, intentUnavailable } from './model'
+import { chatBusy, intentUnavailable } from './model'
 import { useAgentChat } from './useAgentChat'
 import { ProviderAccountChip, ProviderAccountProblem } from '../../provider-accounts/ProviderAccountChip'
 import { SessionContext } from '../sessionControls/SessionControls'
@@ -37,15 +33,14 @@ import '../chatAttachments.css'
 /** Mounted ONLY through the existing Board AgentChatPanel. Server state stays in Query. */
 type AgentConversationProps = {
   context: AgentChatContext; name: string; role?: string; activity?: string; runLabel?: string
-  selection?: SelectedRunChatExecution
   onClose?: () => void; onNewConversation?: () => void
 }
 export function AgentConversation(props: AgentConversationProps) {
-  return <ChatAttachmentBoundary><AgentConversationContent key={`${identityEpoch()}:${agentChatContextKey(props.context)}:${props.selection?.executionId ?? ''}`} {...props} /></ChatAttachmentBoundary>
+  return <ChatAttachmentBoundary><AgentConversationContent {...props} /></ChatAttachmentBoundary>
 }
 
-function AgentConversationContent({ context, name, activity, runLabel, onClose, onNewConversation, selection }: AgentConversationProps) {
-  const chat = useAgentChat(context, { selection }), state = chat.state
+function AgentConversationContent({ context, name, activity, runLabel, onClose, onNewConversation }: AgentConversationProps) {
+  const chat = useAgentChat(context), state = chat.state
   const conversation = state?.conversation
   const retired = conversation?.harness === 'opencode' || state?.capabilities.harness === 'opencode'
   const conversationId = conversation?.id
@@ -78,9 +73,13 @@ function AgentConversationContent({ context, name, activity, runLabel, onClose, 
         label={conversation?.origin.kind === 'run_execution' ? 'Source Run account · saved chat account' : 'Saved chat account'} />
       <SessionContext controls={sessionControls} />
     </>} />
-  if (chat.access.isPending || chat.access.isError || chat.denial || !state && !chat.canRead) return <AgentChatAccessState
-    header={header} pending={chat.access.isPending} error={chat.access.error} denial={chat.denial} draftKey={chat.draftKey}
-    refresh={() => { void chat.access.refetch(); chat.refresh() }} />
+  if (chat.access.isPending) return <div className="agent-conversation">{header}
+    <ConversationViewport revision="access">{() => <LoadingState label="Checking Agent chat access…" rows={1} />}</ConversationViewport>
+  </div>
+  if (chat.access.isError || chat.denial || !chat.state && !chat.canRead) return <div className="agent-conversation">{header}<ConversationViewport revision="denied">{() => <Alert tone="warning" title="Agent chat access unavailable" live>
+    <p>{chat.denial?.message ?? chat.access.error?.message ?? 'Your access does not allow reading chat for this Agent and Run.'}</p>
+    <Button size="sm" onClick={() => { void chat.access.refetch(); chat.refresh() }}>Refresh access</Button>
+  </Alert>}</ConversationViewport></div>
 
   const command = parseSessionCommand(draft)
   const commandOnly = command.kind === 'compact' || command.kind === 'mode'
@@ -167,11 +166,10 @@ function AgentConversationContent({ context, name, activity, runLabel, onClose, 
     {state ? <AgentChatTranscript key={state.conversation?.id ?? 'none'} state={state} name={name} readOnly={retired}
       commands={chat.commands} history={chat.history} cancelReason={cancelReason} responseReason={responseReason}
       resendReason={nextReason} controlResendReason={controlReason}
-      onRefresh={chat.refresh} refreshing={chat.query.isFetching} onCancel={chat.cancelQueued} onRespond={chat.respond} onDenied={chat.revoke} onReceipt={chat.confirmDelivery}
+      onRefresh={chat.refresh} refreshing={chat.query.isFetching} onCancel={chat.cancelQueued} onRespond={chat.respond}
       onSendAgain={(content, pins, mode) => setSendAgain({ content, attachments: pins, draftKey: chat.draftKey,
         sessionMode: parseSessionCommand(content).kind === 'plan-task' ? 'plan' : mode })} />
-      : <ConversationViewport revision="loading">{() => <RetainedAgentCommands commands={chat.commands} onDenied={chat.revoke} onReceipt={chat.confirmDelivery}
-        draftKey={chat.draftKey} refresh={chat.refresh} pending={chat.query.isPending} />}</ConversationViewport>}
+      : <ConversationViewport revision="loading">{() => <LoadingState label="Loading conversation…" rows={1} />}</ConversationViewport>}
     {state ? <div className="agent-chat-composer-controls" role="group" aria-label="Chat actions" {...drop.dropTargetProps}>
       <AgentChatComposer name={name} draftKey={chat.draftKey} inputRef={composer}
         disabled={composerDisabled} reason={composerReason} controlReason={controlReason}

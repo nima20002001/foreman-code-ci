@@ -12,7 +12,7 @@ import { requireCurrentWorkflowAccess } from '../workflows/currentWorkflowPolicy
 import { commandInputHash, type PostgresCommandCoordinator } from '../commands/postgres.js'
 import { DomainError } from '../errors.js'
 import { lockAgentConfigurations } from '../workspaces/agentConfiguration.js'
-import { authorizeStagedAgents, resolveNewStagedAgentDefaults } from './currentStagedAgents.js'
+import { authorizeStagedAgents } from './currentStagedAgents.js'
 import { DurableEditIntentService, type EditIntentSource } from './durableEditIntent.js'
 import { IMMUTABLE_WORKFLOW_VERSION_COLUMNS, readImmutableWorkflowVersion,
   type ImmutableWorkflowVersionRow } from '../workflows/immutableRead.js'
@@ -59,8 +59,6 @@ export function createCurrentEditIntentService(pool: pg.Pool, commands: Postgres
       const { action, draftId, commandId, ...definition } = input
       void action; void commandId
       let saveInput = CurrentEditSaveInputSchema.parse({ ...definition, commandId: saveCommandId })
-      authorizeStagedAgents(principal, saveInput)
-      saveInput = await resolveNewStagedAgentDefaults(client, saveInput)
       const validated = await writer.validate(client, principal, saveInput, { source })
       const { version, presentationOnly } = validated
       const graph = { ...validated.graph, approval: version.approval }
@@ -90,7 +88,7 @@ export function createCurrentEditIntentService(pool: pg.Pool, commands: Postgres
         workflowId: input.workflowId, revision: input.expectedRevision, baseWorkflowVersionId: input.expectedWorkflowVersionId,
         graph: saveInput.graph, agentConfigurationVersionIds: input.expectedAgentConfigurationVersionIds,
         ...(presentationOnly ? { presentationOnly: true } : {}),
-        ...(saveInput.stagedAgents ? { stagedAgents: saveInput.stagedAgents } : {}),
+        ...(input.stagedAgents ? { stagedAgents: input.stagedAgents } : {}),
         ...(input.stagedAgents?.length ? { resultantAgentConfigurationVersionIds: version.agentConfigurationVersionIds,
           saveCommandId } : {}) })
       return { stagedDraft, saveInput, savedWorkflowRevision: input.expectedRevision,

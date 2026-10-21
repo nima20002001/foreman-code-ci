@@ -234,27 +234,3 @@ it.each(['succeeded', 'failed', 'canceled'] as const)(
   expect(snapshotReads).not.toHaveBeenCalled()
   expect(selectRun).not.toHaveBeenCalled()
 })
-
-it('keeps the draft selected when background facts discover a running Run', async () => {
-  installSelectedHandlers()
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client)
-  const selectRun = vi.fn(), snapshotReads = vi.fn(() => HttpResponse.json(snapshot('run-a')))
-  const listReads = vi.fn(() => HttpResponse.json({ items: [{ runId: 'run-a', shortId: 'a',
-    startedAt: '2026-10-04T09:00:00.000Z', status: 'running', trigger: 'manual' }], pageInfo: { nextCursor: null } }))
-  server.use(http.get(`*/api/management/workspaces/${scope.workspaceId}/workflows/${scope.workflowId}/runs/summaries`, listReads),
-    http.get(snapshotRoute, snapshotReads))
-  function Count() { return <output aria-label="Active Runs">{useWorkflowBoard()?.activeRuns}</output> }
-  const root = createRootRoute({ component: Outlet })
-  const route = createRoute({ getParentRoute: () => root, path: '/workspaces/$workspaceId', validateSearch: RunsSelectorSearchSchema,
-    component: () => <WorkflowBoard {...scope} inspection={{}} selectInspection={() => undefined} selectRun={selectRun}
-      summaries={[]}><Count /><button type="button">Edit workflow</button></WorkflowBoard> })
-  const router = createRouter({ routeTree: root.addChildren([route]), defaultPendingMinMs: 0,
-    history: createMemoryHistory({ initialEntries: [`/workspaces/${scope.workspaceId}?workflowId=${scope.workflowId}`] }) })
-  await router.load()
-  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
-  await waitFor(() => expect(listReads).toHaveBeenCalled())
-  await waitFor(() => expect(screen.getByLabelText('Active Runs')).toHaveTextContent('1'))
-  expect(screen.getByRole('button', { name: 'Edit workflow' })).toBeInTheDocument()
-  expect(snapshotReads).not.toHaveBeenCalled()
-  expect(selectRun).not.toHaveBeenCalled()
-})

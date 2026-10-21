@@ -1,5 +1,3 @@
-import type { IncomingMessage } from 'node:http'
-import type { Duplex } from 'node:stream'
 import type pg from 'pg'
 import { isDeepStrictEqual } from 'node:util'
 import type { RemoteExecutionRuntimeStatus } from '@foreman-code/contracts/management'
@@ -18,8 +16,6 @@ import { ProductionDeviceListener } from './productionListener.js'
 import { ProductionDevicePresence } from './productionPresence.js'
 
 export interface DeviceDomainComposition {
-  browserMedia?(request: IncomingMessage, socket: Duplex, head: Buffer): boolean
-
   extensions: DeviceExtensionRegistration[]
   workerArtifacts?: { directory: string; version: string }
   reconcile(binding: DeviceSessionBinding, signal: AbortSignal, endpoint: DeviceEndpoint): Promise<void>
@@ -127,7 +123,7 @@ export class ProductionDeviceRuntime {
         return access.pair(input)
       }),
     }
-    if (this.listenerConfig) this.listener = new ProductionDeviceListener(this.listenerConfig, endpoint, this.listenerHttp, this.domains?.browserMedia)
+    if (this.listenerConfig) this.listener = new ProductionDeviceListener(this.listenerConfig, endpoint, this.listenerHttp)
   }
   currentBinding(deviceId: string): DeviceSessionBinding | null { return this.endpoint?.currentBinding(deviceId) ?? null }
   presenceFor(deviceId: string) { return this.presence?.get(deviceId) ?? null }

@@ -1,4 +1,3 @@
-import { MemoryBoardSurface } from '../workflow-board/MemoryBoardSurface'
 import { InfoHint } from '../../shared/ui/InfoHint'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
@@ -10,12 +9,12 @@ import { WorkspaceRepositoryForm } from './WorkspaceRepositoryForm'
 import '../settings/settingsExperience.css'
 
 export function WorkspaceDetailPage({ workspaceId, section, children }: {
-  workspaceId: string; section: 'memory' | 'files' | 'workflows' | 'settings'; children?: ReactNode
+  workspaceId: string; section: 'files' | 'workflows' | 'settings'; children?: ReactNode
 }) {
   const workspace = useManagedWorkspaceQuery(workspaceId)
   const blocked = useBlockingReadError(workspace)
   const current = workspace.data?.workspace.id === workspaceId ? workspace.data : undefined
-  const title = section === 'memory' ? 'Memory board' : section === 'files' ? 'Project files' : section === 'workflows' ? 'Workflows' : 'Settings'
+  const title = section === 'files' ? 'Project files' : section === 'workflows' ? 'Workflows' : 'Settings'
   const unavailable = workspace.isError
     ? <ErrorState title="Workspace unavailable" description={workspace.error.message} onRetry={() => void workspace.refetch()} retrying={workspace.isFetching} />
     : <LoadingState label="Loading workspace…" rows={3} />
@@ -41,20 +40,16 @@ export function WorkspaceDetailPage({ workspaceId, section, children }: {
                 ? <p><code>{current.workspace.ciMirror.owner}/{current.workspace.ciMirror.name}</code></p>
                 : <p>Not set up. Ask the Operator to set a public CI mirror for this workspace.</p>}
             </section>}
-            {current && !blocked ? <Link to="/settings/browser-profiles">Browser profiles</Link> : null}
           </div>
         </>
   const content = (actions: { rename(): void; remove(): void; chooseLocation(): void }) => <div className="settings-editor-layout">
       <nav className="settings-editor-nav workspace-detail-nav" aria-label="Workspace sections">
-        <Link to="/workspaces/$workspaceId/memory" params={{ workspaceId }} aria-current={section === 'memory' ? 'page' : undefined}>Memory board<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/files" params={{ workspaceId }} aria-current={section === 'files' ? 'page' : undefined}>Project files<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/workflows" params={{ workspaceId }} aria-current={section === 'workflows' ? 'page' : undefined}>Workflows<span aria-hidden="true">›</span></Link>
         <Link to="/workspaces/$workspaceId/settings" params={{ workspaceId }} aria-current={section === 'settings' ? 'page' : undefined}>Settings<span aria-hidden="true">›</span></Link>
       </nav>
       <div className={`settings-editor-content workspace-detail-content${section === 'settings' ? ' workspace-detail-content--settings' : ''}`}>
         {!current && workspace.isError ? unavailable : children ?? (current ? settings(actions) : unavailable)}
-        {section === 'workflows' && current && <MemoryBoardSurface
-          scope={{ kind: 'workspace', workspaceId }} scopeName={current.workspace.name} />}
       </div>
     </div>
   return <div className="settings-page settings-experience workspace-detail-page">

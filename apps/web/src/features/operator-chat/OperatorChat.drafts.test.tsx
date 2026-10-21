@@ -9,7 +9,6 @@ import { deferred } from '../../test/deferred'
 import { subscribeOperatorChat } from '../../shared/api/operatorChatStream'
 import { useConversationDraftStore } from '../conversations'
 import { OperatorChat } from './OperatorChat'
-import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { summarizeOperatorConversation } from './operatorChatStatus'
@@ -46,7 +45,6 @@ async function openDraft() {
   snapshot('draft-chat')
 }
 
-beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   vi.clearAllMocks()
   restoreLocks = installBrowserLocks()

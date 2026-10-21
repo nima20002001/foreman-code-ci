@@ -216,14 +216,9 @@ export const WorkflowDefinitionV3Schema = CurrentWorkflowDefinitionBaseSchema.ex
       context.addIssue({ code: 'custom', path: ['edges', index], message: 'HANDOFF_CONNECTION_POLICY_REQUIRED' })
     }
     if (!definition.handoffs || edge.kind !== 'execution') continue
-    // Hierarchy routing is directional and explicit. Opposite retained forward
-    // routes may coexist, but two connections must never authorize the same request.
-    const pair = definition.hierarchy ? [edge.source, edge.target].join('\u0000')
-      : [edge.source, edge.target].sort().join('\u0000')
-    const permissions = definition.hierarchy && edge.workRequestDirection === 'both'
-      ? [pair, [edge.target, edge.source].join('\u0000')] : [pair]
-    if (permissions.some(permission => pairs.has(permission))) context.addIssue({ code: 'custom', path: ['edges', index], message: 'HANDOFF_DUPLICATE_CONNECTION' })
-    for (const permission of permissions) pairs.add(permission)
+    const pair = [edge.source, edge.target].sort().join('\u0000')
+    if (pairs.has(pair)) context.addIssue({ code: 'custom', path: ['edges', index], message: 'HANDOFF_DUPLICATE_CONNECTION' })
+    pairs.add(pair)
   }
 })
 export type WorkflowDefinitionV3 = z.infer<typeof WorkflowDefinitionV3Schema>

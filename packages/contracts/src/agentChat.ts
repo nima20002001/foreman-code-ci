@@ -1,5 +1,3 @@
-import { ChatDeliveryIntentSchema, DeliveryTargetSchema, ChatDeliveryReceiptSchema, ChatControlReceiptSchema, ChatDeliveryInputReadSchema, ChatDeliveryInputPageSchema } from './chatDelivery.js';
-import { EngineChatReadbackSchema } from './workflowChat.js';
 import { NativeSourceMessageSchema } from './messages.js';
 import { NativeInteractionResponseAvailabilitySchema } from './interaction-activity.js';
 import { ChatMessageContentSchema, refineChatMessageSize } from './chatInput.js';
@@ -46,7 +44,14 @@ export const AgentChatControlsUpdateRequestSchema = z.union([
  */
 
 /** How a new input relates to work already in the conversation. */
-const AgentChatIntentSchema = ChatDeliveryIntentSchema;
+const AgentChatIntentSchema = z.enum([
+  /** Run after the current turn finishes (or immediately when idle). */
+  "next_turn",
+  /** Add text to the active turn. Attachments require a new turn; capabilities.steer must be available. */
+  "steer",
+  /** Interrupt the active turn, wait for native settlement, then submit this input once. */
+  "interrupt_and_send",
+]);
 export type AgentChatIntent = z.infer<typeof AgentChatIntentSchema>;
 
 /**
@@ -263,8 +268,6 @@ export const AgentChatExecutionActivityPageSchema = z.object({
 export type AgentChatExecutionActivityPage = z.infer<typeof AgentChatExecutionActivityPageSchema>;
 
 export const AgentChatStateSchema = z.object({
-  deliveryTarget: DeliveryTargetSchema.optional(),
-  deliveryTargetState: z.enum(["existing", "not_created"]).optional(),
   responseAvailability: NativeInteractionResponseAvailabilitySchema.optional(),
   qualificationKey: z.string().regex(/^[a-f0-9]{64}$/).optional(),  context: AgentChatContextSchema,
   conversation: AgentConversationSchema.nullable(),
@@ -359,19 +362,13 @@ export const AgentChatResetResponseSchema = z.object({
   reset: z.object({ requestId: IdSchema, previousConversationId: IdSchema.nullable() }).strict(),
   replayed: z.boolean(),
 }).strict();
-const AgentChatDeliveryResponseSchema = z.object({
-  state: z.union([AgentChatStateSchema, EngineChatReadbackSchema]).optional(),
-  turn: AgentChatTurnSchema.optional(), receipt: ChatDeliveryReceiptSchema, replayed: z.boolean(),
-}).strict();
 export const AgentChatSendResponseSchema = z.union([
-  SendAgentChatMessageResponseSchema, AgentChatResetResponseSchema, AgentChatDeliveryResponseSchema,
+  SendAgentChatMessageResponseSchema, AgentChatResetResponseSchema,
 ]);
-export type AgentChatSendResponse = z.infer<typeof AgentChatSendResponseSchema>;
 
 /** POST /api/workspaces/:workspaceId/agent-chat/conversations/:conversationId/interrupt */
 export const InterruptAgentChatRequestSchema = z.object({
   requestId: IdSchema,
-  scope: z.enum(["active_turn", "active_and_queued"]).optional(),
   expectedNativeTurnId: IdSchema.optional(),
 }).strict();
 /** POST .../conversations/:conversationId/turns/:turnRequestId/cancel — only a queued turn. */
@@ -381,7 +378,7 @@ export const RespondAgentChatInteractionRequestSchema = z.object({
   requestId: IdSchema, nativeRequestId: IdSchema, optionId: IdSchema,
   response: z.json().optional(),
 }).strict();
-export const AgentChatStateResponseSchema = z.object({ state: AgentChatStateSchema, receipt: ChatControlReceiptSchema.optional() }).strict();
+export const AgentChatStateResponseSchema = z.object({ state: AgentChatStateSchema }).strict();
 /** POST /api/workspaces/:workspaceId/agent-chat/conversation — the stored conversation record, created when absent (no native session). Files attach to it. */
 export const EnsureAgentChatConversationRequestSchema = z.object({
   context: AgentChatQuerySchema, executionId: IdSchema.optional(),
@@ -407,7 +404,6 @@ export const AgentChatTurnPageSchema = z.object({
 
 /** agent_chat_read retains its ordinary state response; explicit page requests add readback fields. */
 export const ReadAgentChatRequestSchema = z.object({
-  deliveryInputs: ChatDeliveryInputReadSchema.optional(),
   workspaceId: IdSchema,
   /** Read a retained conversation in this exact Agent context. */
   conversationId: IdSchema.optional(),
@@ -422,7 +418,6 @@ export const ReadAgentChatRequestSchema = z.object({
   }).strict().optional(),
 }).strict();
 export const ReadAgentChatResponseSchema = AgentChatStateSchema.extend({
-  deliveryInputs: ChatDeliveryInputPageSchema.optional(),
   history: AgentChatHistoryPageSchema.optional(),
   receipts: AgentChatTurnPageSchema.optional(),
   executionActivity: AgentChatExecutionActivityPageSchema.optional(),

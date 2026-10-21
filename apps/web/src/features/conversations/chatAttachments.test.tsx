@@ -1,4 +1,3 @@
-import { installCanonicalOperatorFixture } from '../operator-chat/canonicalOperator.test-support'
 import { webcrypto } from 'node:crypto'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -139,7 +138,6 @@ function installAgent(initial: AgentChatState, unknown = false) {
   return mock
 }
 
-beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   localStorage.clear()
   localStorage.setItem('graphql.identity-epoch', testEpoch)

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { RunBoardNodeSnapshot } from '@foreman-code/contracts/run-snapshots'
 import type { SelectedRunState } from '../runs-selector/useSelectedRun'
 import { runReadErrorLabel, useSelectedRunSnapshot } from '../runs-selector/query'
@@ -10,10 +9,6 @@ import { RunBoardCanvas } from './RunBoardCanvas'
 import { useRunVersionQuery } from '../workflow-board/inspect/queries'
 import { SavedWorkflowWorktree } from '../workflow-board/SavedWorkflowWorktree'
 import './runBoard.css'
-import { useWorkflowBoard } from '../workflow-board/context'
-import { useHierarchy } from '../workflow-hierarchy/queries'
-import { useProtectedAccessError } from '../../shared/api/useProtectedAccessError'
-import type { AvailableRunBoardSnapshot } from './model'
 
 export type RunBoardProps = { selection: SelectedRunState }
 
@@ -23,7 +18,6 @@ export type RunBoardProps = { selection: SelectedRunState }
 export function RunBoard({ selection }: RunBoardProps) {
   const query = useSelectedRunSnapshot(selection)
   const inspection = useRunNodeInspectionNavigation(selection)
-  const board = useWorkflowBoard()
   if (!selection.active) return null
   if (selection.invalid) return <section className="run-board" aria-label="Selected Run board"><p role="status">Invalid Run</p></section>
   if (selection.identity.runId === null) return null
@@ -32,7 +26,7 @@ export function RunBoard({ selection }: RunBoardProps) {
   const snapshot = current ? query.snapshot : undefined
   const failed = current && query.isError && !snapshot
   const loading = !failed && !snapshot
-  return <section className={!board && inspection.nodeId ? 'run-board run-board-inspecting' : 'run-board'}
+  return <section className={inspection.nodeId ? 'run-board run-board-inspecting' : 'run-board'}
     aria-label="Selected Run board" aria-busy={loading}
     data-run-id={selection.identity.runId} data-generation={selection.generation.id}>
     {query.isError && snapshot ? <p role="status">Run refresh failed. Showing the last successful read.
@@ -44,41 +38,17 @@ export function RunBoard({ selection }: RunBoardProps) {
       }}>Retry</button>
     </div> : loading ? <p role="status">{query.isPaused ? 'Offline' : 'Loading…'}</p>
       : snapshot?.kind === 'unavailable' ? <p role="status">Snapshot unavailable</p>
-      : snapshot?.kind === 'available' ? <RunBoardContents selection={selection} snapshot={snapshot} inspection={inspection}
-        activitySnapshot={query.activitySnapshot} /> : null}
+      : snapshot?.kind === 'available' ? <>
+        <span className="run-board-label">Read only</span>
+        <RunDefaultWorktree selection={selection} workflowVersionId={snapshot.workflowVersionId} />
+        {snapshot.nodes.length ? <RunBoardCanvas key={selection.generation.id} snapshot={snapshot}
+          activitySnapshot={query.activitySnapshot} onInspectNode={inspection.inspect} /> : <p role="status">No nodes</p>}
+        {inspection.nodeId ? <RunNodeInspector key={`inspector:${selection.generation.id}:${inspection.nodeId}`}
+          selection={selection} snapshot={snapshot} nodeId={inspection.nodeId}
+          executionId={inspection.executionId} onInspect={inspection.inspect} /> : null}
+        <SelectedRunComputers key={`placement:${selection.generation.id}`} selection={selection} nodes={snapshot.nodes} />
+      </> : null}
   </section>
-}
-
-function RunBoardContents({ selection, snapshot, inspection, activitySnapshot }: {
-  selection: SelectedRunState; snapshot: AvailableRunBoardSnapshot;
-  inspection: ReturnType<typeof useRunNodeInspectionNavigation>;
-  activitySnapshot: ReturnType<typeof useSelectedRunSnapshot>['activitySnapshot']
-}) {
-  const board = useWorkflowBoard()
-  const visible = board?.canvasVisible !== false && !board?.memoryOpen
-  const hierarchy = useHierarchy({ workspaceId: snapshot.workspaceId, workflowId: snapshot.workflowId, runId: snapshot.runId },
-    { enabled: visible })
-  const denied = useProtectedAccessError(hierarchy)
-  const saved = !denied && hierarchy.data?.workflowVersionId === snapshot.workflowVersionId ? hierarchy.data : undefined
-  const panel = board?.sidePanel
-  const inspect = visible && !!inspection.nodeId && (!board || panel?.kind === 'agent' && panel.tab === 'details')
-  const details = inspect ? <RunNodeInspector key={`inspector:${selection.generation.id}:${inspection.nodeId}`}
-    selection={selection} snapshot={snapshot} nodeId={inspection.nodeId!} hierarchy={saved}
-    executionId={inspection.executionId} onInspect={inspection.inspect} /> : null
-  const settings = panel?.kind === 'agent' && panel.tab === 'settings' && !board?.memoryOpen
-    ? <section aria-label="Saved Agent settings"><h3>{snapshot.nodes.find(node => node.id === panel.nodeId)?.name ?? panel.nodeId}</h3>
-      <p>This Run keeps its saved Agent configuration. Return to the draft to edit settings for future Runs.</p></section> : null
-  return <>
-    <span className="run-board-label">Read only</span>
-    <RunDefaultWorktree selection={selection} workflowVersionId={snapshot.workflowVersionId} />
-    {snapshot.nodes.length ? <RunBoardCanvas key={selection.generation.id} snapshot={snapshot} visible={visible}
-      hierarchy={saved} activitySnapshot={activitySnapshot} onInspectNode={inspection.inspect} /> : <p role="status">No nodes</p>}
-    {board ? board.sidePanelHost ? createPortal(<>{details}{settings}
-      {!visible && !board.memoryOpen && panel?.kind === 'agent' && panel.tab === 'details'
-        ? <p>Open Graph to inspect this saved execution. Your selection is retained.</p> : null}
-    </>, board.sidePanelHost) : null : details}
-    {visible ? <SelectedRunComputers key={`placement:${selection.generation.id}`} selection={selection} nodes={snapshot.nodes} /> : null}
-  </>
 }
 
 function RunDefaultWorktree({ selection, workflowVersionId }: {

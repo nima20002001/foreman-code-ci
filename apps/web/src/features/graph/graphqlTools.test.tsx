@@ -12,8 +12,7 @@ import { AgentSettingsForm } from './AgentSettingsForm'
 afterEach(cleanup)
 
 function open(role: 'orchestrator' | 'coder', extra: { graphqlTools?: GraphqlAgentTool[] } = {}, nodeGraphqlTools?: GraphqlToolOverride) {
-  // Existing Agents with omitted choices keep the legacy role defaults.
-  const agent = { ...defaultAgentForHarness('codex', 'agent', 'Agent', DEFAULT_HARNESS_DEFAULTS.codex, role), graphqlTools: undefined, ...extra }
+  const agent = { ...defaultAgentForHarness('codex', 'agent', 'Agent', DEFAULT_HARNESS_DEFAULTS.codex, role), ...extra }
   const onSave = vi.fn()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={client}><AgentSettingsForm agent={agent} nodeGraphqlTools={nodeGraphqlTools}
@@ -74,13 +73,6 @@ describe('Foreman Code MCP tools in Agent settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save agent settings' }))
     expect(onSave.mock.calls[0]![0].graphqlTools).toBeUndefined()
     expect(onSave.mock.calls[0]![3]).toEqual({ add: [], remove: ['interaction_get'] })
-  })
-
-  it('preserves explicit collaboration tools when an ordinary tool checkbox changes', () => {
-    const { onSave, tools } = open('coder', { graphqlTools: ['context_get', 'memory_board_get', 'memory_board_changes_read'] })
-    fireEvent.click(within(tools).getByLabelText('Read run context: Agent default'))
-    fireEvent.click(screen.getByRole('button', { name: 'Save agent settings' }))
-    expect(onSave.mock.calls[0]![0].graphqlTools).toEqual(['memory_board_get', 'memory_board_changes_read'])
   })
 })
 

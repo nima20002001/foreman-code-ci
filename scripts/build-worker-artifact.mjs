@@ -1,6 +1,5 @@
 import { readProductEnvironment } from '../packages/contracts/src/productEnvironment.mjs'
 import { inspectQuotaHelperAbi } from './quota-helper-abi.mjs';
-import { copyBuiltBrowserRuntime } from '../apps/worker/src/browserRuntimeInstall.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -91,7 +90,7 @@ for (const entry of [...Object.values(built.metafile.outputs), ...Object.values(
   if (dependency.external && !isBuiltin(dependency.path) && dependency.path !== 'sharp') throw new Error(`Unbundled dependency: ${dependency.path}`);
 }
 for (const name of ['installation.mjs', 'diagnostics.mjs', 'service.mjs', 'install-cli.mjs', 'runtime.mjs', 'setup.mjs', 'companion.mjs', 'setupInput.mjs', 'companionServer.mjs', 'companionService.mjs', 'companionLauncher.mjs', 'harnessPath.mjs',
-  'updateSupervisor.mjs', 'update-supervisor-cli.mjs', 'updateOperation.mjs', 'ciSmokeTiming.mjs', 'browserRuntimeInstall.mjs', 'browserRuntime.mjs', 'browserDeviceExtension.mjs']) {
+  'updateSupervisor.mjs', 'update-supervisor-cli.mjs', 'updateOperation.mjs', 'ciSmokeTiming.mjs']) {
   await writeFile(join(output, 'src', name), snapshotSource(`apps/worker/src/${name}`), { mode: 0o600 });
 }
 await mkdir(join(output, 'artifacts'));
@@ -140,25 +139,9 @@ const runtimePackages = await copyClaudeSdkPackagesFromStore({
   root, output, store, lock: parse(snapshotSource('pnpm-lock.yaml').toString('utf8')),
   decode: blob => unpacker.unpack(blob),
 });
-const releaseVersion = workerReleaseVersion(JSON.parse(snapshotSource('package.json').toString('utf8')));
-let browserRuntime;
-let browserRuntimeStatus;
-try {
-  browserRuntime = await copyBuiltBrowserRuntime({ directory: process.env.FOREMAN_CODE_BROWSER_RUNTIME_ARTIFACTS,
-    commit, target, output: join(output, 'artifacts/browser-runtime') });
-  browserRuntimeStatus = { state: 'ready', retryable: false, reason: null };
-} catch (error) {
-  browserRuntimeStatus = { state: 'failed', retryable: true, reason: error.message };
-  console.warn(`Core Worker artifact built; browser runtime unavailable: ${error.message}`);
-}
 const files = await artifactFiles(output);
-if (files.length > 512 || files.some(file => file.size > 64 * 1024 * 1024)) {
-  throw new Error('Worker artifact exceeds its existing ordinary package limits. Browser runtime chunks must remain separate and bounded.');
-}
+const releaseVersion = workerReleaseVersion(JSON.parse(snapshotSource('package.json').toString('utf8')));
 const manifest = { format: 1, version: releaseVersion, commit, lockfileSha256: hash(snapshotSource('pnpm-lock.yaml')), packageManager: 'pnpm@11.27.0', protocolVersion: 1, identityFormat: 1, target, nativePackages, runtimePackages, workerApiModules: Object.keys(built.metafile.inputs).filter(path => path.startsWith('apps/api/')).sort(), rsyncWriterApiModules: Object.keys(writer.metafile.inputs).filter(path => path.startsWith('apps/api/')).sort(), sourceSnapshot: { commit, files: [...snapshot.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, { gitBlobSha1, sha256 }]) => ({ path, gitBlobSha1, sha256 })) },
-  browserRuntimeStatus,
-  ...(browserRuntime ? { browserRuntime: { descriptorPath: 'artifacts/browser-runtime/browser-runtime.json', descriptorSha256: browserRuntime.descriptorSha256,
-    manifestSha256: browserRuntime.descriptor.manifestSha256, sourceInputs: browserRuntime.descriptor.sourceInputs } } : {}),
   ...(runtime ? { runtime: { metadataPath: 'artifacts/node-runtime.json', version: runtime.version, archiveSha256: runtime.archive.sha256, executableSha256: runtime.nodeExecutable.sha256, qualification: 'future installation requires actual target readback' } } : {}), files };
 await writeFile(join(output, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 console.log(JSON.stringify({ manifestSha256: hash(await readFile(join(output, 'manifest.json'))), version: releaseVersion, commit: manifest.commit, files: files.length }));

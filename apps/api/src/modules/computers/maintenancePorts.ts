@@ -1,4 +1,4 @@
-import type { MaintainedHarness, MaintenanceTask, MaintenanceStatus, WorkerUpdateStatus } from '@foreman-code/contracts/computer-maintenance'
+import type { MaintainedHarness, MaintenanceTask, WorkerUpdateStatus } from '@foreman-code/contracts/computer-maintenance'
 
 export interface MaintenancePluginBackup {
   restore(): Promise<void>
@@ -26,10 +26,6 @@ export interface MaintenancePorts {
   /** Moves this computer's runtime selection to the installed update. Qualification still checks the selected binary. */
   selectInstalledCodex?(signal: AbortSignal): Promise<string | null>
   selectInstalledClaude?(signal: AbortSignal): Promise<string | null>
-  browserRuntime?: {
-    status(): NonNullable<MaintenanceStatus['browserRuntime']>
-    retry(): Promise<NonNullable<MaintenanceStatus['browserRuntime']>>
-  }
   workerUpdate?: {
     status(): Promise<WorkerUpdateStatus>
     start(options: { retry: boolean }): Promise<string>

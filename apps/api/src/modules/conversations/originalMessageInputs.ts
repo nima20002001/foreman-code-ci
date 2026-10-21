@@ -1,9 +1,9 @@
-import type { SqlQuery } from '../../infrastructure/transaction.js'
 import type { Message } from '@foreman-code/contracts'
 import { MessageAttachmentRefsSchema } from '@foreman-code/contracts/files'
+import type pg from 'pg'
 
 /** Recover only the exact admitted request; a displayed publication cannot create a send input. */
-export async function readOriginalMessageInputs(query: SqlQuery, conversationId: string, messageIds: string[]) {
+export async function readOriginalMessageInputs(query: Pick<pg.PoolClient, 'query'>, conversationId: string, messageIds: string[]) {
   if (!messageIds.length) return new Map<string, NonNullable<Message['originalInput']>>()
   const rows = (await query.query<{ id: string; request_id: string; content: string; input_pins: unknown }>(`
     select m.id,t.request_id,t.payload->>'content' as content,coalesce(m.record->'attachmentRefs','[]'::jsonb) as input_pins

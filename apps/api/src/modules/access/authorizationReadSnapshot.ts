@@ -72,41 +72,50 @@ async function readAuthorizationRows(sql: GraphSqlClient, runId: string,
   const host = placement.hostRef
   const source = 'kind' in placement.source && placement.source.kind === 'pending' ? placement.source : undefined
   const hostScope = host.kind === 'device' ? `main:${host.mainId}:device:${host.deviceId}` : `main:${host.mainId}`
-  // Independent keyed lookups keep one committed snapshot without a large join plan.
   const result = await sql.query<{ authorization_read: AuthorizationRows }>(`select jsonb_build_object(
-      'main_id',(select id from application_installation where singleton=true),
-      'device',(select record from device_registrations where id=$3::uuid and main_id=$2::uuid),
-      'principal_id',r.record->>'authorizationPrincipalId',
-      'principals',coalesce((with recursive chain as (
+      'main_id',m.id,'device',d.record,'principal_id',r.record->>'authorizationPrincipalId',
+      'principals',coalesce(principals.records,'[]'::jsonb),
+      'run_authority',case when authority_run.id is null then null else jsonb_build_object(
+        'owner_principal_id',b.owner_principal_id,'grant_ceiling',b.grant_ceiling,
+        'accepted_expires_at',b.accepted_expires_at,'execution_state',authority_run.execution_state,
+        'cleanup_pending',exists(select 1 from run_cleanup_intents c where c.run_id=authority_run.id and c.pending)) end,
+      'workspace_id',r.workspace_id,
+      'workspace',case when w.id is null then null else jsonb_build_object(
+        'location_revision',w.location_revision::text,'archived_at',w.archived_at) end,
+      'source',case when s.snapshot_id is null then null else jsonb_build_object(
+        'record',s.record,'availability',s.availability) end,
+      'source_root',case when root.root_id is null then null else jsonb_build_object('record',root.record) end,
+      'root_policy',case when policy.root_policy_id is null then null else jsonb_build_object(
+        'record',policy.record,'revoked_at',policy.revoked_at) end,
+      'root_configuration',case when configuration.host_scope is null then null
+        else jsonb_build_object('record',configuration.record) end
+    ) as authorization_read
+    from runs r
+    left join application_installation m on m.singleton=true
+    left join device_registrations d on d.id=$3::uuid and d.main_id=$2::uuid
+    left join lateral (
+      with recursive chain as (
         select id,name,audience,grants,expires_at,revoked_at,delegated_from,1 as depth
           from management_principals where id=r.record->>'authorizationPrincipalId'
         union all
         select p.id,p.name,p.audience,p.grants,p.expires_at,p.revoked_at,p.delegated_from,c.depth+1
           from management_principals p join chain c on p.id=c.delegated_from where c.depth<16
-      ) select jsonb_agg(to_jsonb(chain) order by depth) from chain),'[]'::jsonb),
-      'run_authority',(select jsonb_build_object(
-        'owner_principal_id',b.owner_principal_id,'grant_ceiling',b.grant_ceiling,
-        'accepted_expires_at',b.accepted_expires_at,'execution_state',authority_run.execution_state,
-        'cleanup_pending',exists(select 1 from run_cleanup_intents c where c.run_id=authority_run.id and c.pending))
-        from run_authority_principals b join runs authority_run on authority_run.id=b.run_id
-          and authority_run.record->>'authorizationPrincipalId'=b.principal_id
-        where b.principal_id=r.record->>'authorizationPrincipalId'),
-      'workspace_id',r.workspace_id,
-      'workspace',(select jsonb_build_object('location_revision',location_revision::text,'archived_at',archived_at)
-        from workspaces where id=r.workspace_id),
-      'source',(select jsonb_build_object('record',record,'availability',availability)
-        from source_snapshots where workspace_id=r.workspace_id
-          and approved_source_id=$4 and snapshot_id=$5 and manifest_digest=$6),
-      'source_root',(select jsonb_build_object('record',record) from source_root_bindings
-        where workspace_id=r.workspace_id and root_id=$7 and binding_revision=$8),
-      'root_policy',(select jsonb_build_object('record',record,'revoked_at',revoked_at) from workspace_root_policies
-        where workspace_id=r.workspace_id and root_policy_id=$9 and root_policy_revision=$10),
-      'root_configuration',(select jsonb_build_object('record',configuration.record)
-        from workspace_root_host_configuration_heads head
-        join workspace_root_host_configurations configuration on configuration.host_scope=head.host_scope
-          and configuration.configuration_revision=head.configuration_revision
-        where head.host_scope=$11)
-    ) as authorization_read from runs r where r.id=$1`,
+      ) select jsonb_agg(to_jsonb(chain) order by depth) as records from chain
+    ) principals on true
+    left join run_authority_principals b on b.principal_id=r.record->>'authorizationPrincipalId'
+    left join runs authority_run on authority_run.id=b.run_id
+      and authority_run.record->>'authorizationPrincipalId'=b.principal_id
+    left join workspaces w on w.id=r.workspace_id
+    left join source_snapshots s on s.workspace_id=r.workspace_id
+      and s.approved_source_id=$4 and s.snapshot_id=$5 and s.manifest_digest=$6
+    left join source_root_bindings root on root.workspace_id=r.workspace_id
+      and root.root_id=$7 and root.binding_revision=$8
+    left join workspace_root_policies policy on policy.workspace_id=r.workspace_id
+      and policy.root_policy_id=$9 and policy.root_policy_revision=$10
+    left join workspace_root_host_configuration_heads head on head.host_scope=$11
+    left join workspace_root_host_configurations configuration on configuration.host_scope=head.host_scope
+      and configuration.configuration_revision=head.configuration_revision
+    where r.id=$1`,
   [runId, host.mainId, host.kind === 'device' ? host.deviceId : null,
     source?.approvedSourceId ?? null, source?.snapshotId ?? null, source?.manifestDigest ?? null,
     source?.rootId ?? null, source?.bindingRevision ?? null,

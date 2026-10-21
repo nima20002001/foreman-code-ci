@@ -21,7 +21,7 @@ import { workflowDeliverableFailure } from './workflowDeliverable.js'
 import type { RepeatNativeBoundaryEvidence, RepeatNativeEvidence } from './repeatNativeRepository.js'
 import { assertWorkflowNativeEntryPermitLocked, assertWorkflowNativeEntryRow,
   type NativeEntryRow, workflowNativeReservation } from './workflowNativeEntry.js'
-import { repeatDigest, repeatExecutionIdentity, repeatId, sameRepeatValue, type RepeatNodeRef, type RepeatScope } from './repeatResolution.js'
+import { repeatExecutionIdentity, repeatId, sameRepeatValue, type RepeatNodeRef, type RepeatScope } from './repeatResolution.js'
 import type { RunOwnership } from './ownership.js'
 import { matchingDeliveryEvidence } from '../interactions/delivery.js'
 import { recordWorkerResumption } from '../interactions/wave25/resume.js'
@@ -31,24 +31,18 @@ import { nativeApprovalContext } from '../interactions/nativeApprovalContext.js'
 import { appendWorkflowNativeGraphEventLocked, type WorkflowApprovalCorrelation, type WorkflowContinuationProof, type WorkflowNativeLease } from './workflowNativeGraph.js'
 import { normalizeNativeProducerEvent } from '../run-graph/nativeProducerNormalization.js'
 import { selectNativeGraphEvidence } from '../run-graph/nativeEvidence.js'
-import { workflowNativeSourceRecord, persistWorkflowNativeSources, readWorkflowTerminalSource } from './workflowNativeSource.js'
+import { workflowNativeSourceRecord, persistWorkflowNativeSources } from './workflowNativeSource.js'
 import { retainedNativeHistoryEvents } from './retainedNativeHistory.js'
 import { appendNormalizedNativeEvents } from './nativeEventBatch.js'
 import { assertWorkflowCorrelation } from './workResultRepair.js'
 import { retainNativeTranscriptSources } from './nativeTranscriptReceipts.js'
 import { prefetchNativeFrames } from '../run-graph/nativeIngestion.js'
 import { readWorkResultContextLocked } from './workReturnValidation.js'
-import { readWorkflowResultEffectFailureLocked, type WorkflowResultEffectFailure } from './workflowResultEffectFailure.js'
-import { markWorkflowCoordinationTerminalSettledLocked, readWorkflowCoordinationTerminalLocked } from './workflowCoordinationTerminal.js'
-import { finalizeRetainedRemoteReviewerLocked } from '../interactions/retainedRemoteReviewer.js'
-import { projectWorkflowChatNativeReceiptsLocked } from '../interactions/workflowChatNativeReceipts.js'
 
 /** Durable private ORIGINAL-source record. No payload/session/token reaches the
  * graph feed: G1 publishes only its immutable digest and ordinary graph facts. */
 export interface WorkflowNativeProofRecord {
   proofId: string
-  /** A later authenticated settlement observation preserves its original terminal. */
-  settlementOf?: string
   scope: RepeatScope
   ref: RepeatNodeRef
   execution: ReturnType<typeof repeatExecutionIdentity>
@@ -301,37 +295,15 @@ export class WorkflowNativeProofServices {
     try {
       const capture = this.captures.read(evidence)
       const current = await this.current(sql, run, capture.execution.id, owner)
-      return await this.persistCapturedOriginalLocked(sql, run, evidence, owner, capture, current, { approval })
+      return await this.persistCapturedOriginalLocked(sql, run, evidence, owner, capture, current, approval)
     } catch (error) { poisonGraphTransaction(sql); throw error }
-  }
-
-  /** Physical settlement may follow terminal publication. Retain its new proof
-   * without rewriting the immutable result or applying its board effects again. */
-  async retainSettledTerminalLocked(sql: GraphTransactionSql, run: AcceptedWorkflowRunV3,
-    evidence: RepeatNativeEvidence, owner: RunOwnership): Promise<WorkflowNativeProofRecord> {
-    const capture = this.captures.read(evidence)
-    const current = await this.current(sql, run, capture.execution.id, owner)
-    const execution = current.stored.execution
-    if (execution.state !== 'completed' || capture.source.type !== 'history' || !capture.lane) return fail()
-    const history = capture.source.history
-    const command = history.correlationId ?? ''
-    await assertWorkflowCorrelation(sql, execution.id, command)
-    assertOriginalWorkflowTerminal(execution, capture.session, history, command)
-    const original = await readWorkflowTerminalSource(sql, execution)
-    if (!original || original.original.type !== 'history'
-      || !sameRepeatValue(original.session, capture.session)
-      || !sameRepeatValue(original.original.history.terminalTurn, history.terminalTurn)) {
-      return fail('NATIVE_TERMINAL_EVIDENCE_MISMATCH')
-    }
-    return this.persistCapturedOriginalLocked(sql, run, evidence, owner, capture, current, { settlementOf: original.proofId })
   }
 
   private async persistCapturedOriginalLocked(sql: GraphTransactionSql, run: AcceptedWorkflowRunV3,
     evidence: RepeatNativeEvidence, owner: RunOwnership, capture: WorkflowNativeCapture,
     current: { stored: StoredRepeatExecution; scope: RepeatScope },
-    options: { approval?: WorkflowApprovalCorrelation | undefined; settlementOf?: string } = {}): Promise<WorkflowNativeProofRecord> {
+    approval?: WorkflowApprovalCorrelation): Promise<WorkflowNativeProofRecord> {
     const { stored, scope } = current
-    const { approval, settlementOf } = options
     try {
       await this.physical(sql, scope, stored, capture, owner)
       const fence = await owner.readOneShotFence(sql)
@@ -360,13 +332,7 @@ export class WorkflowNativeProofServices {
           [stored.execution.id, capture.session.nativeSessionId, lane.generation,
             scope.runId, scope.workspaceId, scope.workflowId, stored.execution.agentId])
       }
-      const proposed = workflowNativeSourceRecord(capture, stored, scope, fence)
-      if (settlementOf) {
-        proposed.settlementOf = settlementOf
-        proposed.proofId = repeatId('workflow-output-settlement', settlementOf,
-          repeatDigest([fence, capture.lane, capture.lifetimeGeneration, capture.closureGeneration, proposed.proofId]))
-      }
-      const record = await persistOriginalRecord(sql, proposed)
+      const record = await persistOriginalRecord(sql, workflowNativeSourceRecord(capture, stored, scope, fence))
       const proofId = record.proofId
       const publication = currentRunGraphPublication(sql, scope)
       const receipt = await publication.retainNativeSource(owner, proofId)
@@ -423,7 +389,6 @@ export class WorkflowNativeProofServices {
         } catch (error) { poisonGraphTransaction(sql); throw error }
       })
       await this.afterPersistOriginalLocked?.(sql, evidence, structuredClone(record))
-      await projectWorkflowChatNativeReceiptsLocked(sql, record)
       return structuredClone(record)
     } catch (error) { poisonGraphTransaction(sql); throw error }
   }
@@ -533,7 +498,6 @@ export class WorkflowNativeProofServices {
     })
     for (const [index, frame] of frames.entries()) {
       await this.afterPersistOriginalLocked?.(sql, frame.evidence, structuredClone(records[index]!))
-      await projectWorkflowChatNativeReceiptsLocked(sql, records[index]!)
     }
   }
 
@@ -602,8 +566,7 @@ export class WorkflowNativeProofServices {
 
   async assertNativeUpdateLocked(sql: GraphTransactionSql, run: AcceptedWorkflowRunV3,
     previous: HarnessExecution, incoming: HarnessExecution, ref: RepeatNodeRef,
-    evidence: RepeatNativeEvidence, owner: RunOwnership,
-    resultEffectFailure?: WorkflowResultEffectFailure): Promise<WorkflowNativeProofRecord> {
+    evidence: RepeatNativeEvidence, owner: RunOwnership): Promise<WorkflowNativeProofRecord> {
     assertGraphTransaction(sql)
     try {
       const capture = this.captures.read(evidence)
@@ -616,14 +579,10 @@ export class WorkflowNativeProofServices {
       this.validateObservation(capture, previous, incoming, command)
       const executionContext = snapshot.version.definition.handoffs && stored.workActivationId
         && incoming.result?.outcome === 'succeeded'
-        ? await readWorkResultContextLocked({ sql, scope }, stored.workActivationId, stored.execution.input,
-          run.resultProtocol) : undefined
+        ? await readWorkResultContextLocked({ sql, scope }, stored.workActivationId, stored.execution.input) : undefined
       const expected = prepareRepeatNativeUpdate(snapshot.version, scope, ref, previous, incoming,
         { workResultRepair: command !== `execution:${incoming.id}`,
-          deliverableFailure: await workflowDeliverableFailure(sql, snapshot.version, incoming, run.resultProtocol),
-          executionContext, resultProtocol: run.resultProtocol,
-          resultEffectFailure: await readWorkflowResultEffectFailureLocked(sql, snapshot.version, incoming,
-            run.resultProtocol, resultEffectFailure) })
+          deliverableFailure: await workflowDeliverableFailure(sql, snapshot.version, incoming), executionContext })
       const source = await this.persistCapturedOriginalLocked(sql, run, evidence, owner, capture, current)
       if (incoming.state === 'waiting' && capture.source.type === 'history') {
         const history = capture.source.history
@@ -657,44 +616,6 @@ export class WorkflowNativeProofServices {
         } catch (error) { poisonGraphTransaction(sql); throw error }
       })
       return source
-    } catch (error) { poisonGraphTransaction(sql); throw error }
-  }
-
-  /** A marked result/F1 transaction already committed before the Worker closed.
-   * Retain the same original native terminal with its final physical proof; this
-   * path cannot mutate the execution, spend repair budget, or apply effects. */
-  async publishWorkflowTerminalSettlementLocked(sql: GraphTransactionSql, run: AcceptedWorkflowRunV3,
-    execution: HarnessExecution, evidence: RepeatNativeEvidence, owner: RunOwnership): Promise<void> {
-    assertGraphTransaction(sql)
-    try {
-      const current = await this.current(sql, run, execution.id, owner)
-      if (!run.resultProtocol || !sameRepeatValue(current.stored.execution, execution)) return fail('COORDINATION_TERMINAL_CONFLICT')
-      const retained = await readWorkflowCoordinationTerminalLocked(sql, execution)
-      const capture = this.captures.read(evidence)
-      if (!retained || capture.source.type !== 'history' || !capture.lane
-        || capture.session.nativeSessionId !== execution.nativeSessionId) return fail('COORDINATION_TERMINAL_CONFLICT')
-      const history = capture.source.history, terminal = history.terminalTurn
-      if (!terminal || terminal.correlationId !== retained.nativeCorrelationId
-        || terminal.providerId !== retained.nativeProviderId || history.correlationId !== terminal.correlationId
-        || terminal.providerId !== workflowProviderId(capture.session, history)
-        || terminal.providerId !== capture.lane.providerId || history.pendingInteraction
-        || history.pendingInteractions.length || !sameRepeatValue(terminal.result, retained.nativeResult)) {
-        return fail('NATIVE_TERMINAL_EVIDENCE_MISMATCH')
-      }
-      await assertWorkflowCorrelation(sql, execution.id, terminal.correlationId)
-      assertOriginalWorkflowTerminal(execution, capture.session, history, terminal.correlationId)
-      const proof = await this.retainSettledTerminalLocked(sql, run, evidence, owner)
-      await markWorkflowCoordinationTerminalSettledLocked(sql, execution, proof)
-      if (execution.result?.outcome === 'succeeded' && run.approval.handler === 'orchestrator'
-        && run.approval.designatedOrchestratorAgentId === execution.agentId) {
-        await finalizeRetainedRemoteReviewerLocked(sql, execution)
-      }
-      beforeGraphCommit(sql, async () => {
-        const row = (await sql.query<{ record: unknown }>(
-          'select record from harness_executions where id=$1 and run_id=$2', [execution.id, run.id])).rows[0]
-        if (!row || !sameRepeatValue(row.record, execution)) return fail('COORDINATION_TERMINAL_CONFLICT')
-        await readWorkflowCoordinationTerminalLocked(sql, execution)
-      })
     } catch (error) { poisonGraphTransaction(sql); throw error }
   }
 }

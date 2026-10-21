@@ -3,25 +3,18 @@ import { create } from 'zustand'
 import type { BoardSidePanel } from '@foreman-code/contracts/wave25'
 
 type ScrollPosition = { top: number; left: number }
-type OperatorReturn = { kind: BoardSidePanel['kind']; runId: string | null; workflowVersionId: string | null }
 type SidePanelPresentation = {
   widths: Record<string, number>
   scroll: Record<string, Record<string, ScrollPosition>>
-  beforeOperator: Record<string, OperatorReturn>
-  collapsedTeams: Record<string, string[]>
+  beforeOperator: Record<string, BoardSidePanel>
   setWidth(scope: string, width: number): void
-  rememberOperator(scope: string, selection: OperatorReturn): void
+  rememberOperator(scope: string, selection: BoardSidePanel): void
   rememberScroll(scope: string, positions: Record<string, ScrollPosition>): void
-  toggleTeam(scope: string, nodeId: string): void
 }
 
 /** Local presentation only. The URL remains the sole owner of active selection. */
 export const useSidePanelPresentation = create<SidePanelPresentation>(set => ({
-  widths: {}, scroll: {}, beforeOperator: {}, collapsedTeams: {},
-  toggleTeam: (scope, nodeId) => set(state => ({ collapsedTeams: { ...state.collapsedTeams,
-    [scope]: (state.collapsedTeams[scope] ?? []).includes(nodeId)
-      ? state.collapsedTeams[scope]!.filter(id => id !== nodeId) : [...(state.collapsedTeams[scope] ?? []), nodeId],
-  } })),
+  widths: {}, scroll: {}, beforeOperator: {},
   setWidth: (scope, width) => set(state => ({ widths: { ...state.widths, [scope]: width } })),
   rememberOperator: (scope, selection) => set(state => ({ beforeOperator: { ...state.beforeOperator, [scope]: selection } })),
   rememberScroll: (scope, positions) => set(state => ({ scroll: { ...state.scroll, [scope]: positions } })),

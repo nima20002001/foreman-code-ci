@@ -2,6 +2,8 @@ import { isDeepStrictEqual } from 'node:util'
 import type { HarnessExecution } from '@foreman-code/contracts'
 import { ArtifactAttemptSchema } from '@foreman-code/contracts/artifact-edges'
 import { TransferContextSchema, VerifiedTransferReceiptSchema } from '@foreman-code/contracts/byte-transfer'
+import { parseWorkHandoffArtifactResult } from '@foreman-code/contracts/wave25'
+import { parseWorkflowArtifactResult } from '@foreman-code/contracts/workflow-artifact-result'
 import { RemoteOperationReceiptSchema } from '@foreman-code/contracts/remote-execution'
 import { digest } from '../../files/tools/context.js'
 import { DomainError } from '../../errors.js'
@@ -16,7 +18,6 @@ import type { PostgresArtifactPublicationAuthority } from './nativeArtifactAutho
 import type { NativeArtifactOutputs } from './nativeArtifactOutputs.js'
 import { readReconciledDispatchIntent } from './persistence.js'
 import { WorkflowArtifactResultAdoption } from './workflowArtifactResultAdoption.js'
-import { workflowArtifactResult } from '../workflowCoordinationResult.js'
 
 const unavailable = () => new DomainError('WORKFLOW_ARTIFACT_SOURCE_UNAVAILABLE',
   'The committed original artifact terminal, publication or closure is unavailable.', 409)
@@ -54,7 +55,14 @@ export async function recoverWorkflowArtifactOutputs(input: {
     }
     const source = await readWorkflowTerminalReceiptLocked(sql, snapshot, stored)
     await assertSettlementLocked(sql, snapshot.run, [execution.id], owner)
-    const mappings = workflowArtifactResult(execution.result!, snapshot.version, node.id, snapshot.run.resultProtocol)
+    let mappings
+    if (snapshot.version.definition.handoffs) {
+      mappings = parseWorkHandoffArtifactResult(execution.result, node.artifactOutputs).artifactOutputs
+    } else if (node.choice) {
+      mappings = parseWorkflowArtifactResult(execution.result, node.artifactOutputs, node.choice).artifactOutputs
+    } else {
+      mappings = parseWorkflowArtifactResult(execution.result, node.artifactOutputs).artifactOutputs
+    }
     const publication = (await sql.query<{ transfer_receipt: unknown }>(
       `select record->'transferReceipt' as transfer_receipt from file_tool_publications
         where owner_principal_id=$1 and request_id=$2 for share`,
@@ -69,8 +77,7 @@ export async function recoverWorkflowArtifactOutputs(input: {
       authorizationRevision: transfer.authorizationRevision, bootId: transfer.bootId,
       connectionEpoch: transfer.connectionEpoch }), sql)
     await authority.authorize(accepted, sql)
-    return { accepted, version: snapshot.version, resultProtocol: snapshot.run.resultProtocol,
-      execution: stored.execution, remote, ...source }
+    return { accepted, version: snapshot.version, execution: stored.execution, remote, ...source }
   }
   const current = () => owner.oneShotConnection().transaction(async (sql) => {
     const result = await read(sql)
@@ -88,7 +95,7 @@ export async function recoverWorkflowArtifactOutputs(input: {
       return latest
     }
     const latest = await verify()
-    return { version: latest.version, resultProtocol: latest.resultProtocol, execution: latest.execution, proof: latest.proof,
+    return { version: latest.version, execution: latest.execution, proof: latest.proof,
       sourceDigest: latest.sourceDigest, remote: latest.remote, assertCurrent: async () => { await verify() },
       publicationContext: commandId => authority.resolvePublicationContext(accepted, commandId) }
   } }, input.outputs).adoptOriginalOutputs(original.accepted)

@@ -2,7 +2,7 @@ import { logIgnoredError } from '../../diagnostics/ignoredError.js'
 /** Turn submission, streaming, steering, cancellation, history and native interaction responses. */
 import { runtimeTimingPoint } from '../../diagnostics/runtimeTiming.js'
 import { DEVICE_HISTORY_PAGE_BYTES } from '@foreman-code/contracts/device-application'
-import { isWorkflowStart, hasWorkflowRequest } from '../sessionStart.js'
+import { isWorkflowStart } from '../sessionStart.js'
 import { SessionPreferencesSchema, type ApprovalResponseOption, type NativeHarnessEvent, type NativeSessionReference,
   type PendingNativeInteraction, isSessionNativeInteraction } from '@foreman-code/contracts'
 import { codexCollaborationMode } from '../codexSessionControls.js'
@@ -137,7 +137,7 @@ export abstract class CodexManagerTurns extends CodexManagerControls {
         runtime.fileRequests.clear()
         const preparationSignal = AbortSignal.any([starting.preparationController.signal, this.shutdownController.signal, subscriberSignal, ...(signal ? [signal] : [])])
         preparationSignal.throwIfAborted()
-        if (hasWorkflowRequest(runtime.input) && this.appMcpAccess === 'scoped') {
+        if (isWorkflowStart(runtime.input) && this.appMcpAccess === 'scoped') {
           const serverName = runtime.approvedAppMcpServerName ?? this.appMcpServerName
           const retries = retryCodexAppMcp(runtime.transport, session.nativeSessionId, serverName,
             preparationSignal, this.dependencies, async retrySignal => {
@@ -159,7 +159,7 @@ export abstract class CodexManagerTurns extends CodexManagerControls {
           starting.filePreparation = this.prepareTurnFiles(this.chatFiles, runtime, session, input, starting, preparationSignal)
         }
         preparationSignal.throwIfAborted()
-        if (this.nativeOutputs && isWorkflowStart(runtime.input)) {
+        if (this.nativeOutputs) {
           starting.nativeOutputPreparation = this.prepareTurnNativeOutput(this.nativeOutputs, runtime, session, input, starting,
             preparationSignal)
           await starting.nativeOutputPreparation
@@ -254,7 +254,7 @@ export abstract class CodexManagerTurns extends CodexManagerControls {
   }
 
   protected assertTurnStartable(runtime: Runtime, session: NativeSessionReference): void {
-    if ((runtime.input.kind === 'operator' || runtime.input.kind === 'workflow-consultation') && runtime.input.observationOnly) {
+    if (runtime.input.kind === 'operator' && runtime.input.observationOnly) {
       throw new HarnessExecutionError('CODEX_OBSERVATION_ONLY', 'Refresh the scoped environment before sending another turn.')
     }
     if (this.locks.has(session.nativeSessionId)) throw new HarnessExecutionError('CODEX_SESSION_BUSY', 'A session lifecycle operation is in progress.')
@@ -368,7 +368,7 @@ export abstract class CodexManagerTurns extends CodexManagerControls {
       throw error
     }
     const turnId = object(result, 'CODEX_TURN_STEER_INVALID').turnId
-    if (!text(turnId) || turnId !== input.expectedTurnId) throw new HarnessExecutionError('CODEX_TURN_STEER_INVALID', 'Codex did not acknowledge the exact expected turn.')
+    if (!text(turnId)) throw new HarnessExecutionError('CODEX_TURN_STEER_INVALID', 'Codex accepted the steer without a turn identity.')
     this.record(runtime, 'turn.steered', { turnId, correlationId: input.clientCorrelationId })
     return { nativeTurnId: String(turnId) }
   }

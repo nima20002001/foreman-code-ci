@@ -1,7 +1,3 @@
-import { browserAgentTools, browserOperatorTools } from '../../modules/collaboration/browserTools.js'
-import { workflowChatTools } from '../operator/tools/workflowChat.js'
-import { registerToolDefinition } from '../operator/definition.js'
-import { invokeOperatorTool } from '../operator/invoke.js'
 import { MCP_DISPLAY_NAME, PRODUCT_SLUG } from '@foreman-code/contracts/product'
 import { McpServer } from '@modelcontextprotocol/server'
 import { paginateToolLists } from '../toolListPagination.js'
@@ -16,8 +12,6 @@ import { hasWorkerAction } from '../../modules/access/appPolicy.js'
 import type { AppInteractionService } from '../../modules/interactions/app.js'
 import type { BugReportService } from '../../modules/bug-reports/service.js'
 import type { PostgresCommandCoordinator } from '../../modules/commands/postgres.js'
-import { createMemoryBoardTools } from '../operator/tools/memoryBoards.js'
-import { OPERATOR_TOOLS } from '../operator/catalog.js'
 import { registerAppTools } from '../app/server.js'
 import { registerCiTools } from '../shared/ciTools.js'
 import { operatorRequestTools, operatorToolCatalog } from '../operator/server.js'
@@ -113,7 +107,7 @@ export async function roleDeniedToolCall(context: GraphqlMcpContext, body: unkno
   const call = ToolCall.safeParse(body)
   if (!call.success) return undefined
   const name = call.data.params.name
-  const allowed: readonly McpRole[] = name.startsWith('memory_') ? ['operator', ...toolRoles(name)] : toolRoles(name)
+  const allowed = toolRoles(name)
   const enabled = name === 'bug_report' || !context.tools || context.tools.includes(name)
   const roleAllowed = allowed.includes(context.role)
   const workerReportDenied = context.role !== 'operator' && name === 'bug_report'
@@ -173,26 +167,6 @@ export async function createGraphqlMcpServer(context: GraphqlMcpContext, request
       await registerAppTools(collector, { principal: context.principal, interactions: context.interactions!,
         ...(context.bugReports ? { bugReports: context.bugReports } : {}),
         ...(context.signal ? { signal: context.signal } : {}) })
-      if (context.operator?.workflowChat) {
-        for (const tool of workflowChatTools(context.operator.workflowChat)) {
-          if (tool.name !== 'workflow_chat_read' && tool.name !== 'workflow_chat_post') continue
-          registerToolDefinition(collector, { principal: context.principal, services: context.operator }, tool,
-            { invoke: invokeOperatorTool })
-        }
-      }
-      if (context.operator?.browser) {
-        for (const tool of browserOperatorTools({ principal: context.principal, services: context.operator })) {
-          if (!browserAgentTools.some(name => name === tool.name)) continue
-          registerToolDefinition(collector, { principal: context.principal, services: context.operator }, tool,
-            { invoke: invokeOperatorTool })
-        }
-      }
-      if (context.operator?.memoryBoards) {
-        for (const tool of createMemoryBoardTools(context.operator.memoryBoards)) {
-          registerToolDefinition(collector, { principal: context.principal, services: context.operator }, tool,
-            { invoke: invokeOperatorTool, tools: OPERATOR_TOOLS })
-        }
-      }
       if (context.references) registerExecutionReferenceTools(collector, context.principal, context.references)
       if (context.operator) registerCiTools(collector, { principal: context.principal, services: context.operator,
         ...(context.signal ? { signal: context.signal } : {}) })

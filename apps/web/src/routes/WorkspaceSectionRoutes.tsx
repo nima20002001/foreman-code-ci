@@ -13,7 +13,6 @@ import { WorkflowDirectory } from '../features/workflows'
 import { WorkspaceDetailPage } from '../features/workspaces/WorkspaceDetailPage'
 import { Badge, Card, EmptyState, Icon, PageHeader, type IconName } from '../shared/ui/nocturne'
 import { WorkspaceShell, type WorkspaceSection } from '../shared/ui/WorkspaceShell'
-import { useCollaborationUISlots } from '../shared/ui/collaborationSlots'
 import {
   WorkspaceDirectory,
   useNavigationUiStore,
@@ -149,18 +148,6 @@ export function ProjectFilesRouteEntry() {
   }} />
 }
 
-export function WorkspaceMemoryRouteEntry() {
-  const { workspaceId } = useParams({ strict: false })
-  const slots = useCollaborationUISlots()
-  if (!workspaceId) return <EmptyState icon="folder" title="Choose a workspace" />
-  return <WorkspaceShell workspaceId={workspaceId} activeSection="memory" slots={{ main:
-    <WorkspaceDetailPage workspaceId={workspaceId} section="memory">
-      <section aria-label="Workspace Memory board">{slots?.workspaceMemoryBoard?.({ workspaceId })
-        ?? <p role="status">Memory board is not available yet.</p>}</section>
-    </WorkspaceDetailPage>,
-  }} />
-}
-
 function SettingsCardBody({ icon, title }: {
   icon: IconName
   title: string
@@ -259,7 +246,6 @@ export function GlobalSettingsRouteEntry() {
               </li>
             </ul>
             <h2 className="settings-group-heading" id="settings-computers-heading">Computers</h2>
-            <Link to="/settings/browser-profiles" className="settings-card-open"><SettingsCardBody icon="settings" title="Browser profiles" /></Link>
             <ComputerSummaryCards />
             <h2 className="settings-group-heading" id="settings-library-heading">Library</h2>
             <ul className="settings-card-list" aria-labelledby="settings-library-heading">

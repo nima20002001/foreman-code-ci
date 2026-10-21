@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo } from 'react'
 import { authoringHints } from './model'
 import { editorAgents } from './agentEdits'
 import { type NextDraftEdit } from './state'
@@ -27,17 +27,10 @@ export function useDraftEditorController(draftKey: string, edit: NextDraftEdit) 
   const undoAction = useBoardUndo((state) => state.actions[undoScope]?.at(-1))
   const redoCount = useBoardUndo((state) => state.redo[undoScope]?.length ?? 0)
   const core = useDraftEditorCore({ draftKey, edit, editIntent, board })
-  const openPanel = useRef(core.openPanel)
-  openPanel.current = core.openPanel
-  const registerAuthoringActions = board?.registerAuthoringActions
-  useLayoutEffect(() => {
-    registerAuthoringActions?.({ openWorkflowSettings: () => openPanel.current('workflow') })
-    return () => registerAuthoringActions?.()
-  }, [registerAuthoringActions])
   const startState = useDraftStartState({ draftKey, edit, board })
   const { preflight, pendingStart } = startState
   const saveActions = useDraftEditorSave({ draftKey, edit, editIntent, core, pendingStart })
-  const { reloading, stopAndSave, discardChanges, reload, inspectLatest } = saveActions
+  const { reloading, stopAndSave, discardChanges, reload } = saveActions
   const { startMutation, starting, start, recoverStart } = useDraftStartMutation({
     draftKey, edit, editIntent, core, startState, stopAndSave,
   })
@@ -64,7 +57,7 @@ export function useDraftEditorController(draftKey: string, edit: NextDraftEdit) 
   const { openAgent, panels } = useDraftAgentPanels({ draftKey, edit, editIntent, core, board, reloading, agents })
   return {
     graph, context, board, editIntent, undoScope, core, preflight, pendingStart,
-    reloading, stopAndSave, discardChanges, reload, inspectLatest, startMutation, starting, start, recoverStart,
+    reloading, stopAndSave, discardChanges, reload, startMutation, starting, start, recoverStart,
     workspace, managedWorkflow, pendingApprovals, agents, hints, status, requestSave, historyAction, openAgent, panels,
     scheduleWrite, historyPending,
   }

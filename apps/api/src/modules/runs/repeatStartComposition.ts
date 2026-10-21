@@ -13,7 +13,6 @@ import { repeatRuntimeDirectory, type RepeatRepositoryFactory } from './repeatRe
 import { executeRepeatRuntime, repeatExecutionDriver, repeatNativeObserver, type RepeatRuntimeLifecycle } from './repeatRuntime.js'
 import { readAcceptedRepeatRunLocked, type AcceptedRepeatRunSnapshot } from './repeatStartRead.js'
 import type { RunnerAdmission } from './runnerAdmission.js'
-import type { ExecutionLimiter } from './limiter.js'
 
 /** These are existing-engine dependencies, not another owner, scheduler, gate
  * or checkpoint thread. Production composes the real current lifecycle and
@@ -24,7 +23,6 @@ export interface RepeatEngineStartContext {
   checkpointer: BaseCheckpointSaver
   admission: RunnerAdmission
   configuredParallelism: number
-  limiter?: ExecutionLimiter
   runtimeRoot: string
   factory: RepeatRepositoryFactory
   native: Pick<ApprovalExecutionCoordinator, 'observeExact' | 'assertResume' | 'failIntervalCheck' | 'abandonAttempt'>
@@ -162,7 +160,6 @@ export async function executeRepeatEngineStart(input: RepeatEngineStartContext):
     store: boundary.store, native: input.native, admission: input.admission, workflows: input.workflows,
     locations: input.locations, directory: boundary.directory,
     executionHostKey: execution => input.factory.executionHostKey(input.owner, execution),
-    readCollaborationPrompt: execution => input.factory.readCollaborationPrompt(input.owner, execution),
     preparePlacement: execution => input.factory.preparePlacementExecution(input.owner, snapshot.run, execution) })
   const scope = { runId: snapshot.run.id, workspaceId: snapshot.run.workspaceId, workflowId: snapshot.run.workflowId,
     workflowVersionId: snapshot.version.id, executionSemanticsVersion: 3 as const }
@@ -188,7 +185,6 @@ export async function executeRepeatEngineStart(input: RepeatEngineStartContext):
   }
   const recordExecutionFailure = lifecycle.recordExecutionFailure?.bind(lifecycle)
   await executeRepeatRuntime({ runId: snapshot.run.id, version: snapshot.version, owner: input.owner,
-    ...(input.limiter ? { limiter: input.limiter } : {}),
     checkpointOwnerGeneration: input.owner.checkpointGeneration,
     signal: input.signal, store, driver, ...(input.jobs ? { jobs: input.jobs(input.owner, snapshot.version) } : {}), checkpointer: input.checkpointer, configuredParallelism: input.configuredParallelism,
     lifecycle: {

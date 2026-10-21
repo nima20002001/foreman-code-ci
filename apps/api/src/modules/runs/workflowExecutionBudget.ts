@@ -9,12 +9,8 @@ import { repeatConflict } from './repeatResolution.js'
  * retryable failure) gives its capacity to its replacement.
  * Interval checks are bounded by their interval and the Run's lifetime, not this budget. */
 export async function hasWorkflowExecutionCapacityLocked(sql: GraphTransactionSql, runId: string,
-  version: WorkflowVersionV3, activationId: string | null = null, additionalExecutions = 1,
-  controlContinuationId: string | null = null): Promise<boolean> {
+  version: WorkflowVersionV3, activationId: string | null = null): Promise<boolean> {
   assertGraphTransaction(sql)
-  if (!Number.isSafeInteger(additionalExecutions) || additionalExecutions < 1) {
-    return repeatConflict('REPEAT_EXECUTION_BUDGET_INVALID')
-  }
   const maximum = version.definition.executionPolicy!.maxNodeExecutions
   const row = (await sql.query<{ total: string }>(`select (
     (select count(*) from harness_executions e where e.run_id=$1 and e.record #> '{input,tick}' is null
@@ -31,19 +27,14 @@ export async function hasWorkflowExecutionCapacityLocked(sql: GraphTransactionSq
       and ($2::text is null or a.activation_id<>$2)
       and not exists (select 1 from harness_executions e
         where e.run_id=a.run_id and e.work_activation_id=a.activation_id))
-    + (select count(*) from run_control_continuations c where c.run_id=$1
-      and c.state in ('reserved','waiting_settlement','unknown')
-      and ($3::text is null or c.id<>$3)
-      and not exists (select 1 from harness_executions e where e.id=c.reserved_successor_execution_id))
-    )::text as total`, [runId, activationId, controlContinuationId])).rows[0]
+    )::text as total`, [runId, activationId])).rows[0]
   if (!row || !/^[0-9]+$/.test(row.total)) return repeatConflict('REPEAT_EXECUTION_BUDGET_INVALID')
-  return BigInt(row.total) + BigInt(additionalExecutions) <= BigInt(maximum)
+  return BigInt(row.total) < BigInt(maximum)
 }
 
 export async function assertWorkflowExecutionCapacityLocked(sql: GraphTransactionSql, runId: string,
-  version: WorkflowVersionV3, activationId: string | null = null, additionalExecutions = 1,
-  controlContinuationId: string | null = null): Promise<void> {
-  if (!await hasWorkflowExecutionCapacityLocked(sql, runId, version, activationId, additionalExecutions, controlContinuationId)) {
+  version: WorkflowVersionV3, activationId: string | null = null): Promise<void> {
+  if (!await hasWorkflowExecutionCapacityLocked(sql, runId, version, activationId)) {
     if (version.definition.handoffs) {
       throw new DomainError('WORK_RUN_EXECUTION_BUDGET_EXHAUSTED',
         'The Run reached its execution limit and cannot start more work.', 409)

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, GraphIdSchema, TimestampSchema } from './schemaPrimitives.js';
-import { AgentIdentitySchema, ExecutionRefSchema, CommandOptionsSchema } from './agentIdentity.js';
+import { AgentIdentitySchema, ExecutionRefSchema } from './agentIdentity.js';
 
 export const WorkflowHierarchySchema = z.object({
   version: z.literal(1), masterNodeId: GraphIdSchema,
@@ -50,13 +50,6 @@ export type WorkflowHierarchy = z.infer<typeof WorkflowHierarchySchema>;
 export type DelegateRouting = z.infer<typeof DelegateRoutingSchema>;
 export type HierarchyReport = z.infer<typeof HierarchyReportSchema>;
 
-/** Reporting is saved metadata; only the matching directed execution route carries its label. */
-export function isHierarchyReportingRoute(hierarchy: WorkflowHierarchy | undefined,
-  relationship: { kind: 'execution' | 'approval'; source: string; target: string }): boolean {
-  return relationship.kind === 'execution' && !!hierarchy?.parents.some(member =>
-    member.parentNodeId === relationship.source && member.workflowNodeId === relationship.target);
-}
-
 /** These unchanged routing/data leaves are also consumed by the historical handoff parser. */
 export const WorkHandoffRoutingSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('request'), outcome: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/) }).strict(),
@@ -105,66 +98,3 @@ export const WorkflowDelegationContextSchema = z.object({
   }
 });
 export type WorkflowDelegationContext = z.infer<typeof WorkflowDelegationContextSchema>;
-
-export const WORKFLOW_HIERARCHY_TOOLS = {
-  get: 'workflow_hierarchy_get', update: 'workflow_hierarchy_update', reports: 'workflow_reports_read',
-} as const;
-export const WORKFLOW_HIERARCHY_ROUTE = '/api/management/workspaces/:workspaceId/workflows/:workflowId/hierarchy';
-export const WorkflowHierarchyReadInputSchema = z.object({
-  workspaceId: IdSchema, workflowId: IdSchema, runId: IdSchema.optional(),
-  workflowVersionId: IdSchema.optional(),
-}).strict().refine(value => !(value.runId && value.workflowVersionId), {
-  path: ['workflowVersionId'], message: 'Choose either an exact Run or a saved WorkflowVersion.',
-});
-export const WorkflowHierarchyUpdateInputSchema = z.object({
-  workspaceId: IdSchema, workflowId: IdSchema, hierarchy: WorkflowHierarchySchema.nullable(),
-  ...CommandOptionsSchema.shape,
-}).strict();
-/** Bounded root facts. Source results and the held continuation remain distinct immutable executions. */
-export const WorkflowHierarchyCoordinationSchema = z.object({
-  state: z.enum(['active', 'waiting_for_direction', 'succeeded', 'failed', 'canceled']),
-  summary: z.string().max(600).optional(),
-  sourceExecution: ExecutionRefSchema.optional(),
-  latestDeliverable: z.object({ execution: ExecutionRefSchema, resultDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict().optional(),
-  direction: z.object({ directionId: IdSchema, activationId: IdSchema, execution: ExecutionRefSchema }).strict().optional(),
-}).strict().superRefine((value, context) => {
-  if ((value.state === 'waiting_for_direction') !== !!value.direction
-    || value.direction && value.direction.activationId !== value.direction.execution.activationId) {
-    context.addIssue({ code: 'custom', path: ['direction'], message: 'Waiting for direction requires its exact held execution.' });
-  }
-});
-export type WorkflowHierarchyCoordination = z.infer<typeof WorkflowHierarchyCoordinationSchema>;
-export const WorkflowHierarchyReadResultSchema = z.object({
-  workspaceId: IdSchema, workflowId: IdSchema, workflowVersionId: IdSchema.nullable(),
-  revision: z.number().int().nonnegative(), hierarchy: WorkflowHierarchySchema.nullable(),
-  agents: z.array(AgentIdentitySchema).max(1000),
-  run: z.object({ runId: IdSchema, state: z.string().min(1),
-    summary: z.string().max(600).optional(), coordination: WorkflowHierarchyCoordinationSchema.optional(), }).strict().optional(),
-}).strict().superRefine((value, context) => {
-  const coordination = value.run?.coordination;
-  const references = [coordination?.sourceExecution, coordination?.latestDeliverable?.execution, coordination?.direction?.execution];
-  if (references.some(reference => reference && (reference.runId !== value.run?.runId || reference.workflowVersionId !== value.workflowVersionId))) {
-    context.addIssue({ code: 'custom', path: ['run', 'coordination'], message: 'Coordination facts must keep the selected Run and saved version.' });
-  }
-});
-export const WorkflowReportsReadInputSchema = z.object({
-  workspaceId: IdSchema, workflowId: IdSchema, runId: IdSchema,
-  parentNodeId: GraphIdSchema.optional(), workflowNodeId: GraphIdSchema.optional(),
-  cursor: z.string().min(1).max(2048).optional(), limit: z.number().int().min(1).max(100).default(50),
-}).strict();
-export const WorkflowReportsPageSchema = z.object({
-  workspaceId: IdSchema, workflowId: IdSchema, runId: IdSchema, workflowVersionId: IdSchema,
-  items: z.array(HierarchyReportSchema).max(100), nextCursor: z.string().nullable(),
-  hasMore: z.boolean(), revision: z.number().int().nonnegative(),
-}).strict();
-/** Opaque committed-state cursor; report sequence alone cannot identify root transitions. */
-export const WorkflowHierarchyChangeSchema = z.object({
-  runId: IdSchema, workflowVersionId: IdSchema,
-  revision: z.number().int().nonnegative(), cursor: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-}).strict();
-export type WorkflowHierarchyChange = z.infer<typeof WorkflowHierarchyChangeSchema>;
-export type WorkflowHierarchyReadInput = z.infer<typeof WorkflowHierarchyReadInputSchema>;
-export type WorkflowHierarchyReadResult = z.infer<typeof WorkflowHierarchyReadResultSchema>;
-export type WorkflowHierarchyUpdateInput = z.infer<typeof WorkflowHierarchyUpdateInputSchema>;
-export type WorkflowReportsReadInput = z.infer<typeof WorkflowReportsReadInputSchema>;
-export type WorkflowReportsPage = z.infer<typeof WorkflowReportsPageSchema>;

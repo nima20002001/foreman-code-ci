@@ -3,12 +3,10 @@ import { Button, TextField } from '../../../shared/ui/nocturne'
 import { AgentActiveTimeField } from './AgentActiveTimeField'
 import { ApprovalFields, EntryFields, type EditGraph } from './AuthoringFields'
 import type { NextDraftEdit } from './state'
-import { HierarchyEditor } from '../../workflow-hierarchy/HierarchyEditor'
 
-export function WorkflowSettings({ draftKey, edit, change, report, defaultMs, locationReady, locationMessage,
+export function WorkflowSettings({ edit, change, report, defaultMs, locationReady, locationMessage,
   onChangeFolder, onReload }: {
   edit: NextDraftEdit
-  draftKey: string
   change: EditGraph
   report(error: unknown): void
   defaultMs: number | undefined
@@ -19,7 +17,6 @@ export function WorkflowSettings({ draftKey, edit, change, report, defaultMs, lo
 }) {
   const { graph, context, agentEdits } = edit
   return <>
-    <HierarchyEditor draftKey={draftKey} edit={edit} report={report} />
     <EntryFields graph={graph} context={context} agentEdits={agentEdits} change={change} />
     <ApprovalFields graph={graph} context={context} agentEdits={agentEdits} change={change} report={report} />
     <section className="next-draft-section" aria-label="Execution bounds">

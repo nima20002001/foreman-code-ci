@@ -5,7 +5,6 @@ import { DomainError } from '../errors.js'
 import type { WorkflowNativeProofRecord } from './workflowNativeProof.js'
 import type { WorkflowNativeEntryPermit } from './workflowNativeEntry.js'
 import type { RepeatNodeRef, RepeatScope } from './repeatResolution.js'
-import type { WorkflowResultEffectFailure } from './workflowResultEffectFailure.js'
 
 export interface RepeatLaunchPaths { workingDirectory: string; runtimeDirectory: string }
 /** The immutable launch envelope is reconstructible after a restart. Mutable
@@ -22,8 +21,6 @@ export interface RepeatLaunchClaim {
   startedAt: string
   workingDirectory: string
   runtimeDirectory: string
-  resultProtocol?: HarnessExecution['resultProtocol']
-  memoryBoardDigest?: HarnessExecution['memoryBoardDigest']
   systemPrompt?: HarnessExecution['systemPrompt']
   sessionContinuation?: HarnessExecution['sessionContinuation']
 }
@@ -48,8 +45,6 @@ export function repeatLaunchClaim(scope: RepeatScope, ref: RepeatNodeRef, execut
     technicalAttempt: execution.attempt, inputDigest, createdAt: execution.createdAt,
     startedAt: execution.startedAt, workingDirectory: execution.workingDirectory,
     runtimeDirectory: execution.runtimeDirectory,
-    ...(execution.resultProtocol ? { resultProtocol: execution.resultProtocol } : {}),
-    ...(execution.memoryBoardDigest ? { memoryBoardDigest: execution.memoryBoardDigest } : {}),
     ...(execution.systemPrompt ? { systemPrompt: structuredClone(execution.systemPrompt) } : {}),
     ...(execution.sessionContinuation ? { sessionContinuation: structuredClone(execution.sessionContinuation) } : {}),
   }
@@ -95,8 +90,7 @@ export interface RepeatNativeLockedHooks {
   assertBoundaryLocked(sql: GraphTransactionSql, execution: HarnessExecution, ref: RepeatNodeRef,
     evidence: RepeatNativeBoundaryEvidence): Promise<void>
   assertUpdateLocked(sql: GraphTransactionSql, previous: HarnessExecution, incoming: HarnessExecution,
-    ref: RepeatNodeRef, evidence: RepeatNativeEvidence,
-    resultEffectFailure?: WorkflowResultEffectFailure): Promise<WorkflowNativeProofRecord>
+    ref: RepeatNodeRef, evidence: RepeatNativeEvidence): Promise<WorkflowNativeProofRecord>
   /** The canonical G1 producer must retain source/effect/reset receipts on this
    * transaction. A callback result is not a receipt. No second graph journal. */
   publishLocked(sql: GraphTransactionSql, change: RepeatNativeChange, mutate: () => Promise<void>): Promise<void>

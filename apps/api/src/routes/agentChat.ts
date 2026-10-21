@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { ChatControlReceiptSchema, parseSessionCommand, SessionControlRequestSchema, SessionControlStateSchema } from '@foreman-code/contracts'
+import { SessionControlRequestSchema, SessionControlStateSchema } from '@foreman-code/contracts'
 import type { FastifyInstance } from 'fastify'
 
 import {
   AGENT_CHAT_MESSAGE_BODY_LIMIT_BYTES, AgentChatExecutionActivityPageSchema, AgentChatExecutionActivityQuerySchema, AgentChatHistoryPageSchema, AgentChatTurnPageSchema, AgentChatReadbackQuerySchema, AgentChatQuerySchema, AgentChatStateResponseSchema, AgentChatStateSchema, CancelQueuedAgentChatTurnRequestSchema,
   EnsureAgentChatConversationRequestSchema, InterruptAgentChatRequestSchema, RespondAgentChatInteractionRequestSchema, AgentChatMessageCommandSchema,
-  AgentChatSendResponseSchema, ReadAgentChatRequestSchema, ReadAgentChatResponseSchema, type AgentChatStreamEvent,
+  AgentChatSendResponseSchema, type AgentChatStreamEvent,
 } from '@foreman-code/contracts/agent-chat'
 
 import { requirePrincipal } from '../modules/access/http.js'
@@ -14,7 +14,6 @@ import { DomainError } from '../modules/errors.js'
 import { agentChatStreamFrame } from '../modules/conversations/agentChatStream.js'
 import { createSseWriter } from './sseWriter.js'
 import { registerSelectedRunChatRoutes } from './selectedRunChat.js'
-import { registerAgentDeliveryRoutes } from '../modules/workflow-chat/httpDelivery.js'
 
 interface WorkspaceParams { workspaceId: string }
 interface ConversationParams extends WorkspaceParams { conversationId: string }
@@ -23,15 +22,9 @@ const MAX_STREAMS = 64
 const MAX_OWNER_STREAMS = 16
 const MAX_BOOTSTRAP_EVENTS = 128
 const MAX_BOOTSTRAP_BYTES = 256 * 1024
-const inputReadQuery = z.object({ deliveryInputCursor: z.string().optional(),
-  deliveryInputLimit: z.coerce.number().int().min(1).max(100).optional(), deliveryInputReceiptId: z.string().min(1).optional(),
-  deliveryInputBodyCursor: z.string().optional() })
-const readQuery = AgentChatQuerySchema.extend(inputReadQuery.shape)
-const controlResponse = AgentChatStateResponseSchema.extend({ receipt: ChatControlReceiptSchema.optional() })
 
 export function registerAgentChatRoutes(app: FastifyInstance, chat: AgentChatService): void {
   const root = '/api/workspaces/:workspaceId/agent-chat'
-  if (chat.deliveryBridge) registerAgentDeliveryRoutes(app, chat.deliveryBridge.router)
   registerSelectedRunChatRoutes(app, chat)
   app.get<{ Params: WorkspaceParams; Querystring: unknown }>(`${root}/session-controls`, request => {
     const { executionId, ...query } = AgentChatQuerySchema.extend({ executionId: z.string().min(1).optional() }).parse(request.query)
@@ -54,45 +47,21 @@ export function registerAgentChatRoutes(app: FastifyInstance, chat: AgentChatSer
     streams.clear()
   })
 
-  app.get<{ Params: WorkspaceParams; Querystring: unknown }>(root, async request => {
-    const { deliveryInputCursor: cursor, deliveryInputLimit: limit, deliveryInputReceiptId: receiptId,
-      deliveryInputBodyCursor: bodyCursor, ...query } = readQuery.parse(request.query)
-    const principal = requirePrincipal(request), workspaceId = request.params.workspaceId
-    const state = await chat.read(principal, workspaceId, query)
-    if (cursor === undefined && limit === undefined && receiptId === undefined && bodyCursor === undefined) return ReadAgentChatResponseSchema.parse(state)
-    if (!chat.deliveryBridge) throw new DomainError('CHAT_DELIVERY_UNAVAILABLE', 'Retained delivery input is unavailable.', 503)
-    const inputs = ReadAgentChatRequestSchema.shape.deliveryInputs.unwrap().parse({ cursor, limit, receiptId, bodyCursor })
-    return ReadAgentChatResponseSchema.parse({ ...state,
-      deliveryInputs: await chat.deliveryBridge.readAgentInputs(principal, workspaceId, { query, target: state.deliveryTarget }, inputs) })
-  })
+  app.get<{ Params: WorkspaceParams; Querystring: unknown }>(root, async (request) =>
+    AgentChatStateSchema.parse(await chat.read(requirePrincipal(request), request.params.workspaceId, AgentChatQuerySchema.parse(request.query))))
   app.get<{ Params: WorkspaceParams; Querystring: unknown }>(`${root}/execution-activity`, async (request) => {
     const { cursor, executionId, before, itemId, limit, ...query } = AgentChatExecutionActivityQuerySchema.parse(request.query)
     return AgentChatExecutionActivityPageSchema.parse(await chat.executionActivity(requirePrincipal(request), request.params.workspaceId,
       query, { cursor, executionId, before, itemId, limit }))
   })
   app.post<{ Params: WorkspaceParams; Body: unknown }>(`${root}/messages`, { bodyLimit: AGENT_CHAT_MESSAGE_BODY_LIMIT_BYTES }, async (request, reply) => {
-    const principal = requirePrincipal(request), input = AgentChatMessageCommandSchema.parse(request.body)
-    const explicit = Object.hasOwn(Object(request.body), 'intent')
-    if (input.intent === 'auto' && !chat.deliveryBridge) throw new DomainError('CHAT_DELIVERY_UNAVAILABLE', 'Automatic delivery is unavailable.', 503)
-    const result = chat.deliveryBridge && explicit && parseSessionCommand(input.content).kind !== 'new'
-      ? await chat.deliveryBridge.sendAgent(principal, request.params.workspaceId, input)
-      : await chat.sendCommand(principal, request.params.workspaceId, input)
+    const result = await chat.sendCommand(requirePrincipal(request), request.params.workspaceId, AgentChatMessageCommandSchema.parse(request.body))
     reply.code(result.replayed ? 200 : 202)
     return AgentChatSendResponseSchema.parse(result)
   })
-  app.get<{ Params: ConversationParams; Querystring: unknown }>(`${root}/conversations/:conversationId`, async request => {
-    const { deliveryInputCursor: cursor, deliveryInputLimit: limit, deliveryInputReceiptId: receiptId,
-      deliveryInputBodyCursor: bodyCursor } = inputReadQuery.parse(request.query)
-    const principal = requirePrincipal(request), { workspaceId, conversationId } = request.params
-    const state = await chat.readConversation(principal, workspaceId, conversationId)
-    if (cursor === undefined && limit === undefined && receiptId === undefined && bodyCursor === undefined) return AgentChatStateSchema.parse(state)
-    if (!chat.deliveryBridge) throw new DomainError('CHAT_DELIVERY_UNAVAILABLE', 'Retained delivery input is unavailable.', 503)
-    const inputs = ReadAgentChatRequestSchema.shape.deliveryInputs.unwrap().parse({ cursor, limit, receiptId, bodyCursor })
-    return ReadAgentChatResponseSchema.parse({ ...state, deliveryTargetState: 'existing',
-      deliveryTarget: { kind: 'agent_conversation', conversationId, agent: { workspaceId,
-        workflowId: state.context.workflowId, workflowNodeId: state.context.workflowNodeId, agentId: state.context.agentId } },
-      deliveryInputs: await chat.deliveryBridge.readAgentInputs(principal, workspaceId, { conversationId }, inputs) })
-  })
+  app.get<{ Params: ConversationParams }>(`${root}/conversations/:conversationId`, async request =>
+    AgentChatStateSchema.parse(await chat.readConversation(requirePrincipal(request),
+      request.params.workspaceId, request.params.conversationId)))
   app.post<{ Params: WorkspaceParams; Body: unknown }>(`${root}/conversation`, async (request) => {
     const { context, executionId } = EnsureAgentChatConversationRequestSchema.parse(request.body)
     return AgentChatStateResponseSchema.parse({ state: await chat.ensureConversation(requirePrincipal(request),
@@ -100,10 +69,8 @@ export function registerAgentChatRoutes(app: FastifyInstance, chat: AgentChatSer
   })
   app.post<{ Params: ConversationParams; Body: unknown }>(`${root}/conversations/:conversationId/interrupt`, async (request) => {
     const input = InterruptAgentChatRequestSchema.parse(request.body)
-    const principal = requirePrincipal(request)
-    return controlResponse.parse(input.scope && chat.deliveryBridge
-      ? await chat.deliveryBridge.stopAgent(principal, request.params.workspaceId, request.params.conversationId, { ...input, scope: input.scope })
-      : { state: await chat.interrupt(principal, request.params.workspaceId, request.params.conversationId, input) })
+    return AgentChatStateResponseSchema.parse({ state: await chat.interrupt(requirePrincipal(request), request.params.workspaceId,
+      request.params.conversationId, input) })
   })
   app.post<{ Params: TurnParams; Body: unknown }>(`${root}/conversations/:conversationId/turns/:turnRequestId/cancel`, async (request) => {
     const input = CancelQueuedAgentChatTurnRequestSchema.parse(request.body)

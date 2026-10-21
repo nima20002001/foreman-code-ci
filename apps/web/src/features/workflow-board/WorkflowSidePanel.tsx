@@ -1,39 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefCallback, type RefObject } from 'react'
 import type { BoardSidePanel } from '@foreman-code/contracts/wave25'
-import type { HierarchyReport } from '@foreman-code/contracts'
 import { Button, Dialog, Slider } from '../../shared/ui/nocturne'
 import { useOperatorChatStore } from '../operator-chat/operatorChatStore'
 import { useSidePanelPresentation, useSidePanelScroll } from './sidePanelPresentation'
-import type { CollaborationFieldSlots } from '../graph/collaborationFields'
-import type { WorkflowExecutionChatSlotSelection } from '../workflow-hierarchy/execution-chat/types'
 
-export interface WorkflowCollaborationSlots extends CollaborationFieldSlots {
-  groupChat?(scope: { workspaceId: string; workflowId: string; runId?: string }): ReactNode
-  /** URL-owned selection. F3 resolves it through the canonical delivery target service. */
-  executionChat?(selection: WorkflowExecutionChatSlotSelection): ReactNode
-  browser?(selection: Extract<BoardSidePanel, { kind: 'browser' }> & {
-    workspaceId: string; workflowId: string; runId?: string; workflowVersionId?: string
-  }): ReactNode
-  /** B retains exact release identity and minimal reconciliation after its body unmounts. */
-  beforeBrowserHide?(): void | Promise<void>
-  browserRecovery?(): ReactNode
+export interface WorkflowCollaborationSlots {
+  groupChat?(): ReactNode
+  browser?(selection: Extract<BoardSidePanel, { kind: 'browser' }>): ReactNode
   overview?(): ReactNode
   memoryBoard?(): ReactNode
-  reportCard?(cardId: string, report: HierarchyReport): void
 }
 
 export interface WorkflowSidePanelProps {
   scope: string
-  workspaceId: string
-  workflowId: string
   runId?: string
-  workflowVersionId?: string
   opener: RefObject<HTMLElement | null>
   selection: BoardSidePanel
   agentSelection?: Extract<BoardSidePanel, { kind: 'agent' }>
   onSelect(selection: BoardSidePanel): void
-  onSelectTarget: WorkflowExecutionChatSlotSelection['onSelectTarget']
-  onSelectRun: WorkflowExecutionChatSlotSelection['onSelectRun']
   bodyRef: RefCallback<HTMLDivElement>
   modalOpen: boolean
   slots?: WorkflowCollaborationSlots
@@ -44,8 +28,7 @@ const destinations = [
 ] as const
 
 /** Only the selected body mounts. The fixed portal host preserves existing conversation/store ownership. */
-export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workflowVersionId,
-  opener, selection, agentSelection, onSelect, onSelectTarget, onSelectRun, bodyRef, modalOpen, slots }: WorkflowSidePanelProps) {
+export function WorkflowSidePanel({ scope, runId, opener, selection, agentSelection, onSelect, bodyRef, modalOpen, slots }: WorkflowSidePanelProps) {
   const panelRef = useRef<HTMLElement>(null)
   const heldFocus = useRef(false)
   const [host, setHost] = useState<HTMLDivElement | null>(null)
@@ -112,17 +95,11 @@ export function WorkflowSidePanel({ scope, workspaceId, workflowId, runId, workf
     return () => { if (openedFrom?.isConnected) openedFrom.focus() }
   }, [active, opener])
   const content = modalOpen ? null : selection.kind === 'group_chat'
-    ? slots?.groupChat?.({ workspaceId, workflowId, ...(runId ? { runId } : {}) }) ?? <p role="status">Group chat is not available yet.</p>
+    ? slots?.groupChat?.() ?? <p role="status">Group chat is not available yet.</p>
     : selection.kind === 'browser'
-      ? slots?.browser?.({ ...selection, workspaceId, workflowId, ...(runId ? { runId } : {}),
-        ...(workflowVersionId ? { workflowVersionId } : {}) }) ?? <p role="status">Browser is not available yet. No browser session has been started.</p>
-      : selection.kind === 'agent' && selection.tab === 'chat'
-        ? slots?.executionChat?.({ workspaceId, workflowId, ...(runId ? { runId } : {}),
-          onSelectTarget, onSelectRun,
-          ...(workflowVersionId ? { workflowVersionId } : {}), nodeId: selection.nodeId,
-          ...(selection.executionId ? { executionId: selection.executionId } : {}),
-          ...(selection.waitingActivationId ? { waitingActivationId: selection.waitingActivationId } : {}) })
-          ?? (selection.executionId || selection.waitingActivationId ? <p role="status">Chat for this selected execution is not available yet. Your execution selection is kept.</p> : null)
+      ? slots?.browser?.(selection) ?? <p role="status">Browser is not available yet. No browser session has been started.</p>
+      : selection.kind === 'agent' && selection.executionId
+        ? <p role="status">Chat for this selected execution is not available yet. Your execution selection is kept.</p>
         : null
   return <aside ref={panelRef} tabIndex={-1} className="workflow-side-panel" aria-label="Workflow side panel"
     style={{ '--workflow-rail-width': `${width}px` } as CSSProperties}

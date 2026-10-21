@@ -2,9 +2,10 @@ import { readPublicProjectionLocked } from '../../run-graph/compactSnapshot.js'
 import { isDeepStrictEqual as same } from 'node:util'
 import type { Readable } from 'node:stream'
 import type pg from 'pg'
-import type { HarnessExecution, ResultProtocol } from '@foreman-code/contracts'
+import type { HarnessExecution } from '@foreman-code/contracts'
 import { AgentFilePublishInputSchema, AgentFilePublishResultSchema } from '@foreman-code/contracts/files'
-import { type AcceptedWorkflowRunV3, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
+import { parseWorkHandoffArtifactResult, type AcceptedWorkflowRunV3, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
+import { parseWorkflowArtifactResult } from '@foreman-code/contracts/workflow-artifact-result'
 import { DomainError } from '../../errors.js'
 import type { FileQuery } from '../../files/repository.js'
 import type { TemporaryFileService } from '../../files/service.js'
@@ -32,17 +33,18 @@ import { assertNativeArtifactOutputLive, PostgresNativeArtifactOutputRepository,
   readLocalNativeArtifactOutput } from './nativeArtifactOutputPostgres.js'
 import { LocalWorkflowArtifactAuthority } from './localWorkflowArtifactAuthority.js'
 import { workflowNativeFileConversationKey } from './workflowNativeFileContext.js'
-import { workflowArtifactResult } from '../workflowCoordinationResult.js'
 
 const conflict = (): never => {
   throw new DomainError('WORKFLOW_ARTIFACT_OUTPUTS_CONFLICT', 'Local artifact publications differ from the saved native result.', 409)
 }
 
-function mappings(version: WorkflowVersionV3, execution: HarnessExecution, resultProtocol?: ResultProtocol) {
+function mappings(version: WorkflowVersionV3, execution: HarnessExecution) {
   const node = version.definition.nodes.find(item => item.id === execution.workflowNodeId)
   if (!node || node.kind === 'job' || !node.artifactOutputs || !execution.result) return conflict()
   try {
-    return workflowArtifactResult(execution.result, version, node.id, resultProtocol).outputs
+    if (version.definition.handoffs) return parseWorkHandoffArtifactResult(execution.result, node.artifactOutputs).artifactOutputs.outputs
+    if (node.choice) return parseWorkflowArtifactResult(execution.result, node.artifactOutputs, node.choice).artifactOutputs.outputs
+    return parseWorkflowArtifactResult(execution.result, node.artifactOutputs).artifactOutputs.outputs
   } catch { return conflict() }
 }
 
@@ -174,7 +176,7 @@ export class LocalWorkflowArtifacts {
       if (!same(stored.execution, execution) || snapshot.stopRequested || snapshot.cleanupPending) return conflict()
       const source = await readWorkflowTerminalReceiptLocked(sql, snapshot, stored)
       await assertSettlementLocked(sql, snapshot.run, [execution.id], owner)
-      return { ...source, mappings: mappings(snapshot.version, execution, snapshot.run.resultProtocol) }
+      return { ...source, mappings: mappings(snapshot.version, execution) }
     })
     for (const mapping of original.mappings) {
       signal.throwIfAborted()
@@ -202,7 +204,7 @@ export class LocalWorkflowArtifacts {
       const snapshot = await readAcceptedRepeatRunLocked(sql, run.id)
       const stored = await readRepeatExecutionLocked(sql, snapshot, execution.id)
       const source = await readWorkflowTerminalReceiptLocked(sql, snapshot, stored)
-      for (const mapping of mappings(version, execution, run.resultProtocol)) {
+      for (const mapping of mappings(version, execution)) {
         const output = await readLocalNativeArtifactOutput(sql, this.authority.mainId, current.attempt, mapping.outputKey)
         if (!output) throw new DomainError('WORKFLOW_ARTIFACT_OUTPUTS_PENDING', 'Local output adoption is pending.', 409)
         const publication = await this.publication(sql, execution.id, mapping.outputKey, mapping.commandId)

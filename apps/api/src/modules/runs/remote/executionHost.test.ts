@@ -92,42 +92,6 @@ async function productionShutdownFixture() {
 }
 
 describe('actual worker native-port adapter', () => {
-  it('steers one qualified original turn through the proxy and persists replayable command acknowledgement', async () => {
-    const f = await setup()
-    const steers: unknown[] = []
-    f.manager.steerTurn = async (_session, input) => {
-      steers.push(input)
-      return { nativeTurnId: input.expectedTurnId }
-    }
-    const proxy: NativeHarnessSessionManager = new RemoteNativeSessionManager({ intent: f.intent, placement: f.placement,
-      harness: 'codex', configuration: f.request.configuration,
-      transport: { request: (_method, frame) => f.host.handle(frame) },
-      observeReceipt: async () => {}, controlFor: async command => {
-        if (command.kind !== 'steer' || !command.workflowControl) throw new Error('Expected the admitted steering command')
-        return RemoteOwnerControlSchema.parse({ schemaVersion: 1, protocolVersion: 1,
-          commandId: command.workflowControl.commandId, operationId: f.intent.operationId,
-          executionId: f.intent.executionId, attemptId: f.intent.attemptId, bindingHash: f.intent.bindingHash,
-          owner: f.intent.owner, native: command.native,
-          workflowControl: { ownerRequestId: command.workflowControl.ownerRequestId },
-          action: { kind: 'steer', prompt: command.prompt } })
-      } })
-    const session = await proxy.createSession({ request: f.request, correlationId: 'execution:execution' })
-    await f.host.startTurn(f.intent.operationId, 'Original task', 'execution:execution')
-    await f.host.drain()
-    const input = { prompt: 'Keep the current Plan mode and revise the task.', expectedTurnId: 'native-turn',
-      ownerRequestId: 'execution:execution', controlCommandId: 'chat-steer', clientCorrelationId: 'chat-steer' }
-    await expect(proxy.steerTurn!(session, input)).resolves.toEqual({ nativeTurnId: 'native-turn' })
-    await expect(proxy.steerTurn!(session, input)).resolves.toEqual({ nativeTurnId: 'native-turn' })
-    expect(steers).toEqual([input])
-    await expect(proxy.reconcileSteers!(session, [{ clientCorrelationId: 'chat-steer', expectedTurnId: 'native-turn' }]))
-      .resolves.toEqual([{ nativeSessionId: session.nativeSessionId, nativeTurnId: 'native-turn', correlationId: 'chat-steer' }])
-    await expect(proxy.steerTurn!(session, { ...input, prompt: 'Different command body' })).rejects.toThrow()
-    await expect(proxy.steerTurn!(session, { ...input, controlCommandId: 'other-control',
-      clientCorrelationId: 'other-control', expectedTurnId: 'other-turn' })).rejects.toThrow()
-    expect(steers).toHaveLength(1)
-    expect(f.state).toMatchObject({ starts: 1, turns: 1, cancels: 0 })
-  })
-
   it('joins retained reviewer cancellation when Main closes the same session during physical settlement', async () => {
     const f = await setup()
     f.request.configuration.productRole = 'orchestrator'

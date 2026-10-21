@@ -16,8 +16,8 @@ let serial = 0
  * local forms and outboxes remain real. This models the existing atomic edit
  * service; it does not qualify PostgreSQL transactions or native Stop. Direct
  * Agent POST/PATCH deliberately remain accepted by createCurrentBoardMock. */
-export async function meaningfulSaveFixture(otherActive = false, source = fixture()) {
-  const workspaceId = `ws-meaningful-save-${++serial}`, workflowId = source.draft.workflowId
+export async function meaningfulSaveFixture(otherActive = false) {
+  const source = fixture(), workspaceId = `ws-meaningful-save-${++serial}`, workflowId = source.draft.workflowId
   const graph = { ...source.draft.graph, workspaceId }
   const mock = createCurrentBoardMock({ workspaceId, allowSimulatedStart: true, initialWorkflow: graph,
     agents: source.agents.map(({ agent }) => ({ ...agent, harness: 'codex' as const,

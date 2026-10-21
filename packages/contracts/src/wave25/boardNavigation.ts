@@ -1,4 +1,3 @@
-import { MemoryBoardSearchSchema } from '../memoryBoardViews.js'
 import { z } from 'zod'
 import { UrlSearchSelectionSchema } from '../index.js'
 import { GraphIdSchema } from './graphPrimitives.js'
@@ -27,14 +26,10 @@ export const BoardSidePanelSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(),
   z.object({ kind: z.literal('group_chat') }).strict(),
   z.object({ kind: z.literal('agent'), nodeId: GraphIdSchema,
-    tab: z.enum(['chat', 'settings', 'details']), executionId: GraphIdSchema.optional(), waitingActivationId: GraphIdSchema.optional() }).strict(),
-  z.object({ kind: z.literal('browser'), nodeId: GraphIdSchema.optional(), executionId: GraphIdSchema.optional(),
-    waitingActivationId: GraphIdSchema.optional(), sessionId: GraphIdSchema.optional(), tabId: GraphIdSchema.optional() }).strict(),
+    tab: z.enum(['chat', 'settings', 'details']), executionId: GraphIdSchema.optional() }).strict(),
+  z.object({ kind: z.literal('browser'), nodeId: GraphIdSchema.optional(), executionId: GraphIdSchema.optional() }).strict(),
   z.object({ kind: z.literal('operator') }).strict(),
-]).superRefine((panel, context) => {
-  if ((panel.kind === 'agent' || panel.kind === 'browser') && panel.executionId && panel.waitingActivationId) context.addIssue({ code: 'custom',
-    path: ['waitingActivationId'], message: 'Select either an execution or a waiting coordinator.' })
-});
+]);
 export type BoardSidePanel = z.infer<typeof BoardSidePanelSchema>
 
 const BoardSurfaceSelectionFields = {
@@ -42,10 +37,6 @@ const BoardSurfaceSelectionFields = {
   boardPanel: z.enum(['group_chat', 'agent', 'browser', 'operator']).optional(),
   boardAgentTab: z.enum(['chat', 'settings', 'details']).optional(),
   boardNodeId: GraphIdSchema.optional(), boardExecutionId: GraphIdSchema.optional(),
-  boardWaitingActivationId: GraphIdSchema.optional(),
-  boardTeamId: GraphIdSchema.optional(),
-  browserSessionId: GraphIdSchema.optional(), browserTabId: GraphIdSchema.optional(),
-  groupRunId: GraphIdSchema.optional(), groupPostId: GraphIdSchema.optional(), groupReceiptId: GraphIdSchema.optional(),
   boardMemory: z.union([z.literal(true), z.literal('true').transform(() => true as const)]).optional(),
 }
 export function runInspectionKey(selection: WorkspaceBoardExecutionSelection): string | undefined {
@@ -68,7 +59,6 @@ export function readRunInspectionKey(key?: string): WorkspaceBoardExecutionSelec
 /** Presentation only. A URL requests a Run; it never authorizes or proves its pins. */
 export const WorkspaceBoardSearchSchema = UrlSearchSelectionSchema.extend({
   ...BoardSurfaceSelectionFields,
-  ...MemoryBoardSearchSchema.shape,
   ...WorkspaceBoardInspectionSchema.shape,
   activityKind: RunActivityPublicKindSchema.optional(), activityAgentId: GraphIdSchema.optional(),
   runId: GraphIdSchema.optional(),
@@ -80,8 +70,6 @@ export const WorkspaceBoardSearchSchema = UrlSearchSelectionSchema.extend({
   if (value.runNodeId && value.runRelationshipId) context.addIssue({ code: 'custom', message: 'Inspect one Run node or relationship at a time.' })
   if (value.boardPanel === 'agent' && !value.boardNodeId) context.addIssue({ code: 'custom', path: ['boardNodeId'], message: 'Agent panels require a selected node.' })
   if (value.boardExecutionId && !value.boardNodeId) context.addIssue({ code: 'custom', path: ['boardExecutionId'], message: 'Execution selection requires its node.' })
-  if (value.boardWaitingActivationId && !value.boardNodeId) context.addIssue({ code: 'custom', path: ['boardWaitingActivationId'], message: 'Consultation selection requires its node.' })
-  if (value.boardExecutionId && value.boardWaitingActivationId) context.addIssue({ code: 'custom', path: ['boardWaitingActivationId'], message: 'Select either an execution or a waiting coordinator.' })
   try { readRunInspectionKey(value.runExchangeKey) }
   catch { context.addIssue({ code: 'custom', path: ['runExchangeKey'], message: 'Invalid execution or occurrence inspection identity.' }) }
   const pins = [value.runId, value.workflowVersionId, value.executionSemanticsVersion]
@@ -98,12 +86,9 @@ export function boardSidePanelFromSearch(search: WorkspaceBoardSearch): BoardSid
     case 'group_chat': return { kind: 'group_chat' }
     case 'operator': return { kind: 'operator' }
     case 'agent': return BoardSidePanelSchema.parse({ kind: 'agent', nodeId: search.boardNodeId,
-      tab: search.boardAgentTab ?? 'chat', ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}),
-      ...(search.boardWaitingActivationId ? { waitingActivationId: search.boardWaitingActivationId } : {}) })
+      tab: search.boardAgentTab ?? 'chat', ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}) })
     case 'browser': return { kind: 'browser', ...(search.boardNodeId ? { nodeId: search.boardNodeId } : {}),
-      ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}),
-      ...(search.boardWaitingActivationId ? { waitingActivationId: search.boardWaitingActivationId } : {}),
-      ...(search.browserSessionId ? { sessionId: search.browserSessionId } : {}), ...(search.browserTabId ? { tabId: search.browserTabId } : {}) }
+      ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}) }
     default: return { kind: 'none' }
   }
 }
@@ -134,7 +119,7 @@ export function resolveWorkflowBoardLocation(pathname: string, rawSearch: unknow
   })
   if (pinned && requested && !sameCanonicalGraphScope(pinned, requested)) throw new Error('The Run URL contains conflicting immutable pins.')
   if ((search.runNodeId || search.runRelationshipId || search.runExchangeKey) && !pinned && !requested) throw new Error('Run inspection needs a complete Run selection.')
-  if ((search.boardExecutionId || search.boardWaitingActivationId) && !pinned && !requested) throw new Error('Board execution or consultation selection needs a complete Run selection.')
+  if (search.boardExecutionId && !pinned && !requested) throw new Error('Board execution selection needs a complete Run selection.')
   return { workspaceId, workflowId, search, run: pinned ?? requested, draftAlias: match[3] === 'draft' }
 }
 
@@ -148,7 +133,7 @@ export function boardSearchForRun(search: WorkspaceBoardSearch, workflowId: stri
   void _run; void _version; void _semantics; void _node; void _edge; void _exchange
   const changedRun = search.workflowId !== workflowId || search.runId !== run?.runId
     || search.workflowVersionId !== run?.workflowVersionId
-  if (changedRun) { delete rest.boardExecutionId; delete rest.boardWaitingActivationId; delete rest.browserSessionId; delete rest.browserTabId }
+  if (changedRun) delete rest.boardExecutionId
   return WorkspaceBoardSearchSchema.parse({ ...rest, workflowId, ...(run ? {
     runId: run.runId, workflowVersionId: run.workflowVersionId, executionSemanticsVersion: run.executionSemanticsVersion,
   } : {}) })
@@ -174,7 +159,6 @@ export function staysOnWorkflowBoard(current: { pathname: string; search: unknow
 function authoringSelection(search: WorkspaceBoardSearch): WorkspaceBoardSearch {
   const value = { ...search }
   for (const key of ['activityKind', 'activityAgentId', 'boardView', 'boardPanel', 'boardAgentTab',
-    'browserSessionId', 'browserTabId', 'boardNodeId', 'boardExecutionId', 'boardWaitingActivationId', 'boardTeamId', 'boardMemory',
-    'groupRunId', 'groupPostId', 'groupReceiptId'] as const) delete value[key]
+    'boardNodeId', 'boardExecutionId', 'boardMemory'] as const) delete value[key]
   return value
 }

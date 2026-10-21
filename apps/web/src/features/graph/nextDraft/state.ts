@@ -1,5 +1,4 @@
 import type { AgentForm } from './agentForm'
-import type { Agent, WorkflowAgentProductRole } from '@foreman-code/contracts'
 import type { GraphDraftOperationV3, GraphEditIntentV3, WorkflowDefinitionV3 } from '@foreman-code/contracts/wave25'
 import { hasAgentEdits, rebaseAgentEdits, referencedAgentEdits, snapshotAgentEdits, type DraftAgentEdits } from './agentEdits'
 import { hasLocalChanges, sameValue, type AuthoringIssue, type NextDraftContext } from './model'
@@ -31,13 +30,6 @@ export type NextDraftEdit = {
   future?: { graph: WorkflowDefinitionV3; agentEdits: DraftAgentEdits }[]
   agentEdits?: DraftAgentEdits
   agentForms?: Record<string, AgentForm>
-  /** Unapplied contextual forms stay local and are never silently submitted. */
-  workflowForms?: {
-    hierarchy?: { masterNodeId: string; parents: Record<string, string>; previousMaster?: 'keep' | 'remove' }
-    createAgent?: { role: WorkflowAgentProductRole; name: string; parentNodeId: string; agent?: Agent; settings?: AgentForm }
-    workerParents?: Record<string, string>
-    removeNode?: { nodeId: string; destinationParentId: string }
-  }
   agentHistory?: DraftAgentEdits[]
   /** Local form provenance from authenticated hydration, never a command submission. */
   remoteEditIntent?: Pick<GraphEditIntentV3, 'id' | 'ownerPrincipalId' | 'stageCommandId' | 'stageInputHash'>
@@ -49,11 +41,7 @@ export type NextDraftEdit = {
   validation?: { revision: number; valid: boolean; issues: AuthoringIssue[] }
   startRejectedVersionId?: string
   startCanceled?: boolean
-  /** Read-only local recoveries never become the active save baseline. */
-  conflictRecovery?: ConflictRecovery[]
 }
-export type ConflictRecovery = { id: string; originalInstanceId: string; recordedAt: string;
-  snapshot: Pick<NextDraftEdit, 'context' | 'graph' | 'agentEdits' | 'agentForms' | 'workflowForms' | 'remoteEditIntent'> }
 
 export function newNextDraft(context: NextDraftContext, instanceId: string): NextDraftEdit {
   return { instanceId, context, graph: context.draft.graph, history: [], busy: false }
@@ -133,8 +121,7 @@ export function createNextDraftSlice(set: SetSlice): NextDraftSlice {
     installNextDraft: (key, context, replace = false) => set((state) => {
       const current = state.nextDrafts[key]
       if (current && (!replace || current.busy || current.pending)) return state
-      return { nextDrafts: { ...state.nextDrafts, [key]: { ...newNextDraft(context, crypto.randomUUID()),
-        ...(current?.conflictRecovery ? { conflictRecovery: current.conflictRecovery } : {}) } } }
+      return { nextDrafts: { ...state.nextDrafts, [key]: newNextDraft(context, crypto.randomUUID()) } }
     }),
     changeNextDraft: (key, change) => update(key, (edit) => editNextDraft(edit, change)),
     undoNextDraft: (key) => update(key, undoNextDraft),

@@ -1,8 +1,8 @@
 import type pg from 'pg'
-import { withTransaction, type SqlQuery } from '../../infrastructure/transaction.js'
+import { withTransaction } from '../../infrastructure/transaction.js'
 import { DomainError } from '../errors.js'
-type Queryable = SqlQuery
-export async function withConversationPageRead<T>(pool: pg.Pool, work: (query: Pick<pg.PoolClient, 'query'>) => Promise<T>): Promise<T> {
+type Queryable = Pick<pg.PoolClient, 'query'>
+export async function withConversationPageRead<T>(pool: pg.Pool, work: (query: Queryable) => Promise<T>): Promise<T> {
   return withTransaction(pool, work, { isolation: 'repeatable read', readOnly: true })
 }
 /** The numeric key belongs to one actual stored source row, never another conversation's page. */

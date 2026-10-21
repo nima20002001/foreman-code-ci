@@ -109,13 +109,6 @@ async function verifyArtifact(directory, target, version, commit) {
       throw new Error(`Worker artifact checksum mismatch: ${file.path}`)
     }
   }
-  if (manifest.browserRuntime) {
-    const { readBrowserRuntimeArtifact, matchesBrowserRuntimeTarget } = await import('../apps/worker/src/browserRuntimeInstall.mjs')
-    const runtime = await readBrowserRuntimeArtifact(join(directory, 'artifacts/browser-runtime'), manifest.browserRuntime.descriptorSha256)
-    if (runtime.manifestSha256 !== manifest.browserRuntime.manifestSha256 || !matchesBrowserRuntimeTarget(runtime.target, target)) {
-      throw new Error('Browser runtime differs from the Worker target or locked descriptor')
-    }
-  }
   return { manifestSha256: sha256(bytes), contentSha256: workerArtifactContentSha256(manifest) }
 }
 
@@ -145,7 +138,7 @@ function committedBlobIds(repository, commit) {
 }
 
 function sameWorkerInputs({ repository, commit, manifest, blobs }) {
-  return [...manifest.sourceSnapshot.files, ...(manifest.browserRuntime?.sourceInputs ?? [])].every(file => {
+  return manifest.sourceSnapshot.files.every(file => {
     if (!blobs.has(file.path)) return false
     if (blobs.get(file.path) === file.gitBlobSha1) return true
     if (file.path !== 'package.json') return false
@@ -163,7 +156,6 @@ async function reuseWorkerArtifact({ repository, previousDirectory, previousArti
     const bytes = await readFile(join(directory, 'manifest.json'))
     if (sha256(bytes) !== retained.manifestSha256) throw new Error('Worker manifest checksum mismatch')
     const manifest = JSON.parse(bytes)
-    if (manifest.browserRuntimeStatus?.state === 'failed') return false
     const snapshot = manifest.sourceSnapshot
     const required = ['package.json', 'pnpm-lock.yaml', 'scripts/build-worker-artifact.mjs', path]
     if (!snapshot || snapshot.commit !== manifest.commit || !Array.isArray(snapshot.files)

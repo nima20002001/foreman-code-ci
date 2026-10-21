@@ -12,7 +12,6 @@ import { protectedKey } from '../../shared/api/protectedChatStorage'
 import { clearRevisionedFormPersistence } from '../settings/revisionedForm'
 import { useConversationDraftStore } from '../conversations'
 import { OperatorChat } from './OperatorChat'
-import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { configuredOperatorSetup } from './operatorSetupTestFixture'
@@ -48,7 +47,6 @@ async function deleteFirst() {
   fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await screen.findByRole('button', { name: 'Undo' })
 }
-beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   vi.resetAllMocks()
   localStorage.clear()
@@ -152,7 +150,7 @@ it.each(['select', 'new', 'round-trip'] as const)('does not let delayed Undo ove
   expect(useOperatorChatStore.getState()).toMatchObject({ selectedConversationId: expected, navigationGeneration: generation })
 })
 
-it('checks the original canonical receipt after response loss without issuing another native send', async () => {
+it('recovers the original receipt after a send timeout even when completed GET readback arrived first', async () => {
   const response = rejectableDeferred<never>()
   api.send.mockReturnValueOnce(response.promise).mockImplementation(async (_id, command) => ({
     replayed: true, state: states.a, requestId: command.requestId,
@@ -170,15 +168,16 @@ it('checks the original canonical receipt after response loss without issuing an
   expect(await screen.findByText('Continue once', { selector: 'p' })).toBeVisible()
   await act(async () => { response.reject(new ApiError({ code: 'REQUEST_TIMEOUT', message: 'Timed out' })) })
   await waitFor(() => expect(client.isMutating()).toBe(0))
-  fireEvent.click(await screen.findByRole('button', { name: 'Check status' }))
-  await waitFor(() => expect(input).toHaveValue(''))
-  expect(api.send).toHaveBeenCalledOnce()
-  expect(screen.queryByRole('button', { name: 'Retry original message' })).not.toBeInTheDocument()
+  expect(api.send.mock.calls[1]).toEqual(['a', { ...command, recovery: 'receipt' }])
+  expect(api.send.mock.calls.filter(([, input]) => input.recovery !== 'receipt')).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: 'Retry pending message' })).not.toBeInTheDocument()
+  expect(input).toHaveValue('')
 })
 
-it.each([false, true])('retains the draft and reuses command identity through absent-receipt recovery to a definite refusal (earlier loss=%s)', async earlierLoss => {
+it.each([false, true])('allows clearing a profile refusal only when all attempts are definitely unaccepted (earlier loss=%s)', async earlierLoss => {
   const conflict = new ApiError({ code: 'HARNESS_PROFILE_SELECTION_CONFLICT', message: 'Select the saved profile first.' }, 409)
   if (earlierLoss) api.send.mockRejectedValueOnce(new ApiError({ code: 'NETWORK_ERROR', message: 'Lost response' }))
+    .mockRejectedValueOnce(new ApiError({ code: 'OPERATOR_RECEIPT_NOT_FOUND', message: 'No receipt' }, 404))
   api.send.mockRejectedValue(conflict)
   mount()
   const input = await screen.findByRole('textbox', { name: 'Message' })
@@ -188,15 +187,17 @@ it.each([false, true])('retains the draft and reuses command identity through ab
   await waitFor(() => expect(api.send).toHaveBeenCalled())
   await waitFor(() => expect(client.isMutating()).toBe(0))
   if (earlierLoss) {
-    const retry = await screen.findByRole('button', { name: 'Retry original message' })
+    const retry = await screen.findByRole('button', { name: 'Retry pending message' })
     await waitFor(() => expect(retry).toBeEnabled())
     fireEvent.click(retry)
     await screen.findAllByText('Select the saved profile first.')
     await waitFor(() => expect(client.isMutating()).toBe(0))
-    expect(api.send.mock.calls[1]![1].requestId).toBe(api.send.mock.calls[0]![1].requestId)
+    expect(screen.queryByRole('button', { name: 'Clear rejected attempt and keep draft' })).not.toBeInTheDocument()
+  } else {
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear rejected attempt and keep draft' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry pending message' })).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
   }
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry original message' })).not.toBeInTheDocument())
-  expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
   expect(input).toHaveValue('Retained request')
 })
 
@@ -232,7 +233,7 @@ it.each([false, true])('keeps Stop bound to the accepted request while a control
   mount()
   const input = await screen.findByRole('textbox', { name: 'Message' })
   fireEvent.change(input, { target: { value: '/compact' } })
-  fireEvent.click(await screen.findByRole('button', { name: 'Stop active turn' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
   await waitFor(() => expect(api.cancel).toHaveBeenCalledExactlyOnceWith('a', 'accepted-turn'))
   expect(input).toHaveValue('/compact')
   expect(api.send).not.toHaveBeenCalled()
@@ -247,17 +248,21 @@ it.each([false, true])('uses saved full native identity for live-text readiness 
   mount()
   await screen.findByRole('textbox', { name: 'Message' })
   const listeners = api.subscribe.mock.calls[0]![1] as Parameters<typeof subscribeOperatorChat>[1]
+  act(() => listeners.event({ id: 1, conversationId: 'a', type: 'delta', data: { activityChange: {
+    schemaVersion: 1, owner: { kind: 'chat_request', conversationId: 'a', requestId: 'accepted-turn' }, native,
+    source: { schemaVersion: 1, system: 'codex', eventId: 'fragment', observedAt: '2026-10-01T00:00:00Z' },
+    change: { kind: 'text.append', itemId: native.itemId, partId: native.partId, text: 'Live answer', finality: 'provisional' },
+  } } }))
+  await screen.findByText('Live answer')
   const saved = { id: 'saved-answer', conversationId: 'a', requestId: 'accepted-turn', role: 'assistant' as const,
     nativeMessageId: native.itemId, activityNative: native, activityChannel: 'assistant' as const,
-    nativeMessageComplete: false, content: 'Live answer', revision: '1', sequence: '2' }
-  act(() => listeners.event({ id: 1, conversationId: 'a', type: 'delta', data: { scopeRevision: '2', message: saved } }))
-  await screen.findByText('Live answer')
+    nativeMessageComplete: false, content: 'Live answer' }
   states.a = { ...states.a!, revision: 2, messages: [...states.a!.messages, saved] }
   await act(async () => { await client.invalidateQueries({ queryKey: ['operator-chat', 'conversation', 'a'] }) })
   expect(await screen.findByRole('status', { name: 'Operator is typing' })).toBeVisible()
   expect(screen.getAllByText('Live answer')).toHaveLength(1)
   states.a = { ...states.a!, revision: 3, messages: [states.a!.messages[0]!,
-    { ...saved, revision: '2', nativeMessageComplete: true, content: emptyFinal ? '' : 'Saved final answer' }] }
+    { ...saved, nativeMessageComplete: true, content: emptyFinal ? '' : 'Saved final answer' }] }
   await act(async () => { await client.invalidateQueries({ queryKey: ['operator-chat', 'conversation', 'a'] }) })
   await waitFor(() => expect(screen.queryByText('Live answer')).not.toBeInTheDocument())
   if (!emptyFinal) expect(screen.getByText('Saved final answer')).toBeVisible()
@@ -300,31 +305,6 @@ it.each(['idle', 'error'] as const)('removes responding dots immediately on %s a
   act(() => listeners.event({ id: 2, conversationId: 'a', type: 'state',
     data: { requestId: 'accepted-turn', turnState } }))
   expect(screen.getByRole('status', { name: 'Operator is typing' })).toBeVisible()
-})
-
-it('keeps a new committed row while the selected conversation read awaits observed activity', async () => {
-  const running = { id: 'running-tool', requestId: 'accepted-turn', kind: 'tool' as const,
-    title: 'Current command', status: 'running' as const, sequence: '1', revision: 1 }
-  states.a = { ...states.a!, turnState: 'active', activeRequestId: 'accepted-turn', activities: [running] }
-  mount()
-  await screen.findByText('Tool · Current command')
-  await waitFor(() => expect(client.isFetching()).toBe(0))
-  const activity = rejectableDeferred<void>(), requested = vi.fn()
-  server.use(http.get('/api/operator/conversations/:id/activity', async () => {
-    requested(); await activity.promise
-    return HttpResponse.json({ activities: [running], nextCursor: null })
-  }))
-  const refresh = client.invalidateQueries({ queryKey: ['operator-chat', 'conversation', 'a'] })
-  await waitFor(() => expect(requested).toHaveBeenCalled())
-  const listeners = api.subscribe.mock.calls[0]![1] as Parameters<typeof subscribeOperatorChat>[1]
-  act(() => listeners.event({ id: 1, conversationId: 'a', type: 'delta', data: { scopeRevision: '2', message: {
-    id: 'new-native-row', conversationId: 'a', requestId: 'accepted-turn', role: 'assistant',
-    content: 'Committed during the activity read', revision: '1', sequence: '2', nativeMessageComplete: false,
-    nativeMessageId: 'native-row', activityNative: { harness: 'codex', sessionId: 'native-session', turnId: 'native-turn', itemId: 'native-row' },
-  } } }))
-  await screen.findByText('Committed during the activity read')
-  await act(async () => { activity.resolve(); await refresh })
-  expect(screen.getByText('Committed during the activity read')).toBeVisible()
 })
 
 it.each(['event', 'reconnect', 'history'] as const)('settles an observed tool outside the recent window after %s', async trigger => {

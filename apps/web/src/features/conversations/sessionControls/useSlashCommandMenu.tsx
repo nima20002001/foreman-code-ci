@@ -2,12 +2,12 @@ import { Button } from '../../../shared/ui/nocturne'
 import { useId, useState, type KeyboardEvent } from 'react'
 
 export function useSlashCommandMenu(value: string, setValue: (value: string) => void,
-  send: (value: string) => void, allowNew = false, enabled = true) {
+  send: (value: string) => void, allowNew = false) {
   const id = useId()
   const [selected, setSelected] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const options = ['/compact', '/plan', ...(allowNew ? ['/new'] : [])].filter(command => command.startsWith(value.trim()))
-  const open = enabled && !dismissed && /^\/\w*$/.test(value.trim()) && options.length > 0
+  const open = !dismissed && /^\/\w*$/.test(value.trim()) && options.length > 0
   const active = Math.min(selected, Math.max(0, options.length - 1))
   const choose = (command: string) => { setValue(command); send(command) }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {

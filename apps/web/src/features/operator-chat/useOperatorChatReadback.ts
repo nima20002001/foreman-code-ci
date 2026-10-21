@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { OperatorConversationState } from '@foreman-code/contracts'
 import { newerOperatorConversationState as newer } from './operatorConversationReadback'
@@ -14,20 +14,12 @@ import { readObservedOperatorActivity, updateObservedOperatorActivity, type Oper
 import { detailKey, listKey, type Summaries } from './operatorChatShared'
 
 /** Query-owned conversation list and selected-conversation readback. */
-export function useOperatorChatReadback(enabled: boolean, open: boolean, selectedId: string | undefined, externalDenial = false) {
+export function useOperatorChatReadback(enabled: boolean, open: boolean, selectedId: string | undefined) {
   const queryClient = useQueryClient()
   const historyLimit = useRef(10)
   const deletedRevisions = useRef(new Map<string, number>())
   const readGeneration = useRef(0)
-  useEffect(() => {
-    if (!externalDenial || !selectedId) return
-    readGeneration.current++
-    const matches = (query: { queryKey: readonly unknown[] }) => query.queryKey[0] === 'operator-chat'
-      && (query.queryKey.includes(selectedId) || JSON.stringify(query.queryKey) === JSON.stringify(listKey))
-    void queryClient.cancelQueries({ predicate: matches })
-    queryClient.removeQueries({ predicate: matches })
-  }, [externalDenial, queryClient, selectedId])
-  const list = useQuery({ queryKey: listKey, enabled: enabled && open && !externalDenial,
+  const list = useQuery({ queryKey: listKey, enabled, refetchInterval: 5_000,
     queryFn: async ({ signal }) => {
       const next = await listOperatorConversationSummaries({ signal }, historyLimit.current)
       const current = queryClient.getQueryData<Summaries>(listKey)
@@ -45,7 +37,7 @@ export function useOperatorChatReadback(enabled: boolean, open: boolean, selecte
       return { ...next, conversations }
     } })
   const listDenied = useAccessFailureLatch(list)
-  const selected = useQuery({ queryKey: detailKey(selectedId ?? ''), enabled: enabled && open && !listDenied && !externalDenial && Boolean(selectedId),
+  const selected = useQuery({ queryKey: detailKey(selectedId ?? ''), enabled: enabled && open && !listDenied && Boolean(selectedId),
     queryFn: async ({ signal }) => {
       const read = ++readGeneration.current
       const id = selectedId ?? ''
@@ -59,11 +51,10 @@ export function useOperatorChatReadback(enabled: boolean, open: boolean, selecte
       if (read !== readGeneration.current) throw new DOMException('Newer readback required', 'AbortError')
       queryClient.setQueryData<OperatorActivityHistory>(activityKey, previous =>
         updateObservedOperatorActivity(previous, updates))
-      return newer(queryClient.getQueryData<OperatorConversationState>(detailKey(id)),
-        { ...state, activities: mergeOperatorActivity(state.activities ?? [], updates) }, 'read')
-    }, retry: false })
+      return newer(current, { ...state, activities: mergeOperatorActivity(state.activities ?? [], updates) }, 'read')
+    }, retry: false, refetchInterval: 3_000 })
   const selectedDenied = useAccessFailureLatch(selected)
-  const accessDenied = listDenied || selectedDenied || externalDenial
+  const accessDenied = listDenied || selectedDenied
   const acceptState = useCallback((id: string, state: OperatorConversationState) => {
     if (state.revision <= (deletedRevisions.current.get(id) ?? -1) || state.conversation.id !== id) return
     const denial = queryClient.getQueryState(detailKey(id))?.error

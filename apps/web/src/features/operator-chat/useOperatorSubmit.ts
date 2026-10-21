@@ -60,7 +60,7 @@ export function useOperatorSubmit({ selectedId, setupReady, settingsReady, archi
       const command = await reserveOperatorMessage(id, content, window.location.pathname + window.location.search, messageSettings,
         conversation?.revision,
         { configurationVersionId: conversation?.conversation.operatorConfigurationVersionId,
-          defaultsRevision: preferences.query.data?.revision, intent: 'auto', ...(sessionMode ? { sessionMode } : {}) }, attachmentAttempt.attachments)
+          defaultsRevision: preferences.query.data?.revision, ...(sessionMode ? { sessionMode } : {}) }, attachmentAttempt.attachments)
       if (!currentSession(generation) || epoch !== identityEpoch()) return
       attachmentReceipts.remember(id, command, attachmentAttempt)
       setPreparationError(undefined)

@@ -9,7 +9,6 @@ import type { RemoteNativeManagerOptions } from './nativeManagerProxy.js'
 import { DomainError } from '../../errors.js'
 import { canCloseRetainedRemoteReviewer } from '../../placement/remoteReviewerAuthority.js'
 import { selectedInteractionResponse } from '../../interactions/delivery.js'
-import { assertWorkflowRemoteControl, workflowRemoteControl } from '../../collaboration/workflowRemoteControl.js'
 
 export type RemoteControlInput = Parameters<RemoteNativeManagerOptions['controlFor']>[0]
 /** SQL-only preparation inside the admitted Main transaction. The caller must
@@ -25,15 +24,6 @@ export async function prepareRemoteOwnerControl(sql: GraphTransactionSql, owner:
   const receipt = stored ? RemoteOperationReceiptSchema.parse(stored.receipt) : undefined
   if (!receipt || !sameWorkflowValue(receipt.intent, binding.intent) || !sameWorkflowValue(remoteActiveNative(receipt), command.native)
     || receipt.terminal || binding.placement.bindingHash !== binding.intent.bindingHash) throw new DomainError('REMOTE_CONTROL_UNAVAILABLE', 'The exact committed original native ownership is required.', 409)
-  if (command.workflowControl) {
-    if (command.kind === 'respond') throw new DomainError('REMOTE_CONTROL_UNAVAILABLE',
-      'Workflow chat cannot authorize an approval response.', 409)
-    const control = workflowRemoteControl(binding.intent, command.native, { ...command.workflowControl,
-      action: command.kind === 'steer' ? { kind: 'steer', prompt: command.prompt! } : { kind: 'stop' } })
-    await assertWorkflowRemoteControl(sql, binding.intent, control)
-    return control
-  }
-  if (command.kind === 'steer') throw new DomainError('REMOTE_CONTROL_UNAVAILABLE', 'Steering requires an admitted workflow command.', 409)
   let commandId: string, action: { kind: 'stop' } | { kind: 'respond'; interactionId: string; interactionRevision: string; nativeInteractionId: string; response: unknown }
   let target: Pick<RemoteOwnerControl, 'native' | 'nativeTarget'> = { native: command.native }
   if (command.kind === 'stop') {

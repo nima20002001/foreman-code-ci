@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { OperatorChat } from './OperatorChat'
-import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { operatorState } from './pr17-test-fixtures'
@@ -17,7 +16,6 @@ vi.mock('../../shared/api/operatorChatSummaries', async (original) => ({ ...awai
 vi.mock('../../shared/api/operatorChatStream', () => ({ subscribeOperatorChat: () => () => {} }))
 
 const clients: QueryClient[] = []
-beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   vi.clearAllMocks()
   useOperatorChatStore.getState().reset()

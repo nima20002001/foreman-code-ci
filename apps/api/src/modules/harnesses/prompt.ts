@@ -8,8 +8,7 @@ export const MAX_HARNESS_PROMPT_BYTES = 8 * 1024 * 1024
 
 /** Task input for one turn. Native-v1 configurations receive their persistent instructions and
  * skills through the harness instruction channel instead, so they are never repeated here. */
-export function buildHarnessPrompt<T extends Pick<HarnessExecutionRequest,
-  'configuration' | 'initialPrompt' | 'executionContext' | 'input'>>(request: T): string {
+export function buildHarnessPrompt(request: HarnessExecutionRequest): string {
   const configuration = request.configuration
   const legacy = configuration.instructionDelivery !== 'native-v1'
   const skills = configuration.assignedSkills.length > 0

@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto'
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { runNativeShell } from './remote-review-shell.mjs'
 
 // External provider protocol fixture. The application still qualifies the
 // pinned schema, native manager, credentials and physical process owner.
@@ -186,23 +185,6 @@ async function review(turn, prompt) {
 }
 
 async function started(turn, prompt) {
-  if (prompt.startsWith('Run this exact command once with the native shell tool.')) {
-    const command = prompt.slice(prompt.indexOf('\n') + 1)
-    const item = { type: 'commandExecution', id: `command-${turn.id}`, command,
-      commandActions: [], cwd: thread.settings.cwd, status: 'inProgress', aggregatedOutput: '', exitCode: null }
-    turn.items.push(item)
-    save()
-    notify('item/started', { threadId: thread.id, turnId: turn.id, item, startedAtMs: Date.now() })
-    const result = await runNativeShell(command, thread.settings, settings)
-    item.status = result.exitCode === 0 ? 'completed' : 'failed'
-    item.exitCode = result.exitCode
-    item.aggregatedOutput = result.output
-    save()
-    notify('item/completed', { threadId: thread.id, turnId: turn.id, item, completedAtMs: Date.now() })
-    log({ nativeShell: { exitCode: result.exitCode, output: result.output } })
-    complete(turn, 'Native command finished.', result.exitCode === 0 ? 'completed' : 'failed')
-    return
-  }
   if (prompt.startsWith('Call files_read with fileId ')) return qualificationFiles(turn, prompt)
   if (String(turn.items[0].clientId).startsWith('review-')) return review(turn, prompt)
   if (thread.instructions.includes('fixture-reviewer')) {
@@ -226,30 +208,6 @@ async function started(turn, prompt) {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     const answersFile = join(root, 'workflow-answers.json')
-    const artifactFile = join(root, 'workflow-artifact.json')
-    if (existsSync(artifactFile)) {
-      const artifact = JSON.parse(readFileSync(artifactFile, 'utf8'))
-      const call = async (name, input) => {
-        log({ nativeOutput: { name, phase: 'requested', occurredAt: new Date().toISOString() } })
-        const response = await tool(turn, name, input)
-        log({ nativeOutput: { name, phase: 'replied', success: response.success, occurredAt: new Date().toISOString() } })
-        if (!response.success) throw new Error(`Native artifact ${name} failed: ${JSON.stringify(response)}`)
-        return JSON.parse(response.contentItems[0].text)
-      }
-      const description = { filename: 'report.md', mediaType: 'text/markdown' }
-      const created = await call('files_native_output_create', { operation: 'create', ...description, commandId: randomUUID() })
-      await call('files_native_output_append', { operation: 'append', artifactId: created.artifactId, commandId: randomUUID(),
-        offset: 0, contentBase64: Buffer.from(artifact.content).toString('base64') })
-      await call('files_native_output_seal', { operation: 'seal', artifactId: created.artifactId, commandId: randomUUID() })
-      const commandId = randomUUID()
-      await call('files_native_output_publish', { operation: 'publish',
-        publication: { ...description, artifactId: created.artifactId, commandId } })
-      complete(turn, JSON.stringify({ data: 'Report published', summary: 'Report published.',
-        board: { kind: 'none', reason: 'no_access' },
-        artifactOutputs: { version: 1, outputs: [{ outputKey: artifact.outputKey, commandId }] } }))
-      log({ workflowCompleted: { pid: process.pid, sessionId: thread.id, turnId: turn.id } })
-      return
-    }
     const answers = existsSync(answersFile) ? JSON.parse(readFileSync(answersFile, 'utf8')) : undefined
     let output = thread.instructions.includes('fixture-work-handoff')
       ? JSON.stringify({ routing: { kind: 'finish' }, data: { latestDeliverable: 'fixture complete', remainingFindings: [] } })

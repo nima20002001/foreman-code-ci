@@ -9,7 +9,7 @@ export function createStreamReadback(read: () => Promise<unknown>, latencyMs = 1
       timer = undefined
       if (disposed) return
       reading = true; dirty = false
-      try { await read() } catch { /* ignore: request owner retains errors and authorization denial. */ }
+      try { await read() } catch { /* Request owner retains errors and authorization denial. */ }
       finally { reading = false; if (dirty && !disposed) request() }
     }, latencyMs)
   }

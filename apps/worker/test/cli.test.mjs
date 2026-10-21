@@ -2,17 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, copyFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 test('both CLIs provide static model-free help before argument, filesystem and runtime checks', async (t) => {
-  const parent = process.env.FOREMAN_CODE_TEST_ROOT ?? join(homedir(), '.cache', 'foreman-tmp');
-  await mkdir(parent, { recursive: true, mode: 0o700 });
-  const directory = await mkdtemp(join(parent, 'worker-help-'));
+  const directory = await mkdtemp(join(tmpdir(), 'worker-help-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = join(directory, 'src'); await mkdir(source);
   // No manifest, contracts, enrollment or worker factory is present in this copy.
-  for (const name of ['cli.mjs', 'install-cli.mjs', 'diagnostics.mjs', 'runtime.mjs', 'installation.mjs', 'browserRuntimeInstall.mjs', 'service.mjs', 'companionLauncher.mjs']) {
+  for (const name of ['cli.mjs', 'install-cli.mjs', 'diagnostics.mjs', 'runtime.mjs', 'installation.mjs', 'service.mjs', 'companionLauncher.mjs']) {
     await copyFile(new URL(`../src/${name}`, import.meta.url), join(source, name));
   }
   const before = await readdir(directory);

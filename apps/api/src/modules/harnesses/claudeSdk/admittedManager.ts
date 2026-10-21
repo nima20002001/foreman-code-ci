@@ -1,7 +1,6 @@
 import { createAdmittedNativeManager } from '../admittedManager.js'
 import type { ClaudeNativeAllocationResult } from './composition.js'
 import type { ClaudeNativeSessionManager } from './sessionManager.js'
-import { DomainError } from '../../errors.js'
 
 /** Claude adds its actual first-input and owned-control capability to the shared
  * admitted lifetime; it never advertises a pre-input native session ID. */
@@ -15,12 +14,6 @@ export function createAdmittedClaudeManager(initialize: (signal: AbortSignal) =>
     refreshInspectionCredentials: async (start, servers, signal) => (await admitted.actual(signal)).refreshInspectionCredentials(start, servers, signal),
     refreshSessionCredentials: async (session, start, servers, signal) =>
       (await admitted.actual(signal)).refreshSessionCredentials(session, start, servers, signal),
-    rebindApplicationAccess: async (session, start, signal) => {
-      const current = await admitted.actual(signal)
-      if (!current.rebindApplicationAccess) throw new DomainError('NATIVE_CREDENTIAL_REBIND_UNAVAILABLE',
-        'The admitted Claude driver cannot change its application subject.', 409)
-      await current.rebindApplicationAccess(session, start, signal)
-    },
     async *startInitialTurn(start, input, signal) { yield* (await admitted.actual(signal)).startInitialTurn(start, input, signal) },
     nativeCallbackContext: (sessionId, toolUseId) => {
       // Synchronous callbacks can run only after initialization. Keep the exact

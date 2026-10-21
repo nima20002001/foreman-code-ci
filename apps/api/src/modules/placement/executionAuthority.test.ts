@@ -5,12 +5,11 @@ import type { GraphTransactionSql } from '../run-graph/connection.js'
 import type { AgentPlacementProducer } from './agentProducer.js'
 import { deriveDispatch, freezePlacement } from './binding.js'
 import { approvalFixture } from '../../../test/helpers/wave25ApprovalFixture.js'
-import type { RemoteOperationReceipt, RemoteOwnerControl } from '@foreman-code/contracts/remote-execution'
+import type { RemoteOperationReceipt } from '@foreman-code/contracts/remote-execution'
 import type pg from 'pg'
 import { ExecutionFactsResultSchema } from '@foreman-code/contracts/execution-authority'
 import { configurationWithNodeSkills } from '../skills/nodeSkills.js'
 import { assertRemoteExecutionAuthority, createExecutionAuthorityExtension } from './executionAuthority.js'
-import { ChatSendRequestSchema, WorkflowControlContinuationSchema } from '@foreman-code/contracts'
 
 type ExecutionFactsResult = ReturnType<typeof ExecutionFactsResultSchema.parse>
 
@@ -41,8 +40,7 @@ function fixture() {
     bootId: randomUUID(), connectionGeneration: 1 }
   const state = { grant: true, origin: connection, cleanup: false, failedExecutionId: undefined as string | undefined,
     stopped: false, receipt: true, reviewer: undefined as unknown, reviewsPending: false, configuration: undefined as ExecutionFactsResult['configuration'] | undefined,
-    harness: undefined as ExecutionFactsResult['harness'] | undefined, version: approvalFixture().version,
-    continuation: undefined as unknown, command: undefined as unknown, completedStop: false }
+    harness: undefined as ExecutionFactsResult['harness'] | undefined, version: approvalFixture().version }
   const receipt: RemoteOperationReceipt = { schemaVersion: 1, intent, connection, workerIncarnationId: randomUUID(), sequence: 4,
     phase: 'running', entryAttempted: true, turnEntryAttempted: true, stopFence: false, controls: [],
     turnInput: { correlationId: 'execution:execution', promptDigest: digest, sessionMode: 'regular' },
@@ -50,11 +48,6 @@ function fixture() {
   let reads = 0
   const sql = { query: async (text: string) => {
     reads++
-    if (text.includes('from run_control_continuations')) return {
-      rows: state.continuation ? [{ record: state.continuation,
-        reserved_successor_execution_id: 'successor', delivery_id: 'delivery' }] : [], rowCount: 0 }
-    if (text.includes('from run_chat_commands')) return {
-      rows: state.command ? [state.command] : state.completedStop ? [{ id: 'stop' }] : [], rowCount: 0 }
     if (text.includes('source_preparation_reconciliations')) return { rows: [], rowCount: 0 }
     if (text.startsWith('select i.record as dispatch')) return { rows: [{ dispatch: intent, transition: null,
       placement, operation_id: intent.operationId, execution_id: intent.executionId, run_id: intent.runId,
@@ -87,14 +80,11 @@ function fixture() {
   ports.principal.mockResolvedValue({ id: 'principal' })
   const authorize = (action: 'start' | 'read' | 'control' | 'stop', authenticated = connection) =>
     assertRemoteExecutionAuthority(sql, locations, { version: 1, intent, placement, action }, authenticated, producer)
-  const client = { query: (input: string | pg.QueryConfig, values?: unknown[]) =>
-    sql.query(typeof input === 'string' ? input : input.text, typeof input === 'string' ? values : input.values),
-  on() {}, removeListener() {}, release() {} }
+  const client = { query: sql.query, on() {}, removeListener() {}, release() {} }
   const extension = createExecutionAuthorityExtension({ connect: async () => client } as unknown as pg.Pool,
     locations, producer)
-  const request = (action: 'read' | 'control' | 'stop' | 'retain-reviewer' = 'read', workflowControl?: RemoteOwnerControl) => extension.handle!(
-    { version: 1, intent, placement, action, ...(workflowControl ? { workflowControl } : {}) },
-    { binding: connection } as Parameters<NonNullable<typeof extension.handle>>[1])
+  const request = (action: 'read' | 'control' | 'stop' = 'read') => extension.handle!(
+    { version: 1, intent, placement, action }, { binding: connection } as Parameters<NonNullable<typeof extension.handle>>[1])
   const readFacts = () => extension.handle!({ method: 'read-facts',
     authorization: { version: 1, intent, placement, action: 'read' } },
   { binding: connection } as Parameters<NonNullable<typeof extension.handle>>[1])
@@ -120,98 +110,6 @@ function retainReviewer(f: ReturnType<typeof fixture>) {
     result: execution.result, expiresAt: '2026-10-01T00:01:00.000Z' }
   return reviewer
 }
-
-describe('Main reviewer retention after workflow controls', () => {
-  it('offers the successful ordinary reviewer without changing its original result or native identity', async () => {
-    const f = fixture()
-    const reviewer = retainReviewer(f)
-    const original = structuredClone({ reviewer, receipt: f.receipt })
-    await expect(f.request('retain-reviewer')).resolves.toMatchObject({
-      payload: { reviewer: { agentId: reviewer.execution.agentId } },
-    })
-    expect({ reviewer, receipt: f.receipt }).toEqual(original)
-  })
-
-  it.each(['reserved', 'waiting_settlement', 'admitted', 'failed', 'canceled', 'unknown'] as const)(
-    'withholds retention for a %s continuation across repeated authority reads', async state => {
-      const f = fixture()
-      const reviewer = retainReviewer(f)
-      const previousExecution = { runId: f.intent.runId, workflowVersionId: reviewer.version.id,
-        executionId: f.intent.executionId, attempt: 1 }
-      const target = { kind: 'workflow_execution', execution: previousExecution,
-        agent: { workspaceId: reviewer.run.workspaceId, workflowId: reviewer.run.workflowId,
-          workflowNodeId: f.intent.nodeId, agentId: reviewer.execution.agentId } }
-      f.state.command = { request: ChatSendRequestSchema.parse({ commandId: 'send', target,
-        intent: 'interrupt_and_send', content: 'Revise the work', attachments: [] }) }
-      f.state.continuation = WorkflowControlContinuationSchema.parse({ id: 'continuation',
-        controlCommandId: 'send', deliveryReceiptId: 'delivery',
-        work: { kind: 'slot', runId: f.intent.runId, workflowVersionId: reviewer.version.id, slotId: 'slot' },
-        previousExecution, nativeTarget: { nativeSessionId: f.receipt.native!.sessionId,
-          nativeTurnId: f.receipt.native!.turnId, ownerRequestId: `execution:${f.intent.executionId}` },
-        cause: 'interrupt_and_send', state,
-        successorExecution: state === 'admitted' ? { ...previousExecution, executionId: 'successor', attempt: 2 } : null,
-        errorCode: state === 'failed' ? 'PREPARATION_FAILED' : null,
-        createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' })
-      const original = structuredClone({ reviewer, receipt: f.receipt })
-      for (let read = 0; read < 2; read++) {
-        const response = await f.request('retain-reviewer')
-        expect(response.payload).not.toHaveProperty('reviewer')
-      }
-      expect({ reviewer, receipt: f.receipt }).toEqual(original)
-    },
-  )
-
-  it('withholds retention after an unqueued Stop receipt has completed', async () => {
-    const f = fixture()
-    const reviewer = retainReviewer(f)
-    f.state.completedStop = true
-    const original = structuredClone({ reviewer, receipt: f.receipt })
-    const response = await f.request('retain-reviewer')
-    expect(response.payload).not.toHaveProperty('reviewer')
-    expect({ reviewer, receipt: f.receipt }).toEqual(original)
-  })
-
-  it.each(['failed', 'canceled'] as const)('withholds retention after normalized %s', async outcome => {
-    const f = fixture()
-    const reviewer = retainReviewer(f)
-    const result = outcome === 'failed'
-      ? { outcome, error: { code: 'WORKFLOW_RESULT_REJECTED', message: 'The workflow result was rejected.', retryable: false } }
-      : { outcome }
-    f.state.reviewer = { ...reviewer, execution: { ...reviewer.execution, result } }
-    const response = await f.request('retain-reviewer')
-    expect(response.payload).not.toHaveProperty('reviewer')
-  })
-})
-
-describe('Main authority for admitted workflow controls', () => {
-  it.each(['stop', 'steer'] as const)('authorizes only the durable %s command and its original native input', async kind => {
-    const f = fixture()
-    const command: RemoteOwnerControl = { schemaVersion: 1, protocolVersion: 1, commandId: 'chat-control',
-      operationId: f.intent.operationId, attemptId: f.intent.attemptId, executionId: f.intent.executionId,
-      bindingHash: f.intent.bindingHash, owner: f.intent.owner, native: f.receipt.native!,
-      workflowControl: { ownerRequestId: 'execution:execution' },
-      action: kind === 'stop' ? { kind } : { kind, prompt: 'Revise the current plan.' } }
-    const target = { kind: 'workflow_execution', agent: { workspaceId: 'workspace', workflowId: 'workflow',
-      workflowNodeId: 'node', agentId: 'agent' }, execution: { runId: 'run', workflowVersionId: 'version', executionId: 'execution', attempt: 1 } }
-    const stored = { id: command.commandId, run_id: 'run', target, state: 'unknown', operation: kind,
-      native_target: { nativeSessionId: 'native-session', nativeTurnId: 'original-turn',
-        ownerRequestId: 'execution:execution', sessionMode: 'plan' },
-      request: { target, intent: 'steer', content: 'Revise the current plan.', attachments: [], sessionMode: 'plan' },
-      native_prompt: 'Revise the current plan.' }
-    f.state.command = stored
-    const action = kind === 'stop' ? 'stop' : 'control'
-    await expect(f.request(action, command)).resolves.toMatchObject({ payload: { workflowControlCommandId: 'chat-control' } })
-    await expect(f.request(action, { ...command, workflowControl: { ownerRequestId: 'execution:other' } }))
-      .rejects.toMatchObject({ code: 'REMOTE_CONTROL_UNAVAILABLE' })
-    await expect(f.request(action, { ...command, native: { ...command.native!, turnId: 'later-turn' } }))
-      .rejects.toMatchObject({ code: 'REMOTE_AUTHORITY_DENIED' })
-    f.state.command = { ...stored, state: 'canceled' }
-    await expect(f.request(action, command)).rejects.toMatchObject({ code: 'REMOTE_CONTROL_UNAVAILABLE' })
-    f.state.command = stored
-    f.state.grant = false
-    await expect(f.request(action, command)).rejects.toMatchObject({ code: 'REMOTE_AUTHORITY_DENIED' })
-  })
-})
 
 describe('remote cleanup authorization', () => {
   it('lets the Worker stop and read back only the failed attempt while retaining its owner and device checks', async () => {

@@ -9,7 +9,7 @@ import { acceptAgentChatState } from './model'
 import { newerOperatorConversationState as newer } from '../../operator-chat/operatorConversationReadback'
 import { operatorState } from '../../operator-chat/pr17-test-fixtures'
 
-type Query = Parameters<typeof hydrateMessageAttachments>[0] & Parameters<typeof readOperatorActivitySnapshot>[1]
+type Query = Parameters<typeof hydrateMessageAttachments>[0]
 function fileRow(conversationId: string, kind: 'agent' | 'operator', context = agentChatFixtures.idleAfterCompletion.context) {
   return { file_id: 'input-file', revision_id: 'input-revision', current_revision_id: 'input-revision', activity_record_revision: '7',
     chat_kind: kind, owner_principal_id: 'owner', operator_id: kind === 'operator' ? 'application-operator' : null,

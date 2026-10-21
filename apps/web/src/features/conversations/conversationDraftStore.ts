@@ -12,71 +12,55 @@ function loadDrafts(): Record<string, string> {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (!key?.startsWith(prefix)) continue
-      try { drafts[decodeURIComponent(key.slice(prefix.length))] = localStorage.getItem(key) ?? '' } catch { /* ignore: malformed storage keys are not drafts. */ }
+      try { drafts[decodeURIComponent(key.slice(prefix.length))] = localStorage.getItem(key) ?? '' } catch { /* Ignore a malformed key. */ }
     }
-  } catch { /* ignore: drafting remains available in memory. */ }
+  } catch { /* Drafts can remain in memory when storage is unavailable. */ }
   return drafts
 }
 export interface ConversationDraftState {
   drafts: Record<string, string>
-  versions: Record<string, number>
   setDraft(conversationId: string, value: string): void
   clearDraft(conversationId: string, expectedContent?: string): void
-  clearExactDraft(conversationId: string, expectedContent: string, expectedVersion: number): void
   clearAllDrafts(): void
 }
 
 /** Each conversation has an independent storage key; another tab cannot overwrite its neighbors. */
 export const useConversationDraftStore = create<ConversationDraftState>((set) => ({
   drafts: loadDrafts(),
-  versions: {},
   setDraft: (id, value) => {
     if (!available()) return
-    try { window.localStorage.setItem(protectedKey('draft', id), value) } catch { /* ignore: drafting remains available in memory. */ }
-    set((state) => ({ drafts: { ...state.drafts, [id]: value }, versions: { ...state.versions, [id]: (state.versions[id] ?? 0) + 1 } }))
+    try { window.localStorage.setItem(protectedKey('draft', id), value) } catch { /* Storage is optional for drafting. */ }
+    set((state) => ({ drafts: { ...state.drafts, [id]: value } }))
   },
   clearDraft: (id, expectedContent) => {
     if (!available()) return
     set((state) => {
       let latest = state.drafts[id]
-      try { latest = window.localStorage.getItem(protectedKey('draft', id)) ?? latest } catch { /* ignore: use the current in-memory draft. */ }
+      try { latest = window.localStorage.getItem(protectedKey('draft', id)) ?? latest } catch { /* Use the in-memory draft. */ }
       if (expectedContent !== undefined && latest?.trim() !== expectedContent.trim()) return state
       const drafts = { ...state.drafts }; delete drafts[id]
-      try { window.localStorage.removeItem(protectedKey('draft', id)) } catch { /* ignore: this view retains the cleared state. */ }
-      return { drafts, versions: { ...state.versions, [id]: (state.versions[id] ?? 0) + 1 } }
+      try { window.localStorage.removeItem(protectedKey('draft', id)) } catch { /* Storage is optional for drafting. */ }
+      return { drafts }
     })
   },
-  clearExactDraft: (id, expectedContent, expectedVersion) => {
-    if (!available()) return
-    set(state => {
-      let latest = state.drafts[id]
-      try { latest = window.localStorage.getItem(protectedKey('draft', id)) ?? latest }
-      catch { /* ignore: the in-memory draft remains available. */ }
-      if (latest !== expectedContent || state.drafts[id] !== expectedContent || (state.versions[id] ?? 0) !== expectedVersion) return state
-      const drafts = { ...state.drafts }; delete drafts[id]
-      try { window.localStorage.removeItem(protectedKey('draft', id)) }
-      catch { /* ignore: this view retains the cleared state. */ }
-      return { drafts, versions: { ...state.versions, [id]: expectedVersion + 1 } }
-    })
-  },
-  clearAllDrafts: () => set({ drafts: {}, versions: {} }),
+  clearAllDrafts: () => set({ drafts: {} }),
 }))
 
 if (typeof window !== 'undefined') {
-  window.addEventListener(identityChangedEvent, () => useConversationDraftStore.setState({ drafts: {}, versions: {} }))
+  window.addEventListener(identityChangedEvent, () => useConversationDraftStore.setState({ drafts: {} }))
   window.addEventListener('storage', (event) => {
     if (!available()) return
-    if (event.key === null) { useConversationDraftStore.setState({ drafts: {}, versions: {} }); return }
+    if (event.key === null) { useConversationDraftStore.setState({ drafts: {} }); return }
     if (!event.key.startsWith(prefix)) return
     let id: string
-    try { id = decodeURIComponent(event.key.slice(prefix.length)) } catch { return /* ignore: malformed storage keys are not drafts. */ }
+    try { id = decodeURIComponent(event.key.slice(prefix.length)) } catch { return }
     useConversationDraftStore.setState((state) => {
       const drafts = { ...state.drafts }
       let latest = event.newValue
-      try { latest = window.localStorage.getItem(event.key!) } catch { /* ignore: the storage event carries the latest available draft. */ }
+      try { latest = window.localStorage.getItem(event.key!) } catch { /* Use the storage event when reads are unavailable. */ }
       if (latest === null) delete drafts[id]
       else drafts[id] = latest
-      return { drafts, versions: { ...state.versions, [id]: (state.versions[id] ?? 0) + 1 } }
+      return { drafts }
     })
   })
 }

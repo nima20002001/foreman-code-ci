@@ -85,8 +85,6 @@ jobs:
           node-version: 22.23.2
       # The pinned pnpm through corepack, as on our computers; Worker tests read it offline from corepack's cache.
       - run: corepack enable && corepack install
-      # Chromium's sandbox needs unprivileged user namespaces, which the image's AppArmor policy restricts.
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - id: cache-inputs
         run: |
           echo "packages=$(node scripts/ci-packages.mjs key "$PWD")" >> "$GITHUB_OUTPUT"

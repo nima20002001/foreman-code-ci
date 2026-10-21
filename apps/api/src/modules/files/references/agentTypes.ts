@@ -12,15 +12,12 @@ export type AgentReferenceContext = {
   workflowId: string
   agentId: string
   conversationId?: string
-  consultationId?: string
 } & ({ runId: string; executionId: string } | { runId?: never; executionId?: never })
 
 export interface AgentReferenceAuthorization {
   /** null means an authenticated global Operator conversation: no inherited references. */
   resolve(principal: ManagementPrincipal, subject: AgentReferenceSubject,
     query?: FileQuery): Promise<AgentReferenceContext | null>
-  attachment?(principal: ManagementPrincipal, subject: AgentReferenceSubject, context: AgentReferenceContext,
-    ref: Pick<AgentFileReadInput, 'fileId' | 'revisionId'>, query?: FileQuery): Promise<boolean>
 }
 
 export interface AgentReferenceManifestEntry extends Pick<FileRevision,
@@ -38,8 +35,6 @@ export interface BoundAgentReferences {
   read(input: unknown): Promise<AgentFileReadResult>
 }
 export interface ReferenceReadRepository {
-  completeAttachment?(context: AgentReferenceContext, ref: Pick<AgentFileReadInput, 'fileId' | 'revisionId'>,
-    reauthorize: (query: FileQuery) => Promise<void>): Promise<'ready' | 'pending' | 'removed' | 'not_found'>
   /** A Run-wide pin is shared by all executions in that Run. Listing does not create pins. */
   pinned(runId: string, fileIds: readonly string[]): Promise<ReadonlyMap<string, string>>
   /** Reauthorize and check the tombstone before committing a first-read fact. No byte I/O in the transaction. */

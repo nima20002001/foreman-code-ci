@@ -1,8 +1,5 @@
-import type { WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
-import { MemoryResultRejected } from '../collaboration/memoryResultError.js'
 import { isDatabaseTimeout, retryDatabaseTimeout } from '../../infrastructure/databaseTimeout.js'
 import { withAbortSignal } from '../../infrastructure/abortSignal.js'
-import { ExecutionLimiter } from '../runs/limiter.js'
 import { RETIRED_OPENCODE_MESSAGE } from '@foreman-code/contracts'
 import { runtimeTimingPoint, timeRuntimeOperation, withRuntimeTimingContext } from '../../infrastructure/runtimeTiming.js'
 import { inspectNativeResponse } from '../harnesses/responseAvailability.js'
@@ -26,9 +23,6 @@ import {
   type PendingNativeInteraction,
   type ReviewJob,
   type WorkflowRun,
-  type CoordinationResultContext,
-  type CoordinatorConsultationBinding,
-  canonicalJson,
   HarnessExecutionRequestSchema,
 } from '@foreman-code/contracts'
 
@@ -37,17 +31,6 @@ import { APP_MCP_TOKEN_ENVIRONMENT_VARIABLE, WORKER_CREDENTIAL_RENEWAL_WINDOW_MS
   type IssuedWorkerCredential } from '../access/workerCredentials.js'
 import type { NativeHarnessSessionManager, NativeHistory } from '../harnesses/port.js'
 import { DomainError } from '../errors.js'
-import type { WorkflowCollaborationIntegration } from '../collaboration/workflowIntegration.js'
-import type { WorkflowQueuedInput, WorkflowChatLockedTarget, WorkflowChatTarget,
-  WorkflowControlCommand, WorkflowChatOwnerPort } from '../collaboration/workflowControlTypes.js'
-import { appendWorkflowChatInput } from './workflowChatInput.js'
-import { admittedWorkflowChatPrompt } from './workflowChatInput.js'
-import { createWorkflowChatOwner, type WorkflowChatNativeCapture } from './workflowChatOwner.js'
-import { readWorkflowControlCommandLocked } from '../collaboration/workflowControlRecords.js'
-import { observeWorkflowConsultation } from './workflowConsultationObserver.js'
-import { readCoordinatorConsultationLocked, failCoordinatorConsultationPreparationLocked,
-  settleCoordinatorConsultationLocked } from '../collaboration/workflowConsultations.js'
-import type { ConsultationTransaction } from '../collaboration/consultationBrowser.js'
 import { ReviewerDispatcher } from './reviewer.js'
 import { nativePersistenceRedactor } from './nativePersistence.js'
 import { workResultRepairPrompt } from './workResultRepair.js'
@@ -55,7 +38,6 @@ import { deliverableRepairPrompt, deliverableVerdict, nativeOutputSchema, type D
 import { NATIVE_EVENT_BATCH_SIZE } from './nativeEventBatches.js'
 import { assertOriginalWorkflowTerminal } from './workflowTerminalSource.js'
 import { workResultRepairCorrelation } from '../runs/workResultRepair.js'
-import { isWorkflowResultEffectFailure } from '../runs/workflowResultEffectFailure.js'
 import { reviewTurnEvidence } from './reviewerEvidence.js'
 import type { ReviewCleanupSession, ReviewCredentialMaintenance } from './reviewerRuntime.js'
 import { coordinateSessionManager, isLeaseLost, type SingleWriterSessionManager } from './sessionWriter.js'
@@ -85,7 +67,7 @@ import type {
   ResolvedNativeSessionManager,
 } from './runtimePorts.js'
 import type { ExecutionCredentialProvider } from '../harnesses/mcpDetection.js'
-import { readDetachedWorkflowLifetime, readDetachedWorkflowSession, readRemoteWorkflowContinuation, readRemoteOutputSettlement, recoverWorkflowNativeClosure,
+import { readDetachedWorkflowLifetime, readDetachedWorkflowSession, readRemoteWorkflowContinuation, recoverWorkflowNativeClosure,
   type ClosedWorkflowSession, type WorkflowClosureStore } from './workflowClosure.js'
 import { finishRecoveredWorkflowCredentials } from './workflowTerminalRecovery.js'
 import { assertSavedPendingApprovalOriginalLocked } from './nativeApprovalProof.js'
@@ -144,7 +126,6 @@ interface OwnedNativeSession {
     principalId?: string
   }
   terminalRecoveredWithoutCredential?: boolean
-  outputSettlementComplete?: boolean
   cleanup?: Promise<Error[]>
   reviewFinalizer?: symbol
   reviewFinishing?: boolean
@@ -157,17 +138,6 @@ interface OwnedNativeSession {
   reviewerRecoveryPending?: boolean
   pendingApprovalRestoration?: boolean
   retainedObservationError?: unknown
-  activeSessionMode?: 'regular' | 'plan'
-  consultation?: {
-    binding: CoordinatorConsultationBinding
-    commandId: string
-    target: Extract<WorkflowChatTarget, { kind: 'workflow_coordinator' }>
-    task?: Promise<void>
-    started?: Promise<void>
-    credential?: IssuedWorkerCredential
-    accessRebindAttempted?: boolean
-    previous?: { context: NativeManagerResolutionContext; credential?: IssuedWorkerCredential }
-  }
 }
 
 interface ApprovalObservationInput {
@@ -180,12 +150,9 @@ interface ApprovalObservationInput {
   owner: RunOwnership
   signal: AbortSignal
   workHandoffContract?: string | undefined
-  coordinationResult?: CoordinationResultContext | undefined
-  hierarchyResult?: { version: WorkflowVersionV3; workflowNodeId: string } | undefined
   /** Enforced deliverable contract for every workflow Agent execution. */
   deliverable?: DeliverableContract | undefined
   onStarted?: (() => void) | undefined
-  queuedInput?: WorkflowQueuedInput | undefined
 }
 
 interface WorkflowObservationState {
@@ -253,22 +220,8 @@ export class ApprovalExecutionCoordinator {
   private readonly cancellations = new Map<string, Promise<void>>()
   private readonly reviewerRecoveries = new Map<string, Promise<boolean>>()
   private readonly sharedRunOwners = new Map<string, RunOwnership>()
-  private readonly runCapacity = new Map<string, { maximum: number; limiter: ExecutionLimiter }>()
-  private readonly consultationStarts = new Map<string, Promise<void>>()
-  private workflowControls: ReturnType<typeof createWorkflowChatOwner> | undefined
   private closing = false
   private restartClosure: Promise<void> | undefined
-
-  executionCapacity(runId: string, maximum: number): ExecutionLimiter {
-    const existing = this.runCapacity.get(runId)
-    if (existing) {
-      if (existing.maximum !== maximum) throw new DomainError('RUN_PIN_CONFLICT', 'Run parallelism changed.', 409)
-      return existing.limiter
-    }
-    const limiter = new ExecutionLimiter(maximum, 1000)
-    this.runCapacity.set(runId, { maximum, limiter })
-    return limiter
-  }
 
   residentRunIds(): string[] {
     return [...new Set([...this.pendingCleanupRuns, ...[...this.ownedSessions.values()].map((owned) => owned.execution.runId)])]
@@ -293,10 +246,8 @@ export class ApprovalExecutionCoordinator {
         owned.session = session
         owned.generation += 1
         // A late create/attach completion invalidates earlier closure evidence.
-        if (!owned.consultation) {
-          this.closedExecutions.delete(owned.execution.id)
-          this.closedWorkflowSessions.delete(owned.execution.id)
-        }
+        this.closedExecutions.delete(owned.execution.id)
+        this.closedWorkflowSessions.delete(owned.execution.id)
         delete owned.openingFailed
         return session
       },
@@ -385,7 +336,6 @@ export class ApprovalExecutionCoordinator {
   }
 
   private cleanupSession(owned: OwnedNativeSession, cancel = true): Promise<Error[]> {
-    if (owned.consultation) return this.cleanupConsultation(owned)
     if (cancel) owned.controller.abort()
     if (owned.cleanup) return owned.cleanup
     const safe = nativePersistenceRedactor(Object.values(this.managerCredentials.get(owned.manager)?.environment.variables ?? {}))
@@ -542,12 +492,8 @@ export class ApprovalExecutionCoordinator {
     check()
     if (execution.state !== 'completed' || !execution.result || !execution.finishedAt) throw new DomainError(
       'REPEAT_BOUNDARY_PENDING', 'Cleanup requires the exact durable terminal result.', 409)
-    await this.settleRetainedWorkflowTerminal(execution, owner, signal)
-    check()
-    await this.recoverOutputSettlement(execution, owner, signal)
     const retained = this.ownedSessions.get(execution.id)
-    const control = await (await this.runs.repeat(owner)).workflowControlDisposition(execution.id)
-    if (retained?.manager.retainsReviewerSession && !retained.consultation && control.kind === 'ordinary') {
+    if (retained?.manager.retainsReviewerSession) {
       retained.execution = execution
       await this.budgets.finish(execution.id, execution.finishedAt)
       await store.settleNativeExecution(execution.id)
@@ -589,64 +535,6 @@ export class ApprovalExecutionCoordinator {
     check()
     await store.settleNativeExecution(execution.id)
     check()
-  }
-
-  private async finishOutputSettlement(owned: OwnedNativeSession, owner: RunOwnership,
-    terminal: NonNullable<NativeHistory['terminalTurn']>, manager: NativeHarnessSessionManager,
-    lane: SessionWriteLease): Promise<void> {
-    const session = owned.session!
-    const safe = nativePersistenceRedactor(Object.values(this.managerCredentials.get(owned.manager)?.environment.variables ?? {}))
-    if (!manager.settleTurn) throw new DomainError('NATIVE_SETTLEMENT_UNAVAILABLE', 'The original native settlement port is unavailable.', 409)
-    await this.interactions.coordination.acknowledgeLaneTurn(lane.fence, terminal.correlationId, terminal.providerId)
-    lane.providerId = terminal.providerId
-    const settled = await manager.settleTurn(session, terminal.correlationId, lane.guard.signal)
-    assertOriginalWorkflowTerminal(owned.execution, session, settled, terminal.correlationId)
-    if (!isDeepStrictEqual(settled.terminalTurn, terminal)) throw new DomainError(
-      'NATIVE_TERMINAL_SOURCE_REQUIRED', 'The settled result differs from the validated provider output.', 409)
-    const evidence = this.captureNative(owner, owned.execution,
-      { type: 'history', history: safe.value(settled) }, 'recovery', lane)
-    if (owned.execution.resultProtocol) await this.runs.publishWorkflowTerminalSettlement(owned.execution, owner, evidence)
-    else await this.runs.retainSettledTerminal(owner, evidence)
-    owned.outputSettlementComplete = true
-  }
-
-  private async recoverOutputSettlement(execution: HarnessExecution, owner: RunOwnership,
-    signal?: AbortSignal): Promise<boolean> {
-    let owned = this.ownedSessions.get(execution.id)
-    if (owned?.outputSettlementComplete || owned?.context.purpose === 'reviewer') return false
-    if (owned && !this.rawManagers.get(owned.manager)?.settleTurn) return false
-    const proof = await this.runs.readOutputSettlement(execution, owner)
-    if (!proof || proof.original.type !== 'history' || !proof.original.history.terminalTurn) return false
-    const terminal = proof.original.history.terminalTurn
-    if (!owned) {
-      const lifetime = await readRemoteOutputSettlement(owner, execution, proof)
-      if (!lifetime) return false
-      await this.waitForRestartWriter(owner, execution, lifetime.session, terminal.correlationId,
-        () => readRemoteOutputSettlement(owner, execution, proof), signal)
-      const configuration = await this.runs.getExecutionConfiguration(execution.agentConfigurationVersionId, execution)
-      const run = await this.runs.get(execution.runId, owner)
-      if (!configuration || !run) throw new DomainError('NATIVE_SETTLEMENT_UNAVAILABLE', 'The saved execution configuration is unavailable.', 409)
-      await this.validateContinuation?.(execution.id, signal)
-      const request = await this.workflowRequest(execution, configuration, run, owner)
-      const context = { ...await this.managerContext(execution, configuration), workflowRequest: request }
-      const resolved = this.resolveManager(context, owner)
-      if (resolved.processState === 'needs_start') resolved.beginStart?.()
-      owned = this.ownSession(execution, context, resolved.manager)
-      owned.runOwner = owner
-      owned.session = lifetime.session
-      owned.closureGeneration = lifetime.generation
-      owned.closureRegistration = Promise.resolve(lifetime.generation)
-      owned.terminalRecoveredWithoutCredential = true
-      const attached = await this.openingSession(owned, resolved.manager.attachSession(lifetime.session,
-        { kind: 'workflow', correlationId: terminal.correlationId, request }, signal))
-      this.assertSessionIdentity(lifetime.session, attached)
-      resolved.markResident?.()
-    }
-    owned.execution = execution
-    const retained = owned
-    await retained.manager.withLane(retained.session!, terminal.correlationId, signal,
-      (manager, lane) => this.finishOutputSettlement(retained, owner, terminal, manager, lane))
-    return true
   }
 
   /** Capture at reviewer attachment, not in its eventual finally callback. The
@@ -749,11 +637,9 @@ export class ApprovalExecutionCoordinator {
     private readonly nativeCaptures?: WorkflowNativeCapturePort,
     private readonly reviewNativeCaptures?: ReviewNativeCapturePort,
     private readonly recoverNativeProcesses?: (executionId: string, signal: AbortSignal, owner: RunOwnership) => Promise<boolean>,
-    private readonly reserveNativeLaunch?: (executionId: string, manager: NativeHarnessSessionManager,
-      consultation?: CoordinatorConsultationBinding) => void | Promise<void>,
+    private readonly reserveNativeLaunch?: (executionId: string, manager: NativeHarnessSessionManager) => void | Promise<void>,
     private readonly prepareManagerContext?: (context: NativeManagerResolutionContext) => Promise<NativeManagerResolutionContext>,
     private readonly commitReviewNative?: (executionId: string) => Promise<void>,
-    private readonly collaboration?: WorkflowCollaborationIntegration,
   ) {
     this.reviewers = new ReviewerDispatcher(interactions.coordination, this)
   }
@@ -768,7 +654,7 @@ export class ApprovalExecutionCoordinator {
   private captureNative(owner: RunOwnership, execution: HarnessExecution, source: WorkflowOriginalNativeSource,
     kind: 'live' | 'recovery', lease?: SessionWriteLease): RepeatNativeEvidence {
     const owned = this.ownedSessions.get(execution.id)
-    if (!owned?.session || owned.consultation || !this.nativeCaptures) throw new DomainError('NATIVE_CAPTURE_COMPOSITION_REQUIRED',
+    if (!owned?.session || !this.nativeCaptures) throw new DomainError('NATIVE_CAPTURE_COMPOSITION_REQUIRED',
       'The original native coordinator capture channel is not composed.', 409)
     const manager = owned.manager, session = owned.session, generation = owned.generation
     const closureGeneration = owned.closureGeneration ?? null
@@ -932,7 +818,7 @@ export class ApprovalExecutionCoordinator {
   /** Read-only current manager/lease facts; absence is not replaced with a historic lane. */
   passiveOwnedNativeSessions() {
     return [...this.ownedSessions.values()].flatMap(owned => {
-      if (!owned.session || owned.consultation || owned.failed || owned.cleanup) return []
+      if (!owned.session || owned.failed || owned.cleanup) return []
       const lease = owned.manager.capturedLease(owned.session)
       const manager = this.rawManagers.get(owned.manager)
       if (!lease || !manager || lease.guard.signal.aborted) return []
@@ -945,426 +831,6 @@ export class ApprovalExecutionCoordinator {
           owned.manager.assertCapturedLease(session, lease)
         } }]
     })
-  }
-
-  /** Public controls reuse this coordinator's current Run/native ownership.
-   * Readback only projects the original observer's durable source. */
-  workflowChatOwner(sql: GraphSqlClient,
-    validateAdmission: WorkflowChatOwnerPort['validateAdmission']) {
-    return this.workflowControls = createWorkflowChatOwner({ sql, runs: this.runs, validateAdmission,
-      withOwner: async (target, work) => {
-        const id = target.kind === 'workflow_execution' ? target.execution.executionId
-          : (await sql.query<{ parent_execution_id: string }>(`select parent_execution_id from run_hierarchy_groups
-            where run_id=$1 and parent_activation_id=$2 and parent_node_id=$3`,
-          [target.runId, target.waitingActivationId, target.agent.workflowNodeId])).rows[0]?.parent_execution_id
-        const source = id && await this.runs.getExecution(id)
-        if (!source) throw new DomainError('CHAT_TARGET_NOT_FOUND', 'The exact Run-owned chat source is unavailable.', 404)
-        const retained = await this.retainRunOwner(source, () => {})
-        try { return await work(retained.owner, source) }
-        finally { await retained.release() }
-      },
-      capture: (target, source) => this.captureWorkflowChatNative(target, this.ownedSessions.get(source.id)),
-      captureForRead: target => this.captureWorkflowChatNative(target, target.kind === 'workflow_execution'
-        ? this.ownedSessions.get(target.execution.executionId)
-        : [...this.ownedSessions.values()].find(owned => owned.consultation?.binding.runId === target.runId
-          && owned.consultation.binding.waitingActivationId === target.waitingActivationId)),
-      dispatchConsultation: (target, command, owner, source) => this.dispatchWorkflowConsultation(target, command, owner, source),
-    })
-  }
-
-  private captureWorkflowChatNative(target: WorkflowChatTarget,
-    owned: OwnedNativeSession | undefined): WorkflowChatNativeCapture | undefined {
-    if (!owned?.session || owned.failed || owned.cleanup || owned.opening || owned.controller.signal.aborted
-      || !owned.activeSessionMode || this.closing || this.stoppingRuns.has(owned.execution.runId)) return undefined
-    if (target.kind === 'workflow_execution' ? owned.execution.id !== target.execution.executionId || !!owned.consultation
-      || owned.context.purpose === 'reviewer' : !owned.consultation
-      || owned.consultation.binding.runId !== target.runId
-      || owned.consultation.binding.waitingActivationId !== target.waitingActivationId) return undefined
-    const session = owned.session, generation = owned.generation, mode = owned.activeSessionMode
-    const lease = owned.manager.capturedLease(session), raw = this.rawManagers.get(owned.manager)
-    if (!lease?.providerId || !raw || lease.guard.signal.aborted || lease.observedStatus === 'idle') return undefined
-    const providerId = lease.providerId
-    return { session, manager: owned.manager, lease,
-      native: { nativeSessionId: session.nativeSessionId, ownerRequestId: lease.correlationId, providerId,
-        ...(session.harness === 'codex' ? { nativeTurnId: providerId } : { inputMessageId: providerId }),
-        sessionMode: mode, steer: session.harness === 'codex' && !!raw.steerTurn, interruptAndSend: true },
-      assertCurrent: () => {
-        if (this.ownedSessions.get(owned.execution.id) !== owned || owned.session !== session
-          || owned.generation !== generation || owned.activeSessionMode !== mode || lease.providerId !== providerId
-          || owned.failed || owned.cleanup || owned.controller.signal.aborted) throw new DomainError(
-          'CHAT_NATIVE_TARGET_CHANGED', 'The captured original native owner changed.', 409)
-        owned.manager.assertCapturedLease(session, lease)
-      } }
-  }
-
-  private consultationTransaction(owner: RunOwnership,
-    target: Extract<WorkflowChatTarget, { kind: 'workflow_coordinator' }>): ConsultationTransaction {
-    return async work => (await this.runs.repeat(owner)).workflowChatTransaction(target, undefined,
-      () => owner.assertOwned(), work)
-  }
-
-  private dispatchWorkflowConsultation(target: WorkflowChatTarget, command: WorkflowControlCommand,
-    owner: RunOwnership, source: HarnessExecution): Promise<void> {
-    if (target.kind !== 'workflow_coordinator' || !command.consultation) return Promise.resolve()
-    const existing = this.consultationStarts.get(command.consultation.consultationId)
-    if (existing) return existing
-    const task = this.startWorkflowConsultation(target, command, owner, source)
-      .finally(() => { this.consultationStarts.delete(command.consultation!.consultationId) })
-    this.consultationStarts.set(command.consultation.consultationId, task)
-    return task
-  }
-
-  private async startWorkflowConsultation(target: Extract<WorkflowChatTarget, { kind: 'workflow_coordinator' }>,
-    command: WorkflowControlCommand, owner: RunOwnership, source: HarnessExecution): Promise<void> {
-    const transaction = this.consultationTransaction(owner, target)
-    const active = await transaction(context => readCoordinatorConsultationLocked(context.sql, source.runId, target.waitingActivationId))
-    if (!active || active.commandId !== command.id || !command.request || !command.consultation
-      || canonicalJson(active.binding) !== canonicalJson(command.consultation)
-      || ['completed','failed','canceled'].includes(active.state)) return
-    let owned = this.ownedSessions.get(source.id)
-    if (owned?.consultation?.task) return
-    if (owned && (owned.cleanup || owned.opening || owned.failed || owned.controller.signal.aborted
-      || !owned.consultation && owned.context.purpose !== 'reviewer')) {
-      throw new DomainError('COORDINATOR_NATIVE_SOURCE_PENDING', 'The original coordinator session is still settling.', 409)
-    }
-    if (await this.interactions.coordination.hasUnsettledReview(source.id)) throw new DomainError(
-      'COORDINATOR_NATIVE_SOURCE_PENDING', 'The original coordinator is completing an admitted review.', 409)
-    const configuration = await this.runs.getExecutionConfiguration(source.agentConfigurationVersionId, source)
-    const run = await this.runs.get(source.runId)
-    const reference = await this.interactions.coordination.workflowSession(source.id)
-    if (!configuration || !run || !reference?.finalized || reference.session.nativeSessionId !== active.binding.nativeSessionId
-      || source.state !== 'completed') throw new DomainError('COORDINATOR_NATIVE_SOURCE_PENDING',
-      'The consultation requires the exact completed delegation session.', 409)
-    const request = await this.workflowRequest(source, configuration, run, owner)
-    const context = { ...await this.managerContext(source, configuration, 'consultation'),
-      consultation: active.binding, correlationId: `consultation:${active.binding.consultationId}`, workflowRequest: request }
-    const resolved = owned ? undefined : this.resolveManager(context, owner)
-    if (!owned) {
-      owned = { execution: source, context, manager: resolved!.manager, controller: new AbortController(), generation: 0 }
-      // A consultation does not reopen or delete the source execution's closure.
-      this.ownedSessions.set(source.id, owned)
-    }
-    const current = owned
-    if (!current.consultation) current.consultation = { binding: active.binding, commandId: command.id, target,
-      ...(current.context.purpose === 'reviewer' ? { previous: { context: current.context,
-        ...(this.managerCredentials.get(current.manager) ? { credential: this.managerCredentials.get(current.manager)! } : {}) } } : {}) }
-    if (canonicalJson(current.consultation.binding) !== canonicalJson(active.binding)) throw new DomainError(
-      'COORDINATOR_NATIVE_SOURCE_PENDING', 'Another consultation still owns the retained coordinator.', 409)
-    current.runOwner = owner
-    const consultation = current.consultation
-    const release = owner.retain(() => current.controller.abort())
-    const check = () => {
-      owner.assertOwned()
-      if (this.ownedSessions.get(source.id) !== current || current.consultation !== consultation
-        || current.controller.signal.aborted || current.failed || current.opening) throw new DomainError(
-        'COORDINATOR_NATIVE_OWNER_CHANGED', 'The consultation lost its captured native lifetime.', 409)
-    }
-    try {
-      await current.stopReviewerRenewal?.()
-      delete current.stopReviewerRenewal
-      if (resolved?.processState === 'needs_start') {
-        await this.reserveNativeLaunch?.(source.id, this.rawManagers.get(current.manager) ?? current.manager, active.binding)
-        resolved.beginStart?.()
-      }
-      if (consultation.previous) consultation.accessRebindAttempted = true
-      if (!consultation.credential) consultation.credential = await this.prepareConsultationCredential(
-        current, active.binding, !!active.nativeTarget)
-      this.managerCredentials.set(current.manager, consultation.credential)
-      await this.collaboration?.prepareConsultation(owner, source, active.binding, transaction)
-      const browserPrompt = await this.collaboration?.readConsultationPrompt(active.binding, transaction)
-      const start = { kind: 'workflow-consultation' as const, consultation: active.binding, request,
-        correlationId: `consultation:${active.binding.consultationId}`,
-        ...(active.nativeTurnId ? { nativeTurnId: active.nativeTurnId } : {}),
-        environment: consultation.credential.environment, instructionsDelivered: true as const }
-      if (current.session) {
-        if (!active.nativeTarget) await current.manager.rebindApplicationAccess!(current.session, start, current.controller.signal)
-      } else {
-        const attached = await this.openingSession(current, current.manager.attachSession(reference.session, start, current.controller.signal))
-        this.assertSessionIdentity(reference.session, attached)
-        resolved?.markResident?.()
-      }
-      check()
-      current.activeSessionMode = command.request.sessionMode ?? 'regular'
-      const snapshot = await this.runs.getRepeatSnapshot(source.runId, owner)
-      const capacity = this.executionCapacity(source.runId, snapshot.version.definition.executionPolicy!.maxParallelism)
-      const stopRenewal = this.maintainConsultationCredential(current)
-      const sessionMode = current.activeSessionMode, credential = consultation.credential
-      const task = capacity.run(current.controller.signal, () => observeWorkflowConsultation({ binding: active.binding, commandId: command.id, agentId: source.agentId,
-        session: current.session!, manager: current.manager, transaction, signal: current.controller.signal,
-        prompt: [admittedWorkflowChatPrompt(command), browserPrompt].filter(Boolean).join('\n\n'), sessionMode,
-        captured: active.nativeTarget, secrets: Object.values(credential.environment.variables), assertCurrent: check,
-        acknowledge: async (lease, providerId) => {
-          await this.interactions.coordination.bindLaneTurn(lease.fence, lease.correlationId)
-          await this.interactions.coordination.acknowledgeLaneTurn(lease.fence, lease.correlationId, providerId)
-        }, onSubmitted: () => {}, beforeSettlement: async (raw, lease) => {
-          await stopRenewal()
-          await this.collaboration?.releaseConsultation(active.binding, transaction, 'terminal')
-          await this.credentials!.revoke(consultation.credential!)
-          await lease.guard.check()
-          if (consultation.previous?.credential) await raw.rebindApplicationAccess?.(current.session!, {
-            request, environment: consultation.previous.credential.environment, instructionsDelivered: true,
-            correlationId: `execution:${source.id}` }, lease.guard.signal)
-          else if (raw.closeForResume) await raw.closeForResume(current.session!)
-          else await raw.close(current.session!, lease.guard.signal)
-        },
-      })).then(async next => {
-        this.releaseConsultationEntry(current)
-        if (next) await this.dispatchPromotedConsultation(owner, source, target, next.commandId)
-      }).catch(async error => {
-        current.retainedObservationError = error
-        if (!isRestartCancellation(error, current.controller.signal)) componentLogger('harness').warn(
-          { consultationId: active.binding.consultationId, code: error instanceof DomainError ? error.code : 'NATIVE_OBSERVATION_FAILED' },
-          'The original consultation remains pending native reconciliation.')
-      }).finally(async () => {
-        await stopRenewal(); delete consultation.task; await release()
-      })
-      consultation.task = task
-    } catch (error) {
-      try {
-        const captured = await transaction(c => readCoordinatorConsultationLocked(c.sql, source.runId, target.waitingActivationId))
-        if (captured?.binding.consultationId === active.binding.consultationId
-          && !captured.nativeTarget && captured.state === 'admitted') {
-          await this.releaseFailedConsultationPreparation(current, request, transaction)
-          const next = await transaction(c => failCoordinatorConsultationPreparationLocked(c.sql, { binding: active.binding,
-            errorCode: error instanceof DomainError ? error.code : 'CONSULTATION_PREPARATION_FAILED', now: new Date().toISOString() }))
-          this.releaseConsultationEntry(current)
-          if (next) await this.dispatchPromotedConsultation(owner, source, target, next.commandId)
-        }
-      } finally { await release() }
-      throw error
-    }
-  }
-
-  private async dispatchPromotedConsultation(owner: RunOwnership, source: HarnessExecution,
-    target: Extract<WorkflowChatTarget, { kind: 'workflow_coordinator' }>, commandId: string): Promise<void> {
-    const command = await this.consultationTransaction(owner, target)(context =>
-      readWorkflowControlCommandLocked(context.sql, source.runId, commandId))
-    if (command) await this.dispatchWorkflowConsultation(target, command, owner, source)
-  }
-
-  private async releaseFailedConsultationPreparation(owned: OwnedNativeSession, request: HarnessExecutionRequest,
-    transaction: ConsultationTransaction): Promise<void> {
-    const consultation = owned.consultation!
-    await withCleanupDeadline(async signal => {
-      if (owned.opening) await owned.opening
-      if (consultation.previous) {
-        if (consultation.accessRebindAttempted) {
-          if (!owned.session || !consultation.previous.credential) throw new DomainError(
-            'REVIEWER_CREDENTIAL_LOST', 'The original reviewer credential is required for restoration.', 409)
-          await owned.manager.rebindApplicationAccess(owned.session, { request,
-            environment: consultation.previous.credential.environment, instructionsDelivered: true,
-            correlationId: `execution:${owned.execution.id}` }, signal)
-        }
-      } else {
-        await owned.manager.dispose(signal)
-      }
-    }, owned.context.acceptedPlacement?.hostRef.kind === 'device' ? deviceRequestTimeoutMs : cleanupTimeoutMs)
-    await this.collaboration?.releaseConsultation(consultation.binding, transaction, 'terminal')
-    if (consultation.credential) await this.credentials!.revoke(consultation.credential)
-  }
-
-  private async prepareConsultationCredential(owned: OwnedNativeSession,
-    binding: CoordinatorConsultationBinding, recovery: boolean): Promise<IssuedWorkerCredential> {
-    if (!this.credentials) throw new DomainError('CONSULTATION_CREDENTIAL_UNAVAILABLE', 'Scoped consultation access is unavailable.', 409)
-    const signal = owned.controller.signal
-    if (!recovery) return (await this.credentials.prepare({ executionId: owned.execution.id,
-      harness: owned.context.harness, workingDirectory: owned.context.workingDirectory,
-      purpose: 'consultation', consultation: binding,
-      ...(owned.session ? { session: owned.session } : {}),
-      manager: this.rawManagers.get(owned.manager) ?? owned.manager, signal })).credential
-    if (!this.credentials.restoreConsultation) throw new DomainError('CONSULTATION_CREDENTIAL_UNAVAILABLE',
-      'The original consultation credential cannot be restored.', 409)
-    const reference = await this.interactions.coordination.workflowSession(owned.execution.id)
-    if (!reference) throw new DomainError('COORDINATOR_NATIVE_SOURCE_PENDING', 'The original consultation session is unavailable.', 409)
-    let variables = await owned.manager.originalEnvironment?.(reference.session, signal)
-    if (!variables && owned.context.acceptedPlacement?.hostRef.kind === 'device') {
-      const access = await owned.manager.originalApplicationAccess(reference.session, signal)
-      variables = { [APP_MCP_TOKEN_ENVIRONMENT_VARIABLE]: access.token }
-    }
-    if (!variables) throw new DomainError('CONSULTATION_CREDENTIAL_UNAVAILABLE', 'The original native credential remains unknown.', 409)
-    return this.credentials.restoreConsultation(binding, { agentId: owned.execution.agentId, variables })
-  }
-
-  private maintainConsultationCredential(owned: OwnedNativeSession): () => Promise<void> {
-    const consultation = owned.consultation!, credential = consultation.credential!
-    const stop = new AbortController()
-    const signal = AbortSignal.any([stop.signal, owned.controller.signal])
-    const task = (async () => {
-      while (!signal.aborted) {
-        await delay(Math.max(1000, remainingCredentialLifetime(credential) - WORKER_CREDENTIAL_RENEWAL_WINDOW_MS),
-          undefined, { signal })
-        if (!this.credentials?.renewConsultation) throw new DomainError('CONSULTATION_CREDENTIAL_UNAVAILABLE',
-          'The consultation process credential cannot be renewed.', 409)
-        credential.expiresAt = await this.credentials.renewConsultation(consultation.binding, credential, signal)
-      }
-    })().catch(error => {
-      if (!signal.aborted) { owned.retainedObservationError = error; owned.controller.abort(error) }
-    })
-    return async () => { stop.abort(); await task }
-  }
-
-  private releaseConsultationEntry(owned: OwnedNativeSession, discard = false): void {
-    const previous = discard ? undefined : owned.consultation?.previous
-    if (previous) {
-      owned.context = previous.context
-      delete owned.consultation; delete owned.activeSessionMode
-      if (previous.credential) this.managerCredentials.set(owned.manager, previous.credential)
-      else this.managerCredentials.delete(owned.manager)
-      this.maintainRetainedReviewer(owned)
-    } else {
-      this.managerCredentials.delete(owned.manager)
-      this.managers.release?.(owned.context, this.rawManagers.get(owned.manager) ?? owned.manager)
-      if (this.ownedSessions.get(owned.execution.id) === owned) this.ownedSessions.delete(owned.execution.id)
-    }
-  }
-
-  /** Run Stop closes the captured consultation, separately from its completed
-   * delegation. A cancel acknowledgement never releases this mailbox. */
-  private cleanupConsultation(owned: OwnedNativeSession): Promise<Error[]> {
-    owned.controller.abort()
-    if (owned.cleanup) return owned.cleanup
-    const consultation = owned.consultation!
-    const task = (async () => {
-      const failures: Error[] = []
-      const retained = await this.retainRunOwner(owned.execution, () => {})
-      const transaction = this.consultationTransaction(retained.owner, consultation.target)
-      try {
-        await attemptCleanup(failures, `${consultation.binding.consultationId}: close exact consultation`, async signal => {
-          await consultation.task
-          if (owned.opening) await owned.opening
-          const session = owned.session, generation = owned.generation
-          const check = () => {
-            retained.owner.assertOwned(); signal.throwIfAborted()
-            if (this.ownedSessions.get(owned.execution.id) !== owned || owned.consultation !== consultation
-              || owned.session !== session || owned.generation !== generation || owned.opening) throw new DomainError(
-              'COORDINATOR_NATIVE_OWNER_CHANGED', 'The exact consultation changed during cleanup.', 409)
-          }
-          check()
-          const record = await transaction(async context => (await context.sql.query<{
-            native_target: WorkflowChatLockedTarget['native'] | null; native_turn_id: string | null; state: string
-          }>('select native_target,native_turn_id,state from run_coordinator_consultations where id=$1 and run_id=$2 for update',
-          [consultation.binding.consultationId, consultation.binding.runId])).rows[0])
-          if (!record) throw new DomainError('COORDINATOR_BINDING_CONFLICT', 'The consultation cleanup source is unavailable.', 409)
-          if (session) {
-            await owned.manager.cancel(session, signal, record.native_turn_id ?? record.native_target?.inputMessageId)
-            check()
-            if (consultation.previous && owned.closureGeneration) await this.closeWorkflowSession(owned, { signal })
-            else await owned.manager.close(session, signal)
-          } else {
-            await owned.manager.dispose(signal)
-          }
-          check()
-          await this.collaboration?.releaseConsultation(consultation.binding, transaction, 'stop')
-          if (consultation.credential) await this.credentials?.revoke(consultation.credential)
-          if (record.native_target && !['completed','failed','canceled'].includes(record.state)) {
-            await transaction(context => settleCoordinatorConsultationLocked(context.sql, {
-              binding: consultation.binding, outcome: 'canceled', now: new Date().toISOString(),
-              nativeEvidence: { nativeSessionId: consultation.binding.nativeSessionId,
-                ownerRequestId: record.native_target!.ownerRequestId,
-                ...(record.native_turn_id ? { nativeTurnId: record.native_turn_id } : {}),
-                ...(record.native_target!.inputMessageId ? { inputMessageId: record.native_target!.inputMessageId } : {}),
-                observedAt: new Date().toISOString(), source: 'confirmed_closure',
-                payload: { nativeSessionId: session?.nativeSessionId ?? null, lifetimeGeneration: generation,
-                  closedBy: 'captured_coordinator_manager' } },
-            }))
-          }
-          this.releaseConsultationEntry(owned, true)
-        }, owned.context.acceptedPlacement?.hostRef.kind === 'device' ? { timeoutMs: deviceRequestTimeoutMs } : {})
-      } finally { await retained.release() }
-      return failures
-    })().finally(() => { delete owned.cleanup })
-    owned.cleanup = task
-    return task
-  }
-
-  private async recoverWorkflowConsultations(owner: RunOwnership): Promise<void> {
-    if (!this.workflowControls) return
-    const rows = (await owner.oneShotConnection().query<{ command_id: string; target: WorkflowChatTarget }>(
-      `select c.command_id,q.target from run_coordinator_consultations c
-        join run_coordinator_mailboxes m on m.run_id=c.run_id and m.active_consultation_id=c.id
-        join run_chat_commands q on q.id=c.command_id and q.run_id=c.run_id
-        where c.run_id=$1 and c.state in ('admitted','active','unknown','settling')
-          and m.state='consultation' order by c.created_at,c.id`, [owner.runId])).rows
-    for (const row of rows) {
-      owner.assertOwned()
-      await this.workflowControls.dispatch(row.target, row.command_id)
-    }
-  }
-
-  /** The engine's existing reconciliation pass repairs admission/dispatch gaps.
-   * Dispatch itself reconciles unknown offers and never submits them twice. */
-  async reconcileWorkflowControls(onError: (error: unknown) => void): Promise<void> {
-    const owners = new Map(this.sharedRunOwners)
-    for (const owned of this.ownedSessions.values()) {
-      if (owned.runOwner && !owners.has(owned.execution.runId)) owners.set(owned.execution.runId, owned.runOwner)
-    }
-    for (const owner of owners.values()) await this.recoverExecutionControls(owner).catch(onError)
-  }
-
-  private async recoverExecutionControls(owner: RunOwnership): Promise<void> {
-    if (!this.workflowControls) return
-    let after = '0'
-    for (;;) {
-      owner.assertOwned()
-      const rows = (await owner.oneShotConnection().query<{ id: string; target: WorkflowChatTarget; sequence: string }>(
-        `select id,target,sequence::text from run_chat_commands where run_id=$1 and sequence>$2::bigint
-          and target->>'kind'='workflow_execution' and operation in ('stop','interrupt','steer')
-          and state in ('recorded','settling','submitting','unknown','accepted')
-          order by run_chat_commands.sequence limit 100`, [owner.runId, after])).rows
-      for (const row of rows) {
-        owner.assertOwned()
-        await this.workflowControls.dispatch(row.target, row.id)
-      }
-      if (rows.length < 100) return
-      after = rows.at(-1)!.sequence
-    }
-  }
-
-  /** Stop recovery attaches only the originally captured consultation/session.
-   * It issues no credential and can neither offer a turn nor create a session. */
-  private async recoverStoppedConsultations(owner: RunOwnership): Promise<void> {
-    const rows = (await owner.oneShotConnection().query<{ command_id: string; binding: CoordinatorConsultationBinding;
-      target: Extract<WorkflowChatTarget, { kind: 'workflow_coordinator' }>; source_id: string;
-      native_turn_id: string | null }>(`select c.command_id,c.binding,q.target,m.source_execution->>'executionId' as source_id,c.native_turn_id
-      from run_coordinator_consultations c join run_coordinator_mailboxes m
-        on m.run_id=c.run_id and m.waiting_activation_id=c.waiting_activation_id
-      join run_chat_commands q on q.id=c.command_id and q.run_id=c.run_id
-      where c.run_id=$1 and (c.state in ('active','unknown','settling')
-        or c.browser_input is not null and c.browser_state is distinct from 'released') order by c.created_at,c.id`, [owner.runId])).rows
-    for (const row of rows) {
-      owner.assertOwned()
-      let owned = this.ownedSessions.get(row.source_id)
-      if (!owned?.consultation) {
-        const source = await this.runs.getExecution(row.source_id, owner)
-        const configuration = source && await this.runs.getExecutionConfiguration(source.agentConfigurationVersionId, source)
-        const reference = source && await this.interactions.coordination.workflowSession(source.id)
-        const snapshot = await this.runs.getRepeatSnapshot(owner.runId, owner)
-        if (!source || !configuration || !reference || reference.session.nativeSessionId !== row.binding.nativeSessionId) {
-          throw new DomainError('REPEAT_CLEANUP_PENDING', 'The original consultation cleanup source is unavailable.', 409)
-        }
-        const request = workflowExecutionRequest({ execution: source, version: snapshot.version,
-          configuration, workspaceId: snapshot.run.workspaceId })
-        const context = { ...await this.managerContext(source, configuration, 'consultation'), consultation: row.binding,
-          correlationId: `consultation:${row.binding.consultationId}`, workflowRequest: request }
-        const resolved = owned ? undefined : this.resolveManager(context, owner)
-        owned ??= { execution: source, context, manager: resolved!.manager, controller: new AbortController(), generation: 0 }
-        owned.consultation = { binding: row.binding, commandId: row.command_id, target: row.target,
-          ...(owned.context.purpose === 'reviewer' ? { previous: { context: owned.context } } : {}) }
-        owned.runOwner = owner
-        this.ownedSessions.set(source.id, owned)
-        if (!owned.session) {
-          resolved?.beginStart?.()
-          const attached = await this.openingSession(owned, owned.manager.attachSession(reference.session, {
-            kind: 'workflow-consultation', consultation: row.binding, request, observationOnly: true,
-            correlationId: `consultation:${row.binding.consultationId}`,
-            ...(row.native_turn_id ? { nativeTurnId: row.native_turn_id } : {}), instructionsDelivered: true,
-          }))
-          this.assertSessionIdentity(reference.session, attached); resolved?.markResident?.()
-        }
-      }
-      const errors = await this.cleanupConsultation(owned)
-      if (errors.length) throw new AggregateError(errors, 'The original consultation still needs positive cleanup.')
-    }
   }
 
   private async managerContext(
@@ -1407,7 +873,7 @@ export class ApprovalExecutionCoordinator {
   }
 
   private async workflowRequest(execution: HarnessExecution, configuration: AgentConfigurationVersion,
-    run: Pick<WorkflowRun, 'id' | 'workflowVersionId' | 'workspaceId' | 'resultProtocol'>, owner?: RunOwnership) {
+    run: Pick<WorkflowRun, 'id' | 'workflowVersionId' | 'workspaceId'>, owner?: RunOwnership) {
     const version = await this.runs.getRepeatVersion(run.id, run.workflowVersionId, owner)
     let executionContext
     if (version.definition.handoffs && repeatTickIndex(execution.input) === undefined) {
@@ -1416,17 +882,7 @@ export class ApprovalExecutionCoordinator {
         executionContext = await (await this.runs.repeat(owner ?? retained!.owner)).readWorkExecutionContext(execution.id)
       } finally { await retained?.release() }
     }
-    const retained = !owner ? await this.retainRunOwner(execution, () => {}) : undefined
-    let collaborationPrompt: string | undefined
-    let queuedInput: WorkflowQueuedInput | undefined
-    try {
-      const currentOwner = owner ?? retained!.owner
-      collaborationPrompt = await this.collaboration?.readPrompt(currentOwner, execution, version)
-      queuedInput = await (await this.runs.repeat(currentOwner)).claimWorkflowInput(execution.id)
-    }
-    finally { await retained?.release() }
-    return appendWorkflowChatInput(workflowExecutionRequest({ execution, version, configuration, workspaceId: run.workspaceId, executionContext, collaborationPrompt,
-      ...(run.resultProtocol ? { resultProtocol: run.resultProtocol } : {}) }), queuedInput)
+    return workflowExecutionRequest({ execution, version, configuration, workspaceId: run.workspaceId, executionContext })
   }
 
   private prepareEnvironment(
@@ -2217,18 +1673,6 @@ export class ApprovalExecutionCoordinator {
             if (cleanup.length) throw new AggregateError(cleanup, 'Interrupted native cleanup remains unconfirmed.')
             return
           }
-          if (owned.consultation) {
-            if (owned.opening) await owned.opening
-            if (!owned.session) { await owned.manager.dispose(signal); return }
-            const credential = owned.consultation.credential
-            if (credential && this.credentials?.renewConsultation) {
-              credential.expiresAt = await this.credentials.renewConsultation(owned.consultation.binding, credential, signal)
-            }
-            // Detachment preserves this exact consultation's correlation and
-            // credential; the completed source execution remains closed.
-            await owned.manager.closeForRestart(owned.session, signal)
-            return
-          }
           if (owned.restartAttachment && !owned.failed
             && (!owned.session || owned.openingFailed || owned.generation === 0)) {
             const { session, request } = owned.restartAttachment
@@ -2278,7 +1722,7 @@ export class ApprovalExecutionCoordinator {
         await withCleanupDeadline(async () => Promise.all(siblings.map(async owned => {
           // Startup errors belong to their caller; its manager and cleanup must still drain.
           await Promise.allSettled([
-            this.reviewerRecoveries.get(owned.execution.id), owned.starting, owned.preparing, owned.opening, owned.consultation?.task,
+            this.reviewerRecoveries.get(owned.execution.id), owned.starting, owned.preparing, owned.opening,
             owned.stopWaitingRenewal?.(), owned.stopReviewerRenewal?.(), owned.reviewerRenewal,
           ])
           await owned.cleanup
@@ -2389,7 +1833,6 @@ export class ApprovalExecutionCoordinator {
       failures.push(...await this.cleanupSession(owned, false))
     }
     if (failures.length) throw new AggregateError(failures, 'Completed Run session cleanup was incomplete.')
-    this.runCapacity.delete(runId)
   }
 
   /** Read-only exact callback qualification. A cold read never allocates or attaches a manager. */
@@ -2625,7 +2068,7 @@ export class ApprovalExecutionCoordinator {
         return { manager: resolved.manager, session, signal: owned.controller.signal }
       }
       const environment = await this.prepareEnvironment(resolutionContext, resolved, {
-        signal, ...(context.purpose === 'reviewer' ? { purpose: context.purpose } : {}), restartOwner: options.restartOwner,
+        signal, purpose: context.purpose, restartOwner: options.restartOwner,
       })
       await this.validateContinuation?.(execution.id, signal)
       options.restartOwner?.assertOwned()
@@ -2801,7 +2244,6 @@ export class ApprovalExecutionCoordinator {
     signal?: AbortSignal): Promise<boolean> {
     owner.assertOwned()
     this.adoptRunOwner(owner)
-    await this.recoverWorkflowConsultations(owner)
     for await (const executions of this.runs.executionPages(owner.runId, owner)) {
       for (const execution of executions) {
         if (repeatTickIndex(execution.input) !== undefined && execution.state !== 'completed') {
@@ -2868,7 +2310,6 @@ export class ApprovalExecutionCoordinator {
           owner.assertOwned()
           return true
         }
-        if (await this.recoverOutputSettlement(execution, owner, signal)) continue
         if (execution.nativeSessionId && !await this.workflowClosures?.read(execution)) {
           // A finalized workflow has already closed its original lifetime and
           // may have handed this session to a reviewer. Missing closure now
@@ -2899,7 +2340,6 @@ export class ApprovalExecutionCoordinator {
         // by setting cleanupPending before the repository evaluates its slot.
       }
     }
-    await this.recoverExecutionControls(owner)
     return false
   }
 
@@ -2988,7 +2428,6 @@ export class ApprovalExecutionCoordinator {
     if (owner) {
       if (owner.runId !== runId) throw new DomainError('RUN_OWNERSHIP_LOST', 'The cancellation owner belongs to another Run.', 409)
       this.adoptRunOwner(owner)
-      await this.recoverStoppedConsultations(owner)
     }
     let task = this.cancellations.get(runId)
     if (!task) {
@@ -3053,8 +2492,6 @@ export class ApprovalExecutionCoordinator {
           // Seals a positively reserved/prepared attempt or verifies its exact
           // native close/disposal. An entered unknown lifetime stays pending.
           await store.settleNegativeExecution(execution.id, snapshot.stopRequested)
-          await this.collaboration?.release(owner, (await store.readExecution(execution.id)).execution,
-            snapshot.stopRequested ? 'stop' : 'terminal', snapshot.version)
         }
       }
       owner.assertOwned()
@@ -3085,13 +2522,11 @@ export class ApprovalExecutionCoordinator {
       throw new DomainError('REPEAT_EXECUTION_INPUT_CONFLICT', 'Native work requires its exact pinned request.', 409)
     }
     await input.store.assertExecutionAdmission(execution.id)
-    const queuedInput = await (await this.runs.repeat(input.owner)).claimWorkflowInput(execution.id)
-    const admittedRequest = appendWorkflowChatInput(request, queuedInput)
     input.signal.throwIfAborted()
     input.owner.assertOwned()
     return withRuntimeTimingContext({ runId: execution.runId, executionId: execution.id }, () =>
       timeRuntimeOperation('engine', 'execution.observe', () => this.observeExecution(
-        { ...input, candidate: execution, request: admittedRequest, queuedInput }, { execution, created: false }, input.store)))
+        { ...input, candidate: execution, request }, { execution, created: false }, input.store)))
   }
 
   private async observeExecution(input: ApprovalObservationInput,
@@ -3288,7 +2723,6 @@ export class ApprovalExecutionCoordinator {
     observation.manager = observation.resolved!.manager
     observation.ownedSession = this.ownSession(observation.execution, observation.context!, observation.manager!)
     observation.ownedSession!.runOwner = input.owner
-    observation.ownedSession!.activeSessionMode = input.queuedInput?.request.sessionMode ?? 'regular'
     await observation.ownedSession!.stopWaitingRenewal?.()
     delete observation.ownedSession!.stopWaitingRenewal
     if (observation.restartRecovery) observation.ownedSession!.restartRecovery ??= observation.restartRecovery
@@ -3407,8 +2841,7 @@ export class ApprovalExecutionCoordinator {
             // ignore: the owned-session lifecycle joins this opening promise during cleanup.
           })
           nativeEvents = manager.startInitialTurnBatches(start, {
-            prompt: observation.input.queuedInput?.nativePrompt ?? buildHarnessPrompt(request), clientCorrelationId: observation.workflowCorrelation,
-            ...(input.queuedInput?.request.sessionMode ? { sessionMode: input.queuedInput.request.sessionMode } : {}),
+            prompt: buildHarnessPrompt(request), clientCorrelationId: observation.workflowCorrelation,
             deferSettlement: true,
             ...(nativeSchema ? { outputSchema: nativeSchema } : {}),
             onTurnOffered: () => { observation.nativeTurnOffered = true },
@@ -3421,8 +2854,7 @@ export class ApprovalExecutionCoordinator {
           const observed = await this.openingSession(ownedSession,
             timeRuntimeOperation('harness', 'native.create_session', () => manager.createSession(start, observation.signal)))
           nativeEvents = manager.startTurnBatches(observed, {
-            prompt: observation.input.queuedInput?.nativePrompt ?? buildHarnessPrompt(request), clientCorrelationId: observation.workflowCorrelation,
-            ...(input.queuedInput?.request.sessionMode ? { sessionMode: input.queuedInput.request.sessionMode } : {}),
+            prompt: buildHarnessPrompt(request), clientCorrelationId: observation.workflowCorrelation,
             deferSettlement: true,
             ...(nativeSchema ? { outputSchema: nativeSchema } : {}),
             onSessionReady: () => publishObservedSession(observed),
@@ -3512,121 +2944,20 @@ export class ApprovalExecutionCoordinator {
     return pending.length > 0
   }
 
-  private async correctWorkflowResult(observation: WorkflowObservationState,
-    nativeManager: NativeHarnessSessionManager, lane: SessionWriteLease, observed: NativeHistory,
-    captured: RepeatNativeEvidence, repairPrompt: string): Promise<
-      { kind: 'unavailable' | 'repaired' } | { kind: 'waiting'; observation: ApprovalExecutionObservation }> {
-    if (observation.workResultRepairs >= 2) return { kind: 'unavailable' }
-    const { input } = observation
-    assertOriginalWorkflowTerminal(observation.execution, observation.session!, observed, observation.workflowCorrelation)
-    const reserved = await observation.bookkeeping(() => this.runs.reserveWorkResultRepair(
-      observation.execution.id, observed.terminalTurn!.providerId, input.owner, captured))
-    if (!reserved) return { kind: 'unavailable' }
-    observation.workResultRepairs = reserved
-    await observation.validateContinuation()
-    await observation.assertBoundary()
-    await lane.guard.check()
-    const idle = reviewTurnEvidence(observation.session!, observed, observation.workflowCorrelation, lane.providerId)
-    if (!idle.nativeIdle || idle.nativeBusy || idle.identityConflict) throw new DomainError(
-      'SESSION_LANE_BUSY', 'The native session has active or unreconciled work.', 409)
-    observation.workflowCorrelation = workResultRepairCorrelation(observation.execution.id, reserved)
-    await this.interactions.coordination.bindLaneTurn(lane.fence, observation.workflowCorrelation)
-    lane.correlationId = observation.workflowCorrelation
-    delete lane.providerId
-    lane.observedStatus = 'uncertain'
-    const acknowledge = async (providerId: string) => {
-      await lane.guard.check()
-      await observation.bookkeeping(() => this.interactions.coordination.acknowledgeLaneTurn(
-        lane.fence, observation.workflowCorrelation, providerId))
-      lane.providerId = providerId
-    }
-    const nativeSchema = input.deliverable ? nativeOutputSchema(input.deliverable) : undefined
-    const events = nativeManager.startTurn(observation.session!, {
-      prompt: repairPrompt, ...(nativeSchema ? { outputSchema: nativeSchema } : {}),
-      clientCorrelationId: observation.workflowCorrelation, deferSettlement: true,
-      onSubmitted: acknowledge,
-      onMessageSubmitted: async receipt => {
-        if (receipt.nativeSessionId !== observation.session!.nativeSessionId
-          || receipt.clientCorrelationId !== observation.workflowCorrelation) throw new DomainError(
-            'NATIVE_MESSAGE_IDENTITY_CONFLICT', 'The corrective message differs from the owned session.', 409)
-        await acknowledge(receipt.nativeMessageId)
-      },
-    }, lane.guard.signal)
-    for await (const event of events) {
-      await lane.guard.check()
-      await observation.bookkeeping(() => this.budgets.assertActive(observation.execution.id))
-      const original = observation.safeValue({ ...event, executionId: observation.execution.id })
-      const evidence = this.captureNative(input.owner, observation.execution, { type: 'event', event: original }, 'live', lane)
-      await observation.bookkeeping(() => this.runs.appendNativeEvent(original, input.owner,
-        { ...lane.fence, ...(lane.providerId ? { providerId: lane.providerId } : {}), live: true },
-        undefined, undefined, evidence))
-      this.recordCommittedNativeEvent(observation, original)
-      const history = await nativeManager.history(observation.session!, lane.guard.signal)
-      const waiting = await observation.observePending(history,
-        { ...lane.fence, ...(lane.providerId ? { providerId: lane.providerId } : {}), live: true })
-      if (waiting) return { kind: 'waiting', observation: waiting }
-    }
-    return { kind: 'repaired' }
-  }
-
-  /** A marked terminal commits native evidence and F1 together while the
-   * original session is still eligible for correction. Only after COMMIT does
-   * this finalize that original provider result and its physical artifacts. */
-  private async publishCommittedTerminalSettlement(execution: HarnessExecution, owner: RunOwnership,
-    session: NativeSessionReference, nativeManager: NativeHarnessSessionManager, lane: SessionWriteLease,
-    original: NonNullable<Awaited<ReturnType<PostgresRunRepository['readWorkflowTerminalSettlement']>>>,
-    observed?: NativeHistory): Promise<void> {
-    await lane.guard.check()
-    owner.assertOwned()
-    const owned = this.ownedSessions.get(execution.id)
-    const safe = nativePersistenceRedactor(Object.values(owned
-      ? this.managerCredentials.get(owned.manager)?.environment.variables ?? {} : {}))
-    const history = safe.value(observed ?? await nativeManager.reconcile(session, original.correlationId, lane.guard.signal))
-    assertOriginalWorkflowTerminal(execution, session, history, original.correlationId)
-    if (!isDeepStrictEqual(history.terminalTurn!.result, original.nativeResult)) throw new DomainError(
-      'NATIVE_TERMINAL_SOURCE_REQUIRED', 'Settlement differs from the already committed original result.', 409)
-    lane.providerId = history.terminalTurn!.providerId
-    await this.interactions.coordination.acknowledgeLaneTurn(lane.fence, original.correlationId, lane.providerId)
-    const settled = nativeManager.settleTurn
-      ? safe.value(await nativeManager.settleTurn(session, original.correlationId, lane.guard.signal)) : history
-    assertOriginalWorkflowTerminal(execution, session, settled, original.correlationId)
-    if (!isDeepStrictEqual(settled.terminalTurn, history.terminalTurn)) throw new DomainError(
-      'NATIVE_TERMINAL_SOURCE_REQUIRED', 'The settled result differs from the original committed provider output.', 409)
-    const captured = this.captureNative(owner, execution,
-      { type: 'history', history: settled }, 'recovery', lane)
-    await this.runs.publishWorkflowTerminalSettlement(execution, owner, captured)
-    if (owned) owned.outputSettlementComplete = true
-    await lane.guard.check()
-  }
-
-  private async settleRetainedWorkflowTerminal(execution: HarnessExecution, owner: RunOwnership,
-    signal: AbortSignal): Promise<void> {
-    const owned = this.ownedSessions.get(execution.id)
-    // Cold cleanup uses the existing owner/process/artifact recovery path. A
-    // completed execution must never attach or create a replacement manager.
-    if (!owned?.session || owned.context.purpose === 'reviewer') return
-    const original = await this.runs.readWorkflowTerminalSettlement(execution, owner)
-    if (!original) return
-    owned.execution = execution
-    await owned.manager.withLane(owned.session, original.correlationId, signal, async (nativeManager, lane) => {
-      await this.publishCommittedTerminalSettlement(execution, owner, owned.session!, nativeManager, lane, original)
-    })
-  }
-
   private async reconcileWorkflowObservation(observation: WorkflowObservationState): Promise<ApprovalExecutionObservation> {
     const manager = observation.manager!
     const ownedSession = observation.ownedSession!
     const { input, repeat } = observation
     if (!observation.session) throw new DomainError('NATIVE_SESSION_IDENTITY_REQUIRED', 'Initial input has no observed session identity.', 409)
+    const nativeSchema = input.deliverable ? nativeOutputSchema(input.deliverable) : undefined
     const observed = await manager.withLane(observation.session!, observation.workflowCorrelation, observation.signal, async (nativeManager, lane) => {
       let idleDelayMs = 100
-      let pendingBoardError: MemoryResultRejected | undefined
       for (;;) {
         let publishedEvents = false
         lane.guard.signal.throwIfAborted()
         input.owner.assertOwned()
         await observation.bookkeeping(() => this.budgets.assertActive(observation.execution.id))
-        const observed = await timeRuntimeOperation('harness', 'native.reconcile',
+        let observed = await timeRuntimeOperation('harness', 'native.reconcile',
           () => nativeManager.reconcile(observation.session!, observation.workflowCorrelation, lane.guard.signal))
         const messageReceipt = observed.nativeSubmission
         const messageIdentity = messageReceipt?.kind === 'message' && messageReceipt.nativeSessionId === observation.session!.nativeSessionId
@@ -3650,84 +2981,92 @@ export class ApprovalExecutionCoordinator {
           ))
         }
         const lease = { ...lane.fence, ...(lane.providerId ? { providerId: lane.providerId } : {}), live: false as const }
-        const captured = this.captureNative(input.owner, observation.execution,
+        let captured = this.captureNative(input.owner, observation.execution,
           { type: 'history', history: observation.safeValue(observed) }, 'recovery', lane)
         const waiting = await observation.observePending(observed, lease)
         if (waiting) return { waiting }
         if (exactTerminal) {
           const handoffPrompt = input.workHandoffContract
             ? workResultRepairPrompt(observed.terminalTurn!.result, input.workHandoffContract, observation.execution.input,
-              input.request?.executionContext, input.coordinationResult, input.hierarchyResult)
+              input.request?.executionContext)
             : undefined
           // The deliverable is judged once the handoff envelope itself is valid.
           const verdict = input.deliverable && !handoffPrompt
             ? await observation.bookkeeping(() => deliverableVerdict(observed.terminalTurn!.result, input.deliverable!)) : undefined
-          let boardError: MemoryResultRejected | undefined = pendingBoardError
-          pendingBoardError = undefined
-          if (!handoffPrompt && !verdict && !boardError && observation.execution.resultProtocol) {
-            try {
-              await observation.bookkeeping(() => this.runs.validateMemoryResult(
-                observation.execution.id, observed.terminalTurn!.result, input.owner))
-            } catch (error) {
-              if (!(error instanceof MemoryResultRejected)) throw error
-              boardError = error
+          const repairPrompt = handoffPrompt ?? (verdict ? deliverableRepairPrompt(verdict, input.deliverable!.outputSchema) : undefined)
+          if (repairPrompt && observation.workResultRepairs < 2) {
+            assertOriginalWorkflowTerminal(observation.execution, observation.session!, observed, observation.workflowCorrelation)
+            const reserved = await observation.bookkeeping(() => this.runs.reserveWorkResultRepair(
+              observation.execution.id, observed.terminalTurn!.providerId, input.owner, captured))
+            if (reserved) {
+              observation.workResultRepairs = reserved
+              await observation.validateContinuation()
+              await observation.assertBoundary()
+              await lane.guard.check()
+              const idle = reviewTurnEvidence(observation.session!, observed, observation.workflowCorrelation, lane.providerId)
+              if (!idle.nativeIdle || idle.nativeBusy || idle.identityConflict) throw new DomainError(
+                'SESSION_LANE_BUSY', 'The native session has active or unreconciled work.', 409)
+              observation.workflowCorrelation = workResultRepairCorrelation(observation.execution.id, reserved)
+              await this.interactions.coordination.bindLaneTurn(lane.fence, observation.workflowCorrelation)
+              lane.correlationId = observation.workflowCorrelation
+              delete lane.providerId
+              lane.observedStatus = 'uncertain'
+              const acknowledge = async (providerId: string) => {
+                await lane.guard.check()
+                await observation.bookkeeping(() => this.interactions.coordination.acknowledgeLaneTurn(
+                  lane.fence, observation.workflowCorrelation, providerId))
+                lane.providerId = providerId
+              }
+              const events = nativeManager.startTurn(observation.session!, {
+                prompt: repairPrompt, ...(nativeSchema ? { outputSchema: nativeSchema } : {}), clientCorrelationId: observation.workflowCorrelation,
+                deferSettlement: true,
+                onSubmitted: acknowledge,
+                onMessageSubmitted: async receipt => {
+                  if (receipt.nativeSessionId !== observation.session!.nativeSessionId
+                    || receipt.clientCorrelationId !== observation.workflowCorrelation) throw new DomainError(
+                      'NATIVE_MESSAGE_IDENTITY_CONFLICT', 'The corrective message differs from the owned session.', 409)
+                  await acknowledge(receipt.nativeMessageId)
+                },
+              }, lane.guard.signal)
+              for await (const event of events) {
+                await lane.guard.check()
+                await observation.bookkeeping(() => this.budgets.assertActive(observation.execution.id))
+                const original = observation.safeValue({ ...event, executionId: observation.execution.id })
+                const evidence = this.captureNative(input.owner, observation.execution,
+                  { type: 'event', event: original }, 'live', lane)
+                await observation.bookkeeping(() => this.runs.appendNativeEvent(original, input.owner,
+                  { ...lane.fence, ...(lane.providerId ? { providerId: lane.providerId } : {}), live: true },
+                  undefined, undefined, evidence))
+                this.recordCommittedNativeEvent(observation, original)
+                const history = await nativeManager.history(observation.session!, lane.guard.signal)
+                const waiting = await observation.observePending(history,
+                  { ...lane.fence, ...(lane.providerId ? { providerId: lane.providerId } : {}), live: true })
+                if (waiting) return { waiting }
+              }
+              continue
             }
           }
-          const boardPrompt = boardError ? [
-            'Your board result could not be applied.', `${boardError.code}: ${boardError.message}`,
-            ...(boardError.details ? [`Current state: ${JSON.stringify(boardError.details)}`] : []),
-            'Return the complete corrected result. Preserve the deliverable and already committed tool changes.',
-            'Correct only the remaining board changes. Do not repeat the task or external work.',
-          ].join('\n') : undefined
-          const repairPrompt = handoffPrompt ?? (verdict ? deliverableRepairPrompt(verdict, input.deliverable!.outputSchema) : boardPrompt)
-          if (repairPrompt) {
-            const repaired = await this.correctWorkflowResult(observation, nativeManager, lane, observed, captured, repairPrompt)
-            if (repaired.kind === 'waiting') return { waiting: repaired.observation }
-            if (repaired.kind === 'repaired') continue
+          if (nativeManager.settleTurn) {
+            const settled = await nativeManager.settleTurn(observation.session!, observation.workflowCorrelation, lane.guard.signal)
+            assertOriginalWorkflowTerminal(observation.execution, observation.session!, settled, observation.workflowCorrelation)
+            if (!isDeepStrictEqual(settled.terminalTurn, observed.terminalTurn)) throw new DomainError(
+              'NATIVE_TERMINAL_SOURCE_REQUIRED', 'The settled result differs from the validated provider output.', 409)
+            observed = settled
+            captured = this.captureNative(input.owner, observation.execution,
+              { type: 'history', history: observation.safeValue(observed) }, 'recovery', lane)
           }
-          if (boardError) throw new HarnessExecutionError('MEMORY_RESULT_INVALID', boardError.message, false)
           // The native result stays the evidence; a deliverable still failing after repair is failed where the terminal is normalized.
           const completed = HarnessExecutionSchema.parse({ ...observation.execution, state: 'completed',
             result: observation.safeValue(observed.terminalTurn!.result), finishedAt: capturedWorkflowNativeTime(captured) })
-          observation.signal.throwIfAborted()
-          try {
-            await timeRuntimeOperation('engine', 'execution.accept_terminal',
-              () => observation.bookkeeping(() => this.runs.updateExecution(completed, input.owner, captured)))
-          } catch (error) {
-            if (error instanceof MemoryResultRejected) {
-              if (observation.workResultRepairs >= 2) throw error
-              pendingBoardError = error
-              continue
-            }
-            if (!isWorkflowResultEffectFailure(error)) throw error
-            // The entire terminal transaction rolled back. This is the same
-            // original session and the same bounded repair budget as RESULT
-            // correction; no successful execution is reopened or rewritten.
-            if (observation.workResultRepairs < 2) {
-              const prompt = await this.collaboration?.effectRepairPrompt(input.owner, error)
-              if (!prompt) throw error
-              const repaired = await this.correctWorkflowResult(observation, nativeManager, lane, observed, captured, prompt)
-              if (repaired.kind === 'waiting') return { waiting: repaired.observation }
-              if (repaired.kind === 'repaired') continue
-              throw error
-            }
-            await observation.bookkeeping(() => this.runs.updateExecution(completed, input.owner, captured, error))
-          }
-          // Only committed terminal publication ends credential renewal. A
-          // rolled-back board effect must retain authority for its correction.
+          // Terminal publication ends workflow credential authority before native disposal finishes.
           await observation.stopRenewal?.()
+          observation.signal.throwIfAborted()
+          await timeRuntimeOperation('engine', 'execution.accept_terminal',
+            () => observation.bookkeeping(() => this.runs.updateExecution(completed, input.owner, captured)))
           // Read the first-terminal normalizer's immutable result, not a local
           // copy of unvalidated provider output. The original remains private.
           observation.execution = (await observation.bookkeeping(() => repeat.readExecution(observation.execution.id))).execution
           ownedSession.execution = observation.execution
-          if (input.coordinationResult) {
-            const original = await observation.bookkeeping(() =>
-              this.runs.readWorkflowTerminalSettlement(observation.execution, input.owner))
-            if (original) await this.publishCommittedTerminalSettlement(observation.execution, input.owner,
-              observation.session!, nativeManager, lane, original, observed)
-          } else if (nativeManager.settleTurn) {
-            await this.finishOutputSettlement(ownedSession, input.owner, observed.terminalTurn!, nativeManager, lane)
-          }
         } else {
           publishedEvents = await this.publishRecoveredNativeEvents(observation, observed.events, lane, lease)
         }

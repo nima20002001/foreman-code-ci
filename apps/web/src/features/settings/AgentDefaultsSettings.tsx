@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { agentTemplateForRole, nativeToolsSummary, memoryBoardTools, newAgentGraphqlTools, type AgentDefaults } from '@foreman-code/contracts'
+import { agentTemplateForRole, nativeToolsSummary, type AgentDefaults } from '@foreman-code/contracts'
 import type { SettingsAgentRole } from '@foreman-code/contracts/management'
 import { ErrorState, LoadingState, Switch } from '../../shared/ui/nocturne'
 import { useAgentDefaultsQuery, useUpdateAgentDefaultsMutation } from '../../shared/api/query'
@@ -34,12 +34,8 @@ export function AgentDefaultsSettings({ selectedRole, onOpen }: {
     {agentRoleOrder.map((role) => {
       const info = rolePresentation[role]
       const template = role === 'operator' ? value.operator : agentTemplateForRole(value, role)
-      const tools = role === 'operator' ? [] : template.graphqlTools ?? newAgentGraphqlTools(role)
-      const memory = memoryBoardTools('write').filter(tool => tools.includes(tool))
-      const memoryLabel = !memory.length ? 'None' : memory.length === memoryBoardTools('write').length ? 'Write'
-        : memory.length === memoryBoardTools('read').length && memoryBoardTools('read').every(tool => memory.includes(tool)) ? 'Read' : 'Custom'
       const summary = [...harnessSummary(template.harness),
-        { label: 'Native tools', value: nativeToolsSummary(template.nativeTools) }, ...(role === 'operator' ? [] : [{ label: 'New Agent memory access', value: memoryLabel }]), ...(role === 'master' && !value.master
+        { label: 'Native tools', value: nativeToolsSummary(template.nativeTools) }, ...(role === 'master' && !value.master
           ? [{ label: 'Defaults', value: 'Uses Orchestrator settings until configured' }] : []), ...(role === 'operator' ? [
         { label: 'Skills', value: String(value.operator.assignedSkills?.length ?? 0) },
         ...(value.operator.harness.harness === 'codex' ? [{ label: 'Thinking', value: value.operator.showThinking ? 'Shown' : 'Hidden' }] : []),

@@ -15,7 +15,7 @@ const explanations = [
 ] as const
 
 it.each(explanations)('keeps settings visible and shows the %s explanation on hover', async (label, explanation) => {
-  render(<WorkflowSettings draftKey="settings-test" edit={newNextDraft(fixture(), 'settings-test')} change={vi.fn()} report={vi.fn()}
+  render(<WorkflowSettings edit={newNextDraft(fixture(), 'settings-test')} change={vi.fn()} report={vi.fn()}
     defaultMs={600_000} locationReady locationMessage="" onChangeFolder={vi.fn()} onReload={vi.fn()} />)
   const user = userEvent.setup()
   const settings = screen
@@ -42,7 +42,7 @@ it('keeps required actions, unsaved state, and configured values visible beside 
     handoffs: { contractVersion: 1 } }
   const changeFolder = vi.fn()
   const reload = vi.fn()
-  render(<WorkflowSettings draftKey="settings-test" edit={edit} change={vi.fn()} report={vi.fn()} defaultMs={undefined}
+  render(<WorkflowSettings edit={edit} change={vi.fn()} report={vi.fn()} defaultMs={undefined}
     locationReady={false} locationMessage="Choose an execution folder to run this workflow."
     onChangeFolder={changeFolder} onReload={reload} />)
   expect(screen.getByRole('alert')).toHaveTextContent('The starting node was removed. Choose another one.')

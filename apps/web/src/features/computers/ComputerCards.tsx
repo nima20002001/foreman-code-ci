@@ -1,5 +1,4 @@
 import type { ReadObservation } from '@foreman-code/contracts'
-import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { ChevronRight, Monitor } from 'lucide-react'
 import type { DeviceRegistration } from '@foreman-code/contracts/device-identity'
@@ -21,7 +20,6 @@ import { deriveStatusChips, workerBehind } from './statusChips'
 import { humanizeMaintenanceText, newestTaskPerKind, taskLabel } from './maintenanceText'
 import { useComputerActivityFreshness } from './useComputerActivityFreshness'
 import './computerCards.css'
-import { useCollaborationUISlots, type CollaborationUISlots } from '../../shared/ui/collaborationSlots'
 
 type Card = { target: DeviceProvisioningTarget; build: BuildComputerStatus | undefined; buildError: boolean }
 
@@ -31,7 +29,6 @@ export function ComputerCards({ mainId, devices, onSelectComputer, only }: {
   /** Show just this paired device (its details page). */
   only?: string
 }) {
-  const collaboration = useCollaborationUISlots()
   const targets: DeviceProvisioningTarget[] = [{ hostRef: { kind: 'main' as const, mainId }, applicationInstallationId: mainId,
     keyRevision: null, authorizationRevision: null }, ...devices.filter(device => device.status === 'paired').map(device => ({
     hostRef: { kind: 'device' as const, mainId, deviceId: device.deviceId },
@@ -82,7 +79,6 @@ export function ComputerCards({ mainId, devices, onSelectComputer, only }: {
           ? activity.data.computers.find(computer => sameDeviceProvisioningTarget(computer.target, card.target)) : undefined
         return <li key={computerKey(card.target)}>
           <ComputerCard card={card} observed={observed} fresh={fresh}
-            browserProfiles={collaboration?.computerBrowserProfiles}
             activityComplete={activity.data?.activityComplete === true && !activity.data.truncated}
             connections={maintenanceRead.data?.connections} maintenance={maintenanceRead.data?.status}
             workerPublication={maintenanceRead.data?.workerPublication}
@@ -114,7 +110,7 @@ export function ComputerCards({ mainId, devices, onSelectComputer, only }: {
 
 type Task = ComputerMaintenanceStartInput['task']
 function ComputerCard({ card, observed, fresh, activityComplete, connections, maintenance, workerPublication, workerReadiness, maintenanceObservation, maintenanceError,
-  onRetryMaintenance, onMaintain, starting, maintaining, buildPosition, buildCount, onOpen, browserProfiles }: {
+  onRetryMaintenance, onMaintain, starting, maintaining, buildPosition, buildCount, onOpen }: {
   card: Card; observed: ComputerActivity | undefined; fresh: boolean; connections: ComputerConnections | undefined
   activityComplete: boolean; maintenanceError: boolean; onRetryMaintenance(): void
   maintenance: MaintenanceStatus | null | undefined; onMaintain(tasks: Task[]): void; starting: boolean; maintaining: boolean
@@ -122,7 +118,6 @@ function ComputerCard({ card, observed, fresh, activityComplete, connections, ma
   workerReadiness: WorkerBundleReadiness | undefined
   maintenanceObservation: ReadObservation | undefined
   buildPosition: number | undefined; buildCount: number; onOpen: (() => void) | undefined
-  browserProfiles: CollaborationUISlots['computerBrowserProfiles']
 }) {
   const name = observed?.name ?? computerDisplayName(card.target.hostRef)
   const tasks = newestTaskPerKind(maintenance?.tasks ?? [])
@@ -168,9 +163,6 @@ function ComputerCard({ card, observed, fresh, activityComplete, connections, ma
         {card.build.remoteExecutionEnabled ? 'On' : 'Off'}</dd></div> : null}
       <div><dt>Disk</dt><dd>{maintenance?.system.disk ? `${bytes(maintenance.system.disk.freeBytes)} free of ${bytes(maintenance.system.disk.totalBytes)}` : '—'}</dd></div>
     </dl>
-    {browserProfiles?.(card.target)}
-    <Link to="/settings/browser-profiles" search={{ mainId: card.target.hostRef.mainId, computer: card.target.hostRef.kind,
-      ...(card.target.hostRef.kind === 'device' ? { deviceId: card.target.hostRef.deviceId } : {}) }}>Browser profiles on this computer</Link>
     {maintenanceError ? <div role="alert" className="computer-card-note">
       <p>Maintenance could not be refreshed.{maintenance ? <> Showing last confirmed details from <time dateTime={maintenance.observedAt}>{maintenance.observedAt}</time>. Current task state is unknown.</> : null}</p>
       {maintenanceObservation?.status === 'unavailable' ? <p>

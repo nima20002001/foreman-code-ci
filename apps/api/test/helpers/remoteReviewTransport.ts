@@ -7,7 +7,6 @@ import type { DeviceApplicationFrame } from '@foreman-code/contracts/device-appl
 import { RemoteOwnerControlSchema } from '@foreman-code/contracts/remote-execution'
 import { WorkerConversationRpcRequestSchema, type WorkerConversationRpcRequest }
   from '@foreman-code/contracts/remote-execution-rpc'
-import { retirementReplyBarrier } from './remoteReviewRetirement.js'
 
 /** Forward actual paired frames unchanged. A test can delay authorization at
  * the network boundary; Main still performs the original scope checks. */
@@ -28,9 +27,7 @@ export async function createRemoteReviewTransport(input: {
   })
   const sockets = new Set<WebSocket>()
   let paused = false
-  const retirement = retirementReplyBarrier(() => { paused = true })
   let dropPhysical: (() => void) | undefined
-  let dropSettlement: (() => void) | undefined
   let loseCompactionResponse = false
   const conversationRequests: WorkerConversationRpcRequest[] = []
   const deliveryReads: Array<{ command: ReturnType<typeof RemoteOwnerControlSchema.parse>; phase: string }> = []
@@ -70,15 +67,6 @@ export async function createRemoteReviewTransport(input: {
         dropped()
         return true
       }
-      if (direction === 'to-worker' && payload.method === 'settle-turn' && dropSettlement) {
-        const dropped = dropSettlement
-        dropSettlement = undefined
-        paused = true
-        worker.terminate()
-        main.terminate()
-        dropped()
-        return true
-      }
       if (direction === 'to-worker' && payload.method?.startsWith('conversation.')) {
         conversationRequests.push(WorkerConversationRpcRequestSchema.parse(payload))
       }
@@ -109,7 +97,6 @@ export async function createRemoteReviewTransport(input: {
     })
     const discoveryFrames = new Map<string, Array<{ data: RawData; binary: boolean }>>()
     main.on('message', (data, binary) => {
-      retirement.observe(data, 'to-worker')
       if (observe(data, 'to-worker')) return
       const frame = JSON.parse(data.toString()) as DeviceApplicationFrame
       if (input.beforeDiscovery && frame.type === 'application-open' && frame.kind === 'request'
@@ -136,7 +123,6 @@ export async function createRemoteReviewTransport(input: {
     worker.on('close', () => { sockets.delete(worker); main.close() })
     worker.on('message', (data, binary) => {
       const forward = async () => {
-        if (retirement.observe(data, 'to-main')) return
         if (observe(data, 'to-main')) {
           await input.beforeCompactionResponse?.()
           fail()
@@ -175,7 +161,6 @@ export async function createRemoteReviewTransport(input: {
   if (!address || typeof address === 'string') throw new Error('Expected a loopback transport fixture port.')
   return { endpoint: `wss://127.0.0.1:${address.port}/device/connect`, deliveryReads, conversationRequests,
     paused: () => paused,
-    holdNextRetirementReply: retirement.arm,
     pauseConnections() {
       paused = true
       for (const socket of sockets) socket.terminate()
@@ -184,10 +169,6 @@ export async function createRemoteReviewTransport(input: {
     dropNextPhysicalReadout() {
       if (dropPhysical) throw new Error('A physical readout interruption is already armed.')
       return new Promise<void>(resolve => { dropPhysical = resolve })
-    },
-    dropNextSettlement() {
-      if (dropSettlement) throw new Error('A settlement interruption is already armed.')
-      return new Promise<void>(resolve => { dropSettlement = resolve })
     },
     loseNextCompactionResponse: () => { loseCompactionResponse = true },
     close: async () => {

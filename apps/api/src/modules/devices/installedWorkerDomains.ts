@@ -113,7 +113,6 @@ interface InstalledWorkerInput {
   /** Installed original source/output, canonical acknowledgement and stopped-writer ports. */
   rsync?: InstalledRsyncProviders
   workerUpdate?: NonNullable<MaintenancePorts['workerUpdate']>
-  browserRuntime?: MaintenancePorts['browserRuntime']
   ciStartupPending?: () => boolean | Promise<boolean>
   assertBundleReady?(context: DeviceExtensionContext): Promise<void>
 }
@@ -607,7 +606,6 @@ async function configureWorkerComputers(composition: InstalledWorkerComposition)
         const binaries: Record<string, string> = { ...(selected?.codexBinary ? { codex: selected.codexBinary } : {}),
           ...(selected?.claude ? { claude: selected.claude.binary } : {}) }
         return new ComputerMaintenance({ ...systemMaintenancePorts(process.env, binaries),
-          ...(input.browserRuntime ? { browserRuntime: input.browserRuntime } : {}),
           ...(input.workerUpdate ? { workerUpdate: input.workerUpdate } : {}),
           async selectInstalledCodex(signal) {
             const binary = await selectInstalledCodex(composition.configuration, process.env.HOME ?? homedir(), signal)

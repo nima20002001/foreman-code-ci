@@ -16,8 +16,6 @@ import type { RunOwnership } from './ownership.js'
 import type { RunStateUpdate } from './port.js'
 import { sameRepeatValue } from './repeatResolution.js'
 import { readAcceptedRepeatRunLocked } from './repeatStartRead.js'
-import { cancelHierarchyContinuationsLocked } from './hierarchyDirection.js'
-import { cancelWorkflowControlsLocked } from '../collaboration/workflowControlStore.js'
 
 export function workflowRunScope(run: AcceptedWorkflowRunV3) {
   return RepeatGraphScopeV3Schema.parse({ workspaceId: run.workspaceId, workflowId: run.workflowId,
@@ -145,8 +143,6 @@ export async function requestWorkflowStopLocked(sql: GraphTransactionSql, runId:
   await publication.effect({ effect, sourceDigest: effect.digest, evidence,
     facts: [{ type: 'run.state', state }, ...await publicRunClosedFacts(sql, publication.scope)] },
   { expected, readCurrentLocked: readAuthority }, async () => {
-    await cancelHierarchyContinuationsLocked(sql, runId)
-    await cancelWorkflowControlsLocked(sql, runId, new Date().toISOString())
     await sql.query(`insert into run_cleanup_intents(run_id) values($1)
       on conflict(run_id) do update set pending=true,updated_at=now()`, [runId])
     await sql.query(`insert into run_activity(run_id,source,kind,occurred_at,payload)

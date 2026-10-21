@@ -1,9 +1,10 @@
+import { parseWorkHandoffArtifactResult } from '@foreman-code/contracts/wave25'
 import { isDeepStrictEqual as same } from 'node:util'
 import { HarnessExecutionSchema, type HarnessExecution } from '@foreman-code/contracts'
 import { ArtifactAttemptSchema } from '@foreman-code/contracts/artifact-edges'
 import { TransferContextSchema } from '@foreman-code/contracts/byte-transfer'
 import { RemoteOperationReceiptSchema, remoteWorkflowTurnId, remoteWorkflowHasTurn } from '@foreman-code/contracts/remote-execution'
-import { workflowArtifactDigestsByOutputKey } from '@foreman-code/contracts/workflow-artifact-result'
+import { parseWorkflowArtifactResult, workflowArtifactDigestsByOutputKey } from '@foreman-code/contracts/workflow-artifact-result'
 import type { AcceptedWorkflowRunV3, WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
 import { DomainError } from '../../errors.js'
 import { assertOriginalWorkflowTerminal } from '../../interactions/workflowTerminalSource.js'
@@ -16,7 +17,6 @@ import type { PostgresArtifactPublicationAuthority } from './nativeArtifactAutho
 import { assertNativeArtifactOutputLive, readNativeArtifactOutput } from './nativeArtifactOutputPostgres.js'
 import { readReconciledDispatchIntent } from './persistence.js'
 import { readWorkResultRepairAttempt, workResultRepairCorrelation } from '../workResultRepair.js'
-import { workflowArtifactResult } from '../workflowCoordinationResult.js'
 
 const pending = (): never => { throw new DomainError('WORKFLOW_ARTIFACT_OUTPUTS_PENDING',
   'The complete original artifact publications must be durably bound before accepting success.', 409) }
@@ -78,7 +78,13 @@ export function createWorkflowArtifactOutputsGate(mainId: string,
     }
     let mappings
     try {
-      mappings = workflowArtifactResult(execution.result, version, node.id, run.resultProtocol).outputs
+      if (version.definition.handoffs) {
+        mappings = parseWorkHandoffArtifactResult(execution.result, node.artifactOutputs).artifactOutputs.outputs
+      } else if (node.choice) {
+        mappings = parseWorkflowArtifactResult(execution.result, node.artifactOutputs, node.choice).artifactOutputs.outputs
+      } else {
+        mappings = parseWorkflowArtifactResult(execution.result, node.artifactOutputs).artifactOutputs.outputs
+      }
     } catch { return conflict() }
     const native = remote.native
     if (!same(remote.intent, intent) || !same(remote.terminal?.result, execution.result)

@@ -59,11 +59,9 @@ export function createClaudeNativeSessionManager(options: ClaudeNativeSessionMan
     subagentHistory(session, cursor, signal) { return turns.subagentHistory(ctx, session, cursor, signal) },
     history(session) { return turns.history(ctx, session) },
     retireTurn(session, correlationId) { return turns.retireTurn(ctx, session, correlationId) },
-    rebindApplicationAccess(session, start, signal) { return opening.rebindApplicationAccess(ctx, session, start, signal) },
     reconcile(session, correlationId, signal) { return turns.reconcile(ctx, session, correlationId, signal) },
     async reconcileResponse(session, response, signal) { return ctx.options.interactionPort?.reconcileResponse?.(session, response, signal) ?? manager.history(session) },
     close(session) { return opening.close(ctx, session) },
-    closeForResume(session) { return opening.closeForResume(ctx, session) },
     async closeForRestart(session) { return runtimeFor(ctx, session).sdk.closeForRestart() },
     dispose() { return opening.dispose(ctx) },
   }

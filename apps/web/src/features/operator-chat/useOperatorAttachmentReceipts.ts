@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ChatDeliveryReceipt, OperatorConversationState, SendOperatorMessageRequest } from '@foreman-code/contracts'
+import type { OperatorConversationState, SendOperatorMessageRequest } from '@foreman-code/contracts'
 import type { MessageAttachmentRef } from '@foreman-code/contracts/files'
 import { ApiError, sendOperatorMessage } from '../../shared/api/client'
 import { chatStoragePrefix, identityEpoch } from '../../shared/api/protectedChatStorage'
 import { sessionGeneration, sessionIsSwitching, SessionChangedError } from '../../shared/api/sessionBoundary'
 import { containsAttachmentRefs, messageAttachmentRefs, sameAttachmentRefs, type ChatAttachmentAttempt } from '../conversations/chatAttachmentAttempt'
 import { readPendingOperatorMessage } from './operatorOutbox'
-import { confirmedOperatorDelivery } from './operatorDeliveryReceipt'
 
 interface Attempt {
   id: string
@@ -33,18 +32,11 @@ function matches(attempt: Attempt, state: OperatorConversationState) {
 export function useOperatorAttachmentReceipts() {
   const client = useQueryClient()
   const attempts = useRef(new Map<string, Attempt>())
-  const confirm = useCallback((requestId: string, state: OperatorConversationState | undefined) => {
+  const confirm = useCallback((requestId: string, state: OperatorConversationState) => {
     const attempt = attempts.current.get(requestId)
-    if (!state || !attempt || !current(attempt) || !matches(attempt, state)) return
+    if (!attempt || !current(attempt) || !matches(attempt, state)) return
     attempt.attachment.acknowledge?.()
     attempts.current.delete(requestId)
-  }, [])
-  const confirmDelivery = useCallback((requestId: string, receipt: ChatDeliveryReceipt) => {
-    const attempt = attempts.current.get(requestId)
-    if (!attempt || !current(attempt) || ['failed', 'unknown'].includes(receipt.state)
-      || receipt.commandId !== requestId || receipt.target.kind !== 'operator_conversation'
-      || receipt.target.conversationId !== attempt.id || !sameAttachmentRefs(attempt.attachment.attachments, attempt.command.attachments)) return
-    attempt.attachment.acknowledge?.(); attempts.current.delete(requestId)
   }, [])
   const remember = useCallback((id: string, command: SendOperatorMessageRequest, attachment: ChatAttachmentAttempt) => {
     if (!attachment.attachments.length || attempts.current.has(command.requestId)) return
@@ -69,16 +61,14 @@ export function useOperatorAttachmentReceipts() {
           if (!current(attempt)) throw new SessionChangedError()
           const result = await sendOperatorMessage(attempt.id, { ...attempt.command, recovery: 'receipt' }, { signal })
           if (!current(attempt)) throw new SessionChangedError()
-          const receipt = confirmedOperatorDelivery(attempt.id, attempt.command.requestId, 'receipt' in result ? result.receipt : undefined)
-          if (!receipt && (!result.state || !matches(attempt, result.state))) throw new ApiError({
+          if (!matches(attempt, result.state)) throw new ApiError({
             code: 'INVALID_RESPONSE', message: 'The file message receipt was not confirmed.',
           })
-          return { state: result.state, receipt }
+          return result.state
         },
-      }).then(result => result.receipt ? confirmDelivery(attempt.command.requestId, result.receipt)
-        : confirm(attempt.command.requestId, result.state)).catch(error => { console.warn('Could not confirm the attachment message receipt.', error) })
+      }).then((state) => confirm(attempt.command.requestId, state)).catch(() => undefined)
     }
-  }, [client, confirm, confirmDelivery])
+  }, [client, confirm])
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (event.key === null || event.key.startsWith(chatStoragePrefix)) reconcile()
@@ -90,5 +80,5 @@ export function useOperatorAttachmentReceipts() {
       window.removeEventListener('focus', reconcile)
     }
   }, [reconcile])
-  return { remember, confirm, confirmDelivery, forget, blocksSend, reconcile }
+  return { remember, confirm, forget, blocksSend, reconcile }
 }

@@ -30,7 +30,7 @@ export const AcceptedDestinationSchema = z.object({
   attestationId: IdSchema, attestationHash: PlacementDigestSchema,
 }).strict()
 const AgentPayload = z.object({
-  /** Result protocol pinned into the immutable launch binding by admission. */
+  /** Future result envelope, pinned into the immutable launch binding only at producer cutover. */
   resultProtocol: ResultProtocolSchema.optional(),
   accountBinding: AcceptedProviderAccountBindingSchema.optional(),
   worktree: SourceWorktreeRequestSchema.optional(),

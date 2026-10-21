@@ -1,28 +1,20 @@
 import { AgentFormSchema } from './agentForm'
 import { LocalWorkflowFormSchema } from './localGraph'
 import { z } from 'zod'
-import { AgentProductRoleSchema, AgentSchema } from '@foreman-code/contracts'
+import { AgentSchema } from '@foreman-code/contracts'
 import { ManagedAgentSchema } from '@foreman-code/contracts/management'
 import { GraphDraftV3Schema, GraphEditStageInputV3Schema, WorkflowDefinitionV3Schema, sameAuthoredWorkflow, sameWorkflowValue,
   type GraphEditIntentV3, type GraphEditStageInputV3 } from '@foreman-code/contracts/wave25'
 import { ApiError } from '../../../shared/api/client'
 import { chatStoragePrefix, identityEpoch, protectedKey } from '../../../shared/api/protectedChatStorage'
 import { assertSession, sessionGeneration, sessionIsSwitching, SessionChangedError } from '../../../shared/api/sessionBoundary'
-import { nextDraftKey, type NextDraftEdit, type ConflictRecovery } from './state'
+import { nextDraftKey, type NextDraftEdit } from './state'
 
 const prefix = 'graph-edit-intent:'
 const SnapshotSchema = z.object({
   context: z.object({ draft: GraphDraftV3Schema, savedDraft: GraphDraftV3Schema.optional(), agents: z.array(ManagedAgentSchema) }).strict(),
   graph: LocalWorkflowFormSchema, agentEdits: z.record(z.string(), AgentSchema).optional(),
   agentForms: z.record(z.string(), AgentFormSchema).optional(),
-  workflowForms: z.object({
-    hierarchy: z.object({ masterNodeId: z.string(), parents: z.record(z.string(), z.string()),
-      previousMaster: z.enum(['keep', 'remove']).optional() }).strict().optional(),
-    createAgent: z.object({ role: AgentProductRoleSchema, name: z.string(), parentNodeId: z.string(),
-      agent: AgentSchema.optional(), settings: AgentFormSchema.optional() }).strict().optional(),
-    workerParents: z.record(z.string(), z.string()).optional(),
-    removeNode: z.object({ nodeId: z.string(), destinationParentId: z.string() }).strict().optional(),
-  }).strict().optional(),
   remoteEditIntent: z.object({ id: z.string().min(1), ownerPrincipalId: z.string().min(1),
     stageCommandId: z.string().min(1), stageInputHash: z.string().min(1) }).strict().optional(),
   acknowledgedStageCommands: z.array(z.string()).optional(), submittedStageCommands: z.array(z.string()).optional(),
@@ -30,8 +22,6 @@ const SnapshotSchema = z.object({
 const OutboxSchema = z.object({ request: GraphEditStageInputV3Schema, target: WorkflowDefinitionV3Schema,
   agentTarget: z.record(z.string(), AgentSchema).optional() }).strict()
 const SubmissionSchema = OutboxSchema.extend({ terminal: z.literal(true).optional() })
-const ConflictRecoverySchema = z.object({ id: z.string().min(1), originalInstanceId: z.string().min(1),
-  recordedAt: z.string().datetime(), snapshot: SnapshotSchema }).strict()
 export type EditIntentOutbox = z.infer<typeof OutboxSchema>
 const storageFailure = 'Durable edit storage is unavailable. Edits remain in this tab; no Stop or save will be sent until storage is restored.'
 function storage() {
@@ -166,7 +156,7 @@ export function readEditSnapshot(scope: string) {
     // Copy the acknowledgement metadata with the form. A new tab must not
     // replay an old Discard against edits made after this snapshot settled.
     if (!existing) write(own, value)
-    return { context: value.context, graph: value.graph, agentEdits: value.agentEdits, agentForms: value.agentForms, workflowForms: value.workflowForms,
+    return { context: value.context, graph: value.graph, agentEdits: value.agentEdits, agentForms: value.agentForms,
       ...(value.remoteEditIntent ? { remoteEditIntent: value.remoteEditIntent } : {}) }
   }
   return undefined
@@ -178,7 +168,6 @@ function sameDraftBase(left: NextDraftEdit['context']['draft'], right: NextDraft
 function sameSnapshotForm(left: z.infer<typeof SnapshotSchema>, right: z.infer<typeof SnapshotSchema>) {
   return sameDraftBase(left.context.draft, right.context.draft) && sameWorkflowValue(left.context, right.context)
     && sameWorkflowValue(left.graph, right.graph) && sameWorkflowValue(left.agentEdits ?? {}, right.agentEdits ?? {})
-    && sameWorkflowValue(left.workflowForms ?? {}, right.workflowForms ?? {})
     && sameWorkflowValue(left.remoteEditIntent, right.remoteEditIntent)
 }
 /** Local consumption only, not server state. Scoped to this tab and form base. */
@@ -193,10 +182,9 @@ export function editSnapshotSubmitted(scope: string, edit: NextDraftEdit, stageC
   return !!snapshot && sameDraftBase(snapshot.context.draft, edit.context.draft)
     && !!snapshot.submittedStageCommands?.includes(stageCommandId)
 }
-export function storeEditSnapshot(scope: string, edit: Pick<NextDraftEdit, 'context' | 'graph' | 'agentEdits' | 'agentForms' | 'workflowForms' | 'remoteEditIntent'>, acknowledgedStageCommandId?: string) {
+export function storeEditSnapshot(scope: string, edit: Pick<NextDraftEdit, 'context' | 'graph' | 'agentEdits' | 'agentForms' | 'remoteEditIntent'>, acknowledgedStageCommandId?: string) {
   const value = SnapshotSchema.parse({ context: { ...edit.context, agents: referencedAgents(edit) }, graph: edit.graph,
     ...(edit.agentForms ? { agentForms: edit.agentForms } : {}),
-    ...(edit.workflowForms ? { workflowForms: edit.workflowForms } : {}),
     ...(edit.agentEdits ? { agentEdits: edit.agentEdits } : {}),
     ...(edit.remoteEditIntent ? { remoteEditIntent: edit.remoteEditIntent } : {}) })
   assertScope(scope, value.graph.workspaceId, value.graph.id)
@@ -219,47 +207,6 @@ export function storeEditSnapshot(scope: string, edit: Pick<NextDraftEdit, 'cont
     ...(acknowledgedStageCommands.size ? { acknowledgedStageCommands: [...acknowledgedStageCommands] } : {}),
     ...(submittedStageCommands.size ? { submittedStageCommands: [...submittedStageCommands] } : {}) })
   collectTerminalSubmissions(scope)
-}
-function recoveryKey(scope: string, instanceId: string, id: string) {
-  return key('ui', `recovery:${JSON.stringify([scope, instanceId, id])}`)
-}
-/** Retain and verify a separate immutable copy BEFORE reading/replacing the editor base. */
-export function retainConflictRecovery(scope: string, edit: NextDraftEdit): ConflictRecovery {
-  assertScope(scope, edit.graph.workspaceId, edit.graph.id)
-  const snapshot = SnapshotSchema.parse({ context: { ...edit.context, agents: referencedAgents(edit) },
-    graph: edit.graph, agentEdits: edit.agentEdits, agentForms: edit.agentForms,
-    workflowForms: edit.workflowForms, remoteEditIntent: edit.remoteEditIntent })
-  const recovery = ConflictRecoverySchema.parse({ id: crypto.randomUUID(), originalInstanceId: edit.instanceId,
-    recordedAt: new Date().toISOString(), snapshot })
-  const name = recoveryKey(scope, edit.instanceId, recovery.id)
-  if (storage().getItem(name) !== null) throw new Error('This recovery already exists. No retained draft was replaced.')
-  write(name, recovery)
-  const confirmed = read(name, ConflictRecoverySchema)
-  if (!confirmed) throw new Error(storageFailure)
-  return confirmed
-}
-export function readConflictRecoveries(scope: string): ConflictRecovery[] {
-  const local = storage(), start = key('ui', 'recovery:')
-  const names = Array.from({ length: local.length }, (_, index) => local.key(index))
-  const values: ConflictRecovery[] = []
-  for (const name of names) {
-    if (!name?.startsWith(start)) continue
-    const value = read(name, ConflictRecoverySchema)
-    if (!value || nextDraftKey(value.snapshot.graph.workspaceId, value.snapshot.graph.id) !== scope) continue
-    assertScope(scope, value.snapshot.context.draft.workspaceId, value.snapshot.context.draft.workflowId)
-    if (name !== recoveryKey(scope, value.originalInstanceId, value.id)) throw new Error('The recovered draft identity is invalid. It has been retained.')
-    values.push(value)
-  }
-  return values.sort((a, b) => a.recordedAt.localeCompare(b.recordedAt) || a.id.localeCompare(b.id))
-}
-/** Only an explicit selected-recovery discard removes this copy; Save never collects it. */
-export function discardConflictRecovery(scope: string, selected: ConflictRecovery): void {
-  const name = recoveryKey(scope, selected.originalInstanceId, selected.id)
-  const existing = read(name, ConflictRecoverySchema)
-  if (!existing) return
-  assertScope(scope, existing.snapshot.graph.workspaceId, existing.snapshot.graph.id)
-  storage().removeItem(name)
-  if (storage().getItem(name) !== null) throw new Error(storageFailure)
 }
 export function readEditOutbox(scope: string): EditIntentOutbox | undefined {
   const value = read(key('outbox', scope), OutboxSchema)

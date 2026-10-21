@@ -2,8 +2,8 @@ import { useMutation } from '@tanstack/react-query'
 import { GraphDraftV3Schema } from '@foreman-code/contracts/wave25'
 import { useGraphDraftStore } from '../store'
 import { discardMeaningfulChanges } from './model'
-import { readEditOutbox, retainConflictRecovery, readConflictRecoveries, storeEditSnapshot } from './editIntentStorage'
-import { newNextDraft, nextDraftDirty, type NextDraftEdit } from './state'
+import { readEditOutbox } from './editIntentStorage'
+import { nextDraftDirty, type NextDraftEdit } from './state'
 import { nextDraftApi } from './transport'
 import { readBoardStart } from '../../workflow-board/startOutbox'
 import type { DraftEditorCore } from './useDraftEditorCore'
@@ -20,9 +20,7 @@ export function useDraftEditorSave({ draftKey, edit, editIntent, core, pendingSt
   const graph = edit.graph
   const { canvas, setLocalError, setMessage, setConfirm, report } = core
   const reloadMutation = useMutation({ mutationFn: () => nextDraftApi.context(graph.workspaceId, graph.id, undefined, true), retry: false })
-  const inspectMutation = useMutation({ mutationFn: () => nextDraftApi.context(graph.workspaceId, graph.id, undefined, true,
-    `board-${crypto.randomUUID()}`), retry: false })
-  const reloading = reloadMutation.isPending || inspectMutation.isPending
+  const reloading = reloadMutation.isPending
   const discardLocal = () => {
     const current = useGraphDraftStore.getState().nextDrafts[draftKey]
     if (!current || current.busy || current.pending || readBoardStart(draftKey)) throw new Error('Reconcile the in-flight or uncertain command first.')
@@ -30,8 +28,7 @@ export function useDraftEditorSave({ draftKey, edit, editIntent, core, pendingSt
     canvas.current?.flush()
     useGraphDraftStore.getState().updateNextDraft(draftKey, (state) => ({ ...state, graph: discardMeaningfulChanges(state.context, state.graph),
       context: { ...state.context, draft: { ...(state.context.savedDraft ?? state.context.draft), layoutRevision: state.context.draft.layoutRevision } },
-      history: [], historyOffset: 0, future: [], agentEdits: undefined, agentForms: undefined, workflowForms: undefined,
-      agentHistory: undefined, error: undefined, validation: undefined }))
+      history: [], historyOffset: 0, future: [], agentEdits: undefined, agentForms: undefined, agentHistory: undefined, error: undefined, validation: undefined }))
     nextDraftApi.discardLocal(graph.workspaceId, graph.id)
     setLocalError(undefined); setMessage('Changes discarded.')
   }
@@ -67,19 +64,18 @@ export function useDraftEditorSave({ draftKey, edit, editIntent, core, pendingSt
     }
     discardLocal()
   }
-  const reload = async () => {
+  const reload = async (confirmed = false) => {
     if (editIntent.locked) { report(new Error('The private staged payload is retained. Reconcile or discard it before reloading the shared draft.')); return }
 
     canvas.current?.flush()
     const before = useGraphDraftStore.getState().nextDrafts[draftKey]
     if (!before || before.busy || before.pending) return
-    if (nextDraftDirty(before) || Object.keys(before.agentForms ?? {}).length || Object.keys(before.workflowForms ?? {}).length) { setConfirm('reload'); return }
+    if (!confirmed && nextDraftDirty(before)) { setConfirm('reload'); return }
     try {
       const fresh = await reloadMutation.mutateAsync()
       const current = useGraphDraftStore.getState().nextDrafts[draftKey]
       if (!current || current.instanceId !== before.instanceId) return
-      if (current.graph !== before.graph || current.agentEdits !== before.agentEdits || current.agentForms !== before.agentForms
-        || current.workflowForms !== before.workflowForms || current.busy || current.pending) throw new Error('The form changed during reload. Your edits are retained.')
+      if (current.graph !== before.graph || current.agentEdits !== before.agentEdits || current.busy || current.pending) throw new Error('The form changed during reload. Your edits are retained.')
       if (before.startRejectedVersionId && fresh.draft.baseWorkflowVersionId === before.startRejectedVersionId) {
         throw new Error('The saved draft still points to the rejected version. Reload after a newer version is available.')
       }
@@ -87,29 +83,5 @@ export function useDraftEditorSave({ draftKey, edit, editIntent, core, pendingSt
       setLocalError(undefined); setMessage(pendingStart ? 'Loaded the saved draft. Confirm the earlier start before starting again.' : 'Loaded the saved draft.')
     } catch (error) { report(error) }
   }
-  const inspectLatest = async () => {
-    try {
-      if (editIntent.locked || readEditOutbox(draftKey) || readBoardStart(draftKey)) throw new Error('Reconcile the exact pending command before inspecting a new edit base.')
-      canvas.current?.flush()
-      const before = useGraphDraftStore.getState().nextDrafts[draftKey]
-      if (!before || before.busy || before.pending) throw new Error('Wait for the current edit to finish. Your draft is retained.')
-      retainConflictRecovery(draftKey, before)
-      const recoveries = readConflictRecoveries(draftKey)
-      useGraphDraftStore.getState().updateNextDraft(draftKey, state => ({ ...state, conflictRecovery: recoveries }))
-      const fresh = await inspectMutation.mutateAsync()
-      const current = useGraphDraftStore.getState().nextDrafts[draftKey]
-      if (!current || current.instanceId !== before.instanceId || current.graph !== before.graph
-        || current.agentEdits !== before.agentEdits || current.agentForms !== before.agentForms
-        || current.workflowForms !== before.workflowForms || current.busy || current.pending) {
-        throw new Error('The form changed while loading the latest version. The active form and recovered draft are both kept.')
-      }
-      // Confirm the new active snapshot is durable before changing the visible editor.
-      storeEditSnapshot(draftKey, newNextDraft(fresh, crypto.randomUUID()))
-      nextDraftApi.acceptContext(fresh)
-      useGraphDraftStore.getState().installNextDraft(draftKey, fresh, true)
-      setLocalError(undefined)
-      setMessage('Opened the latest saved workflow. Your unsaved draft is kept separately for comparison. Reapply the changes you want, then Save workflow.')
-    } catch (error) { report(error) }
-  }
-  return { reloading, stopAndSave, discardChanges, reload, inspectLatest }
+  return { reloading, stopAndSave, discardChanges, reload }
 }

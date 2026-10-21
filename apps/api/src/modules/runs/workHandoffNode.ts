@@ -1,14 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises'
-import { type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
+import { parseWorkHandoffResult, type WorkflowVersionV3 } from '@foreman-code/contracts/wave25'
 import { DomainError } from '../errors.js'
 import type { RepeatRunRepository } from './repeatPostgres.js'
 import type { RepeatExecutionDriver } from './repeatNode.js'
 import { ExecutionLimiter } from './limiter.js'
 import { selectedWorkHandoffRoutes } from './workHandoffRouting.js'
 import { WorkExecutionFailure } from './workExecutionFailure.js'
-import { parseWorkflowWorkResult } from './workflowCoordinationResult.js'
 import { waitBeforeRetry } from './executionRetryPolicy.js'
-import { parseHierarchyWorkResult } from './hierarchyResults.js'
 
 /** One LangGraph activation task. Every durable decision is idempotent, so a
  * checkpoint replay reconciles the exact native execution and work receipts. */
@@ -16,7 +14,6 @@ export function workHandoffNodeAction(input: {
   version: WorkflowVersionV3
   store: Pick<RepeatRunRepository, 'admitWorkActivation' | 'acceptWorkTerminal' | 'admitWorkRequest'
     | 'returnWork' | 'recordWorkUnresolved' | 'resolveWaitingWorkJoins'>
-    & Partial<Pick<RepeatRunRepository, 'admitHierarchyGroup'>>
   driver: RepeatExecutionDriver; limiter: ExecutionLimiter; signal: AbortSignal
 }) {
   const execute = async (activationId: string): Promise<readonly string[]> => {
@@ -28,8 +25,7 @@ export function workHandoffNodeAction(input: {
       try { admitted = await admit(); break }
       catch (error) {
         // The node's interval check finishes first; its slot is not held while waiting.
-        if (!(error instanceof DomainError
-          && ['INTERVAL_CHECK_RUNNING','HIERARCHY_DIRECTION_WAITING','COORDINATOR_CONSULTATION_ACTIVE'].includes(error.code))) throw error
+        if (!(error instanceof DomainError && error.code === 'INTERVAL_CHECK_RUNNING')) throw error
         await delay(1_000, undefined, { signal: input.signal })
       }
     }
@@ -52,29 +48,12 @@ export function workHandoffNodeAction(input: {
       }
       const terminal = await input.store.acceptWorkTerminal(execution.id,
         (attempt) => input.driver.candidate({ nodeId: execution.workflowNodeId, occurrence: null }, attempt))
-      if (terminal.kind === 'retry' || terminal.kind === 'continued') {
-        if (terminal.kind === 'retry') await waitBeforeRetry(execution, terminal.execution, input.signal)
+      if (terminal.kind === 'retry') {
+        await waitBeforeRetry(execution, terminal.execution, input.signal)
         execution = terminal.execution
         continue
       }
-      if (terminal.kind === 'waiting_direction') return [terminal.activationId]
-      if (terminal.kind === 'refused') return []
-      if (input.version.definition.hierarchy) {
-        const result = parseHierarchyWorkResult(terminal.execution.result, input.version,
-          terminal.execution.workflowNodeId, terminal.resultProtocol)
-        if (result.routing.kind === 'return') {
-          return (await input.store.returnWork(terminal.execution.id)).destinations ?? []
-        }
-        if (result.routing.kind === 'delegate' || result.routing.kind === 'request') {
-          if (!input.store.admitHierarchyGroup) throw new DomainError('HIERARCHY_ENGINE_REQUIRED',
-            'Hierarchy work requires the existing Run group admission owner.', 409)
-          const group = await input.store.admitHierarchyGroup(terminal.execution.id)
-          return group.kind === 'accepted' ? group.requests.map(request => request.destinationActivationId) : []
-        }
-        return []
-      }
-      const result = parseWorkflowWorkResult(terminal.execution.result!, input.version,
-        terminal.execution.workflowNodeId, terminal.resultProtocol)
+      const result = parseWorkHandoffResult(terminal.execution.result)
       if (result.routing.kind === 'return') {
         const returned = await input.store.returnWork(terminal.execution.id)
         return returned.destinations ?? []

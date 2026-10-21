@@ -23,9 +23,6 @@ export async function copyApiRuntime(repository, output) {
     await mkdir(dirname(destination), { recursive: true })
     await copyFile(join(repository, path), destination)
   }
-  const browserSkill = 'modules/browser-runtime/skill/browser-use.md'
-  await mkdir(dirname(join(output, browserSkill)), { recursive: true })
-  await copyFile(join(repository, 'apps/api/src', browserSkill), join(output, browserSkill))
   const entrypoint = join(output, 'modules/jobs/ciRuntimeContext.mjs')
   await mkdir(dirname(entrypoint), { recursive: true })
   await writeFile(entrypoint,

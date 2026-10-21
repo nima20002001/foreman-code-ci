@@ -1,4 +1,3 @@
-import { CONSULTATION_BINDING_ELIGIBLE } from './consultationAuthority.js'
 /** Shared durable eligibility; aliases b/p/he/r name binding/principal/execution/Run.
  * Expiry is checked separately at authentication. A paused, still-owned lease can
  * be renewed; expiry alone is not terminal cleanup or authority revocation.
@@ -18,8 +17,7 @@ export const WORKER_BINDING_ELIGIBLE = `
         join agent_configuration_versions c on c.id=he.record->>'agentConfigurationVersionId'
         where ns.execution_id=he.id and ns.workflow_finalized_at is not null
           and ns.reference->>'nativeSessionId'=he.record->>'nativeSessionId'
-          and c.record->>'productRole' in ('master','orchestrator')))
-    or (${CONSULTATION_BINDING_ELIGIBLE}))
+          and c.record->>'productRole' in ('master','orchestrator'))))
   and he.id=b.execution_id and he.run_id=b.run_id and he.agent_id=b.agent_id
   and r.id=b.run_id and r.workspace_id=b.workspace_id and r.workflow_id=b.workflow_id
   and r.execution_state in ('running','waiting')

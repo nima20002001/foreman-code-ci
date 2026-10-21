@@ -1,4 +1,3 @@
-import { coordinationBusinessOutput, type CoordinationResultContext } from './coordinationResult.js'
 import { z } from 'zod'
 import { ExecutionResultSchema } from './index.js'
 import { ChoiceOutcomeSchema, WorkflowChoiceSchema, type WorkflowChoice } from './wave25/choice.js'
@@ -16,19 +15,18 @@ export const WorkflowChoiceArtifactResultEnvelopeV1Schema = WorkflowArtifactResu
 type WorkflowChoiceArtifactResultEnvelopeV1 = z.infer<typeof WorkflowChoiceArtifactResultEnvelopeV1Schema>
 
 export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1,
-  choice: WorkflowChoice, context?: CoordinationResultContext): WorkflowChoiceArtifactResultEnvelopeV1
-export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1, choice?: undefined, context?: CoordinationResultContext): WorkflowArtifactResultEnvelopeV1
-export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1, choice?: WorkflowChoice, context?: CoordinationResultContext): WorkflowArtifactResultEnvelopeV1 | WorkflowChoiceArtifactResultEnvelopeV1
+  choice: WorkflowChoice): WorkflowChoiceArtifactResultEnvelopeV1
+export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1): WorkflowArtifactResultEnvelopeV1
 /** Parsing only. Preserve original native text, result digest and accepted input;
  * a command association is never proof of publication, bytes or authority. */
-export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1, choice?: WorkflowChoice, context?: CoordinationResultContext) {
+export function parseWorkflowArtifactResult(result: unknown, declaration: WorkflowArtifactOutputsV1, choice?: WorkflowChoice) {
   canonicalGraphJson(result, 64 * 1024)
   const accepted = ExecutionResultSchema.parse(result)
   if (accepted.outcome !== 'succeeded') throw new Error('WORKFLOW_ARTIFACT_RESULT_NOT_SUCCESSFUL')
   const output = accepted.output
   if (!output || typeof output !== 'object' || Array.isArray(output) || Object.keys(output).length !== 1
     || !('text' in output) || typeof output.text !== 'string') throw new Error('WORKFLOW_ARTIFACT_NATIVE_TEXT_REQUIRED')
-  const parsed: unknown = context ? coordinationBusinessOutput(output, context) : JSON.parse(output.text)
+  const parsed: unknown = JSON.parse(output.text)
   canonicalGraphJson(parsed, 64 * 1024)
   const choiceEnvelope = choice ? WorkflowChoiceArtifactResultEnvelopeV1Schema.parse(parsed) : undefined
   const envelope = choiceEnvelope ?? WorkflowArtifactResultEnvelopeV1Schema.parse(parsed)

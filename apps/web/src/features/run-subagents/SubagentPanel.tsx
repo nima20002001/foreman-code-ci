@@ -34,22 +34,19 @@ function receiptText(receipt: RunSubagentCommandReceipt) {
   }
 }
 
-export function SubagentPanel({ scope, subagentId, anchor, onClose, visible = true, draft }: {
-  scope: SubagentsScope; subagentId: string; anchor: RefObject<HTMLElement | null>; onClose: () => void; visible?: boolean
-  draft?: { text: string; onChange(text: string): void }
+export function SubagentPanel({ scope, subagentId, anchor, onClose }: {
+  scope: SubagentsScope; subagentId: string; anchor: RefObject<HTMLElement | null>; onClose: () => void
 }) {
-  const detail = useSubagentDetail(scope, subagentId, visible)
+  const detail = useSubagentDetail(scope, subagentId)
   const detailBlocked = useBlockingReadError(detail)
   const record = detailBlocked ? undefined : detail.data
   const child = record?.subagent
-  const messages = useSubagentMessages(scope, subagentId, visible && Boolean(child))
-  const tools = useSubagentTools(scope, subagentId, visible && Boolean(child))
+  const messages = useSubagentMessages(scope, subagentId, Boolean(child))
+  const tools = useSubagentTools(scope, subagentId, Boolean(child))
   const messagesBlocked = useBlockingReadError(messages)
   const toolsBlocked = useBlockingReadError(tools)
   const ui = useMemo(() => createStore(() => ({ text: '' })), [])
-  const localText = useStore(ui, (state) => state.text)
-  const text = draft?.text ?? localText
-  const setText = (value: string) => { if (draft) draft.onChange(value); else ui.setState({ text: value }) }
+  const text = useStore(ui, (state) => state.text)
   const [tab, setTab] = useState('messages')
   const queryClient = useQueryClient()
   const mutationKey = [...subagentsKey(scope), subagentId, 'command']
@@ -70,12 +67,10 @@ export function SubagentPanel({ scope, subagentId, anchor, onClose, visible = tr
       return input.operation === 'input' ? subagentsApi.input({ ...body, text: input.text }) : subagentsApi.interrupt(body)
     },
     onSuccess: (receipt) => {
-      if (receipt.state === 'acknowledged') setText('')
+      if (receipt.state === 'acknowledged') ui.setState({ text: '' })
       void queryClient.invalidateQueries({ queryKey: subagentsKey(scope) })
     },
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: [...subagentsKey(scope), subagentId, 'detail'], exact: true })
-    },
+    onError: () => { void detail.refetch() },
   })
   const pending = lastCommand?.status === 'pending'
   const commandError = lastCommand?.status === 'error'
@@ -101,7 +96,7 @@ export function SubagentPanel({ scope, subagentId, anchor, onClose, visible = tr
   const footer = child && child.provider !== 'opencode' && (canSend || canInterrupt || receipt || commandError || pending) ? <div className="run-subagent-steer">
     {canSend && <Textarea label="Message to subagent" value={text} maxLength={SUBAGENT_LIMITS.text} rows={2}
       labelHint={child.capabilities.inputTiming === 'idle' ? <InfoHint label="Message to subagent">Delivered when the subagent is waiting for input.</InfoHint> : undefined}
-      disabled={pending || unsettled} onChange={(event) => setText(event.currentTarget.value)}
+      disabled={pending || unsettled} onChange={(event) => ui.setState({ text: event.currentTarget.value })}
       onKeyDown={(event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (text.trim()) send('input') } }} />}
     <div className="run-subagent-steer-actions">
       <div className="run-subagent-steer-status" role="status">
@@ -120,9 +115,6 @@ export function SubagentPanel({ scope, subagentId, anchor, onClose, visible = tr
         onClick={() => send('input')}>Send</Button>}
     </div>
   </div> : undefined
-  // Keep this owner (and its raw composer/command identity) mounted while the
-  // canvas or parent Worker is hidden. Hidden bodies have no active reads.
-  if (!visible) return null
   return <SubagentPopover anchor={anchor} title={child ? subagentName(child) : 'Subagent'}
     description={child ? `${provider} subagent` : undefined} busy={pending} onClose={onClose} footer={footer}>
     {detail.isError && (!child || detailBlocked) ? <ErrorState title="Couldn't load this subagent" description={detail.error.message}

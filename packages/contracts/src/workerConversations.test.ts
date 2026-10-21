@@ -95,9 +95,7 @@ it('keeps Run history separate from the qualified harness and profile used for l
     profile: { ...profile, target: { ...profile.target, applicationInstallationId: randomUUID() } } }).success).toBe(false)
   expect(WorkerConversationBindingSchema.safeParse({ ...continued,
     owner: { ...continued.owner, workflowNodeId: 'another-node' } }).success).toBe(false)
-  expect(WorkerConversationRpcRequestSchema.safeParse({ method: 'conversation.refresh-mcp',
-    binding: { ...continued, appMcpAccess: 'scoped' }, configuration: selected, admissionId: randomUUID(),
-    applicationAccess: { kind: 'operator-chat-mcp', token: 'management-token' } }).success).toBe(false)
+  expect(WorkerConversationBindingSchema.safeParse({ ...continued, appMcpAccess: 'scoped' }).success).toBe(false)
 })
 
 it('retains native input response digests and confirmed non-submission during Worker history readback', () => {
@@ -166,10 +164,7 @@ it('keeps approval recovery on its native request and rejects a prompt or grants
 
 it('rejects Main profiles and management MCP authority on worker Agent chats', () => {
   const target = binding('agent')
-  const { configuration } = historicalBinding()
-  expect(WorkerConversationRpcRequestSchema.safeParse({ method: 'conversation.refresh-mcp',
-    binding: { ...target, appMcpAccess: 'scoped' }, configuration, admissionId: randomUUID(),
-    applicationAccess: { kind: 'operator-chat-mcp', token: 'management-token' } }).success).toBe(false)
+  expect(WorkerConversationBindingSchema.safeParse({ ...target, appMcpAccess: 'scoped' }).success).toBe(false)
   const local = { ...target, profile: { ...target.profile, target: { ...target.profile.target,
     hostRef: { kind: 'main', mainId: target.profile.target.hostRef.mainId } } } }
   expect(WorkerConversationBindingSchema.safeParse(local).success).toBe(false)
@@ -182,16 +177,4 @@ it('requires the native session and original request identity on compact retries
   expect(WorkerConversationRpcRequestSchema.parse(request)).toEqual(request)
   expect(WorkerConversationRpcRequestSchema.safeParse({ ...request, session: undefined }).success).toBe(false)
   expect(WorkerConversationRpcRequestSchema.safeParse({ ...request, requestId: '' }).success).toBe(false)
-})
-
-it('accepts a conversation-scoped Agent credential without accepting Operator access for that owner', () => {
-  const { target, configuration } = historicalBinding()
-  const scoped = { ...target, appMcpAccess: 'scoped' }
-  const request = { method: 'conversation.refresh-mcp', binding: scoped, configuration,
-    admissionId: randomUUID(), applicationAccess: { kind: 'agent-chat-mcp', token: 'conversation-scoped-token' } }
-  expect(WorkerConversationRpcRequestSchema.parse(request)).toEqual(request)
-  expect(WorkerConversationRpcRequestSchema.safeParse({ ...request,
-    applicationAccess: { kind: 'operator-chat-mcp', token: 'operator-token' } }).success).toBe(false)
-  expect(WorkerConversationRpcRequestSchema.safeParse({ ...request,
-    binding: { ...scoped, appMcpAccess: 'none' } }).success).toBe(false)
 })

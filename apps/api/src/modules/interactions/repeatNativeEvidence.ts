@@ -44,8 +44,6 @@ export function assertRepeatNativeUpdate(previous: HarnessExecution, incoming: H
     attempt: execution.attempt, createdAt: execution.createdAt, input: execution.input,
     workingDirectory: execution.workingDirectory, runtimeDirectory: execution.runtimeDirectory,
     systemPrompt: execution.systemPrompt,
-    memoryBoardDigest: execution.memoryBoardDigest,
-    resultProtocol: execution.resultProtocol,
     sessionContinuation: execution.sessionContinuation,
   })
   if (!isDeepStrictEqual(immutable(previous), immutable(incoming))

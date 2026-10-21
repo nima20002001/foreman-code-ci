@@ -1,6 +1,4 @@
-import { browserOperatorTools } from '../../modules/collaboration/browserTools.js'
 import { CANONICAL_RUN_GRAPH_MCP_TOOLS, CURRENT_WORKFLOW_TOOLS, RUN_INSPECTION_TOOLS } from '@foreman-code/contracts/wave25'
-import { WORKFLOW_HIERARCHY_TOOLS } from '@foreman-code/contracts'
 import { toolAvailable, toolRequirements, type OperatorToolDefinition } from './definition.js'
 import type { ManagementAction } from '@foreman-code/contracts/management'
 import { hasAction, isAuthorized, type AuthorizedResource } from '../../modules/access/policy.js'
@@ -16,13 +14,11 @@ import { WORKFLOW_SCHEDULE_TOOLS, workflowScheduleToolAvailable, workflowSchedul
 import { RUN_HISTORY_TOOLS, runHistoryToolsAvailable, runHistoryToolAvailable } from './tools/runHistory.js'
 import { runInspectionToolAvailable, runInspectionRequirements } from './tools/runInspection.js'
 import { runGraphToolAvailable } from './tools/runGraph.js'
-import { workflowHierarchyToolAvailable } from './tools/workflowHierarchy.js'
 
 /** Uses the registrars' existing discovery predicates with the current authenticated caller. */
 export function catalogToolAvailable(context: OperatorRequestContext, name: string,
   registry: readonly OperatorToolDefinition[], resource: AuthorizedResource = {}): boolean {
   const tool = registry.find(candidate => candidate.name === name)
-    ?? browserOperatorTools(context).find(candidate => candidate.name === name)
   if (tool) return toolAvailable(context, tool, resource)
   if (name === 'workspace_root_configuration_adopt') return workspaceRootAdoptionAvailable(context, registry, resource)
   const host = HOST_HARNESS_TOOLS.find(candidate => candidate === name)
@@ -41,8 +37,6 @@ export function catalogToolAvailable(context: OperatorRequestContext, name: stri
   const operation = (Object.keys(CURRENT_WORKFLOW_TOOLS) as Array<keyof typeof CURRENT_WORKFLOW_TOOLS>)
     .find(key => CURRENT_WORKFLOW_TOOLS[key] === name)
   if (operation) return !!context.services.workflows?.current && currentWorkflowAvailable(context.principal, operation, resource)
-  const hierarchy = Object.values(WORKFLOW_HIERARCHY_TOOLS).find(candidate => candidate === name)
-  if (hierarchy) return workflowHierarchyToolAvailable(context, hierarchy)
   const history = Object.values(RUN_HISTORY_TOOLS).find(candidate => candidate === name)
   if (history) return Object.keys(resource).length
     ? runHistoryToolAvailable(context, history, resource) : runHistoryToolsAvailable(context)
@@ -105,7 +99,7 @@ function extensionRequirements(): CapabilityRequirement[] {
 /** Project requirements in registered catalog order; missing metadata is a configuration error. */
 export function catalogToolRequirements(context: OperatorRequestContext, registry: readonly OperatorToolDefinition[],
   names: readonly string[], resource: AuthorizedResource): CapabilityRequirement[] {
-  const ordinary = [...registry, ...browserOperatorTools(context)].map(tool => ({ name: tool.name,
+  const ordinary = registry.map(tool => ({ name: tool.name,
     actions: toolRequirements(tool).map(item => item.action),
     detail: tool.permissionDetail ?? 'Requirements are scoped independently. Services revalidate every concrete operation.',
   }))

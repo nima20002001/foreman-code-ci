@@ -17,7 +17,7 @@ export interface AgentInstructionBundle {
   hash: string
 }
 
-export function skillHash(value: string): string {
+function sha256(value: string): string {
   return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`
 }
 
@@ -32,7 +32,7 @@ export function verifiedSkills(configuration: InstructionSource): ResolvedSkill[
   return references.map((reference, index) => {
     const skill = snapshots[index]
     if (!skill || skill.skillId !== reference.skillId || skill.version !== reference.version
-      || (skill.workspaceId !== undefined && skill.workspaceId !== reference.workspaceId) || skill.contentHash !== skillHash(skill.instructions)) {
+      || (skill.workspaceId !== undefined && skill.workspaceId !== reference.workspaceId) || skill.contentHash !== sha256(skill.instructions)) {
       throw new HarnessExecutionError('SKILL_SNAPSHOT_INVALID', 'The accepted skill snapshot failed its identity/integrity check.')
     }
     return skill
@@ -60,7 +60,7 @@ export function agentInstructionBundle(configuration: InstructionSource & Pick<A
   if (instructionsTooLarge(text)) {
     throw new HarnessExecutionError('AGENT_INSTRUCTIONS_TOO_LARGE', `Agent instructions and skills exceed ${MAX_AGENT_INSTRUCTIONS_BYTES / 1024} KiB. Remove skills or shorten them.`)
   }
-  return { delivery: 'native-v1', text, hash: skillHash(text) }
+  return { delivery: 'native-v1', text, hash: sha256(text) }
 }
 
 /** Configurations accepted before native delivery keep their in-task sections. */

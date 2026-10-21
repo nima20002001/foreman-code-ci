@@ -138,8 +138,10 @@ it.each(['observed', 'persisted'] as const)(
       expect(read.partitions!.find(run => run.id === f.passed.id)).toEqual(f.passed)
       expect(new Set(f.canceled)).toEqual(new Set([f.running.id, f.starting.id]))
       expect(f.started).not.toContain(f.queued.id)
-      expect((await f.read(f.next.id)).run).toMatchObject({ state: 'running',
-        computer: { hostRef: { kind: 'main' } } })
+      // Cancellation frees both builder executors; multi-builder rebalancing may start the next gate on either.
+      const next = (await f.read(f.next.id)).run
+      expect(next).toMatchObject({ state: 'running' })
+      expect(['main', 'device']).toContain(next.computer?.hostRef.kind)
       expect(f.started).toContain(f.next.id)
     } finally { await f.close() }
   },

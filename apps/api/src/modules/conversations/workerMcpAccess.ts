@@ -15,11 +15,8 @@ export async function prepareWorkerConversationMcp(input: {
   signal: AbortSignal
 }) {
   const owner = input.source.binding.owner
-  const access = 'applicationAccess' in input.source ? input.source.applicationAccess : undefined
-  if (input.source.binding.appMcpAccess !== 'scoped' || !input.source.admissionId
-    || owner.kind === 'agent' && access?.kind === 'operator-chat-mcp'
-    || access && access.token !== input.token) {
-    throw new DomainError('WORKER_CONVERSATION_MCP_DENIED', 'This chat has no matching admitted scoped credential.', 403)
+  if (owner.kind !== 'operator' || input.source.binding.appMcpAccess !== 'scoped' || !input.source.admissionId) {
+    throw new DomainError('WORKER_CONVERSATION_MCP_DENIED', 'This chat has no admitted Operator MCP credential.', 403)
   }
   const fields = { version: 1, binding: input.source.binding, token: input.token, admissionId: input.source.admissionId }
   input.signal.throwIfAborted()
@@ -28,7 +25,7 @@ export async function prepareWorkerConversationMcp(input: {
     { signal: input.signal, timeoutMs: deviceRequestTimeoutMs })
   input.signal.throwIfAborted()
   const lease = WorkerConversationMcpAuthorizationSchema.parse(decodeWorkerMcpResult(authorized))
-  return { expiresAt: lease.expiresAt, environment: { agentId: owner.kind === 'operator' ? owner.operatorId : owner.agentId,
+  return { expiresAt: lease.expiresAt, environment: { agentId: owner.operatorId,
     variables: { [APP_MCP_TOKEN]: input.token } },
     async request(body: unknown, protocolVersion?: string, signal = input.signal) {
       signal.throwIfAborted()

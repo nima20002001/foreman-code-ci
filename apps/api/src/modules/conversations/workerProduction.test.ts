@@ -1,5 +1,3 @@
-import { preflightChatInput, restoreAcceptedChatInput } from './nativeChatInput.js'
-import { prepareWorkerChatInput } from './workerChatPreparation.js'
 import { randomUUID } from 'node:crypto'
 import { DomainError } from '../errors.js'
 import type pg from 'pg'
@@ -21,8 +19,7 @@ function agentOwner<T extends { kind: string }>(owner: T): Extract<T, { kind: 'a
   return owner as Extract<T, { kind: 'agent' }>
 }
 
-it.each([false, true].flatMap(fileInputs => [false, true].map(restored => ({ fileInputs, restored }))))(
-  'admits a thinking-only next turn through the production Worker channel (attachments: $fileInputs, restored input: $restored)', async ({ fileInputs, restored }) => {
+it.each([false, true])('admits a thinking-only next turn through the production Worker channel (attachments: %s)', async fileInputs => {
   const f = workerConversationFixture()
   if (!('operatorId' in f.configuration) || f.binding.owner.kind !== 'operator') throw new Error('Operator fixture required')
   const accepted = OperatorConfigurationVersionSchema.parse({ ...f.configuration, id: randomUUID(), version: 2,
@@ -95,16 +92,6 @@ it.each([false, true].flatMap(fileInputs => [false, true].map(restored => ({ fil
   const manager = production.create({ conversationId: conversation.id, configuration: accepted,
     workingDirectory: '/main/runtime', appMcpAccess: binding.appMcpAccess, ...(fileInputs ? { fileInputs } : {}) })
   try {
-    if (restored) {
-      const turn = { prompt: 'Queued follow-up', clientCorrelationId: 'queued-request' }
-      const prepared = await preflightChatInput({ content: turn.prompt }, {
-        workerRequired: true, prompt: turn.prompt,
-        prepare: async () => prepareWorkerChatInput({ binding, configuration: f.configuration,
-          bridge: production.bridge, channel, current: async () => {} }, { kind: 'turn', session: f.session, input: turn }),
-      })
-      restoreAcceptedChatInput(manager, turn.clientCorrelationId, prepared)
-      expect(frames).toEqual([])
-    }
     await expect(manager.attachSession(f.session, { kind: 'operator', configuration: accepted,
       correlationId: nativeCorrelation(conversation.id, 'next-turn'), workingDirectory: '/main/runtime' }))
       .resolves.toEqual(f.session)

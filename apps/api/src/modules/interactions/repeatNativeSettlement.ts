@@ -176,7 +176,7 @@ async function assertExecutionResourcesSettled(sql: GraphTransactionSql, runId: 
   retainedPrincipalId?: string): Promise<void> {
   const row = (await sql.query<{ outstanding: boolean }>(`select (
     exists(select 1 from worker_credential_bindings b left join management_principals p on p.id=b.principal_id
-      where b.execution_id=$1 and b.purpose<>'consultation' and b.principal_id is distinct from $3
+      where b.execution_id=$1 and b.principal_id is distinct from $3
         and (b.run_id is distinct from $2 or b.revoked_at is null or p.id is null or p.revoked_at is null))
     or exists(select 1 from approval_execution_state a where a.execution_id=$1
       and (a.graph_thread_id is distinct from $2 or a.active_started_at is not null or a.approval_wait_started_at is not null))

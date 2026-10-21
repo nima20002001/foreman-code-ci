@@ -28,10 +28,7 @@ import type { NativeHistory } from '../../harnesses/port.js'
 import { encodeResultCopies, decodeResultCopies, physicalResultPaths, historyResultPaths } from './executionResultCodec.js'
 import { WorkflowPhysicalReadoutSnapshots, type PhysicalReadoutSelector } from './workflowPhysicalReadoutSnapshots.js'
 
-const unavailable = (options?: ErrorOptions): never => {
-  throw new DomainError('REMOTE_NATIVE_PHYSICAL_UNAVAILABLE',
-    'The original installed native source and physical observations are unavailable.', 409, undefined, options)
-}
+const unavailable = (): never => { throw new DomainError('REMOTE_NATIVE_PHYSICAL_UNAVAILABLE', 'The original installed native source and physical observations are unavailable.', 409) }
 const physicalRetentionLimit = DEVICE_JSON_CONTINUATION_LIMIT * 4
 const physicalReadoutLifetimeMs = 60_000
 // The snapshot store keeps these immutable objects alive only for their observation window.
@@ -168,7 +165,7 @@ export async function assertOriginalPhysicalDirectories(input:{source:RemoteWork
     if (error instanceof DomainError || error instanceof DeviceApplicationError || transientAuthorizationFailure(error)) {
       throw error
     }
-    return unavailable({ cause: error })
+    return unavailable()
   }
 }
 /** Admission, backpressure, timeout and link failures say nothing about the original reply, so it must stay retained for the retry. */

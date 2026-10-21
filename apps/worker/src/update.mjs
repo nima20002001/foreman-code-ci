@@ -9,8 +9,6 @@ import { waitForUpdateOperation } from './updateOperation.mjs';
 import { workerArtifactContentSha256 } from '../../../packages/contracts/src/workerArtifactContentNode.mjs';
 import { WorkerError, workerUpdateErrorMessage } from './diagnostics.mjs';
 import { validateManifest, stageRunningVersion, migrateReleaseCompanionLauncher } from './installation.mjs';
-import { prepareBundledBrowserRuntime, activateBrowserRuntime, rollbackBrowserRuntime,
-  offlineBrowserRuntimeLifecycle, readBrowserRuntimeActivation } from './browserRuntimeInstall.mjs';
 import { readUpdateRecord, writeUpdateRecord, locateWorkerLaunch, launchUpdateSupervisor,
   recoverPendingWorkerUpdate, workerPointerMatches } from './updateSupervisor.mjs';
 import { DeviceConnectionError } from '../../../apps/api/src/modules/devices/deviceWire.ts';
@@ -142,18 +140,6 @@ export class WorkerUpdater {
       this.statusValue = WorkerUpdateStatusSchema.parse({ ...retained.status, currentVersion: this.options.version,
         manifestSha256: this.options.manifestSha256, contentSha256: this.contentSha256, target: this.target });
       if (['pending', 'draining', 'downloading', 'installing'].includes(this.statusValue.state)) {
-        const target = retained.browserRuntimeTarget;
-        if (target) {
-          this.options.assertStateOwnership();
-          const activation = await readBrowserRuntimeActivation(target.runtimeRoot);
-          if (activation?.transactionId === target.transactionId && activation.nextReference === `versions/${target.manifestSha256}`
-            && activation.state !== 'rolled-back') {
-            const lifecycle = await offlineBrowserRuntimeLifecycle(activation);
-            // Native profile recovery checks stopped writer PIDs before touching any generation.
-            await rollbackBrowserRuntime({ runtimeRoot: target.runtimeRoot, ...activation,
-              drain: this.options.browserRuntimeLifecycle?.stop ?? (async () => undefined), restoreProfiles: lifecycle.restoreProfiles });
-          }
-        }
         await this.save({ state: 'failed', lastError: 'worker_update_interrupted' });
       }
     } else {
@@ -194,7 +180,7 @@ export class WorkerUpdater {
       && plan.previousDirectory === this.options.releaseDirectory
       && await workerPointerMatches(plan.pointer, this.options.releaseDirectory);
     this.options.assertStateOwnership();
-    if (unchanged && (!plan.browserRuntime?.changed || plan.browserRuntime.state === 'rolled-back')) {
+    if (unchanged) {
       this.options.resume();
       this.handoff = undefined;
       return;
@@ -329,8 +315,6 @@ export class WorkerUpdater {
     const target = Object.fromEntries(['os', 'osRelease', 'arch', 'libc', 'node'].map(key => [key, facts[key]]));
     const log = this.options.log ?? (() => {});
     let downloading;
-    let browserActivation;
-    let browserRuntimeRoot;
     let phase = 'release';
     let targetFields = {};
     const enter = next => {
@@ -383,16 +367,6 @@ export class WorkerUpdater {
         timeoutMs: this.options.downloadTimeoutMs, log: (msg, fields) => log(msg, { ...fields, ...targetFields }),
         onDownloadComplete: ({ source }) => this.save({}, { downloadSource: source }),
       }));
-      // Browser extraction/import readiness runs while ordinary work remains admitted.
-      browserRuntimeRoot = join(launch.root, 'browser-runtime');
-      const browserPreparation = await run(() => prepareBundledBrowserRuntime({ root: launch.root, artifact: downloading,
-        manifest, target: facts, signal, readiness: this.options.browserRuntimeReadiness }));
-      const stagedBrowserRuntime = browserPreparation.runtime;
-      if (browserPreparation.failure) {
-        log('Browser runtime setup failed; continuing core Worker update', { ...targetFields, error: browserPreparation.failure.reason });
-      }
-      if (stagedBrowserRuntime && !this.options.browserRuntimeLifecycle?.drain) throw new WorkerError('browser_runtime_lifecycle_unavailable');
-      if (stagedBrowserRuntime && !this.options.browserRuntimeLifecycle?.stop) throw new WorkerError('browser_runtime_lifecycle_unavailable');
       signal.throwIfAborted();
       enter('smoke configuration');
       const ciSmoke = await run(() => readWorkerSmokeConfiguration(request, release.manifestSha256));
@@ -406,20 +380,11 @@ export class WorkerUpdater {
       await this.save({ state: 'installing' });
       const installed = await run(() => (this.options.stage ?? stageRunningVersion)({ root: launch.root, stateDirectory,
         artifact: downloading, approvedManifestSha256: release.manifestSha256, facts, expected,
-        assertStateOwnership, updatePolicy: async () => true, signal, browserPreparation }));
+        assertStateOwnership, updatePolicy: async () => true, signal }));
       signal.throwIfAborted();
       assertStateOwnership();
-      if (stagedBrowserRuntime) {
-        const transactionId = randomUUID();
-        await this.save({}, { browserRuntimeTarget: { runtimeRoot: browserRuntimeRoot,
-          manifestSha256: stagedBrowserRuntime.manifestSha256, transactionId } });
-        browserActivation = await run(() => activateBrowserRuntime({ runtimeRoot: browserRuntimeRoot,
-          staged: stagedBrowserRuntime, signal, transactionId, drain: this.options.browserRuntimeLifecycle.drain,
-          onPrepared: async receipt => { browserActivation = receipt; await this.save({}, { browserRuntimeActivation: receipt }); } }));
-      }
       this.handoff = randomUUID();
       await this.save({ state: 'restarting' }, { restart: { ...launch, directory: installed.directory,
-        ...(browserActivation ? { browserRuntime: { runtimeRoot: browserRuntimeRoot, ...browserActivation } } : {}),
         ...(ciSmoke ? { ciSmoke } : {}),
         requestId: this.handoff, restartAttempted: false, previousVersion: version,
         workerInstallationId: this.options.workerInstallationId } });
@@ -434,15 +399,6 @@ export class WorkerUpdater {
       if (this.lifetime.signal.aborted) failureCode = 'worker_updater_stopped';
       const lastError = error instanceof WorkerError && error.message === error.code ? failureCode
         : `${failureCode}: ${phase}: ${workerUpdateErrorMessage(error)}`.slice(0, 2000);
-      if (browserActivation) {
-        try { await rollbackBrowserRuntime({ runtimeRoot: browserRuntimeRoot, ...browserActivation,
-          drain: this.options.browserRuntimeLifecycle.stop, restoreProfiles: this.options.browserRuntimeLifecycle.restoreProfiles }); }
-        catch (recoveryError) {
-          await this.save({ state: 'failed', lastError: `worker_update_recovery_required: ${workerUpdateErrorMessage(recoveryError)}` },
-            { failureCode: 'worker_update_recovery_required' });
-          throw new WorkerError('worker_update_recovery_required', undefined, { cause: recoveryError });
-        }
-      }
       if (drained) resume();
       await this.save({ state: 'failed', lastError }, { failureCode });
       if (targetFields.targetVersion) log('Worker update failed', { phase, ...targetFields, error: lastError });

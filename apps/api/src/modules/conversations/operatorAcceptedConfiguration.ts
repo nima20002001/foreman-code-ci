@@ -1,5 +1,5 @@
-import type { SqlQuery } from '../../infrastructure/transaction.js'
 import { createHash, randomUUID } from 'node:crypto'
+import type pg from 'pg'
 import { isDeepStrictEqual } from 'node:util'
 import { AgentDefaultsSchema, DEFAULT_AGENT_DEFAULTS, applyOperatorChatSettings, OperatorConfigurationVersionSchema, withAdvancedDefaults,
   type HarnessConfiguration, type OperatorConfigurationVersion, type SendOperatorMessageRequest } from '@foreman-code/contracts'
@@ -7,7 +7,7 @@ import { DomainError } from '../errors.js'
 import type { ProviderAccountConfigurationService } from '../harnesses/providerAccountConfiguration.js'
 import type { HarnessProfileSelection } from '@foreman-code/contracts/harness-registry'
 
-type Queryable = SqlQuery
+type Queryable = Pick<pg.PoolClient, 'query'>
 async function version(query: Queryable, id: string): Promise<OperatorConfigurationVersion> {
   const result = await query.query<{ record: unknown }>('select record from operator_configuration_versions where id=$1', [id])
   if (!result.rows[0]) throw new DomainError('OPERATOR_CONFIGURATION_NOT_FOUND', 'The selected Operator configuration no longer exists.', 409)

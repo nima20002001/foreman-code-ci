@@ -14,7 +14,6 @@ const outcome = (stdout: string, exitCode = 0) => ({ exitCode, exitSignal: null,
 /** Hand-authored Codex 0.154.0 protocol scenarios. Injected below the actual production adapter;
  * no provider binary, login, model call, ambient credential or private service object is used. */
 export class ActivityProductionReplay {
-  readonly appTokens = new Map<string, string>()
   readonly threads = new Map<string, Thread>()
   readonly channels = new Map<string, Channel>()
   readonly starts: Array<{ sessionId: string; nativeTurnId: string; correlationId: string; promptDigest: string }> = []
@@ -29,7 +28,6 @@ export class ActivityProductionReplay {
   private readonly auxiliary = new Set<string>()
   nextResponse: 'acknowledged' | 'uncertain' | 'unacknowledged' = 'acknowledged'
   nextStart: 'active' | 'complete' | 'approval' | 'reject' | 'uncertain' = 'active'
-  nextCompletionText = 'recorded workflow final'
 
   constructor(private readonly threadIdPrefix = 'recorded-thread',
     private readonly qualifiedModels: readonly string[] = ['test-model']) {}
@@ -52,8 +50,6 @@ export class ActivityProductionReplay {
           const thread: Thread = { id: `${this.threadIdPrefix}-${++this.counter}`, turns: original ? structuredClone(original.turns) : [],
             settings: this.settings(params), ephemeral: params.ephemeral === true }
           this.threads.set(thread.id, thread); bind(thread)
-          const token = _environment?.FOREMAN_CODE_MCP_TOKEN ?? _environment?.GRAPHQL_MCP_TOKEN
-          if (token) this.appTokens.set(thread.id, token)
           return threadResponse(thread, params)
         }
         if (method === 'thread/resume') {
@@ -73,8 +69,6 @@ export class ActivityProductionReplay {
         if (method === 'turn/start') {
           if (!thread || params.threadId !== thread.id || !Array.isArray(params.input)) throw new Error('Replay turn admission is unscoped.')
           const mode = this.nextStart; this.nextStart = 'active'
-          const completionText = this.nextCompletionText
-          this.nextCompletionText = 'recorded workflow final'
           if (mode === 'reject') throw new CodexRpcError(method, 'recorded-rejection', false, 'CODEX_REQUEST_FAILED')
           const turn: Turn = { id: `recorded-turn-${thread.turns.length + 1}`, status: 'inProgress', itemsView: 'full',
             error: null, startedAt: 1, completedAt: null, durationMs: null,
@@ -88,7 +82,7 @@ export class ActivityProductionReplay {
           }
           if (mode === 'complete' || mode === 'approval') {
             const task = new Promise<void>((resolve, reject) => setImmediate(() => {
-              if (mode === 'complete') { this.complete(thread.id, turn.id, completionText); resolve() }
+              if (mode === 'complete') { this.complete(thread.id, turn.id, 'recorded workflow final'); resolve() }
               else this.ask(thread.id, turn.id).then(resolve, reject)
             }))
             this.inFlight.add(task); void task.finally(() => this.inFlight.delete(task)).catch(() => { /* ignore: disposal awaits the original recorded task; this observer only removes it from the in-flight set. */ })

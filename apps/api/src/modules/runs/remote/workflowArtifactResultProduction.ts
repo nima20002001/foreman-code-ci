@@ -76,7 +76,7 @@ export function createProductionWorkflowArtifactResultSource(ports: {
     const repairAttempt = await readWorkResultRepairAttempt(sql, capture.execution.id)
     if (correlationId !== workResultRepairCorrelation(capture.execution.id, repairAttempt)) return unavailable()
     capture.owner.assertOwned()
-    return { version: snapshot.version, resultProtocol: snapshot.run.resultProtocol, execution: stored.execution, proof: structuredClone(proof),
+    return { version: snapshot.version, execution: stored.execution, proof: structuredClone(proof),
       sourceDigest: row.source_digest, remote }
   }
   const source: WorkflowArtifactResultSourcePort = {
@@ -112,10 +112,6 @@ export function createProductionWorkflowArtifactResultSource(ports: {
       const proof = structuredClone(raw), capture = ports.captures.read(evidence)
       if (proof.original.type !== 'history' || proof.original.history.terminalTurn?.result.outcome !== 'succeeded') return
       const snapshot = await readAcceptedRepeatRunLocked(sql, proof.scope.runId)
-      const stored = await readRepeatExecutionLocked(sql, snapshot, capture.execution.id)
-      // A first-terminal normalizer may truthfully fail a successful native
-      // envelope. Its retained original is evidence, not accepted artifacts.
-      if (stored.execution.state === 'completed' && stored.execution.result?.outcome !== 'succeeded') return
       const node = snapshot.version.definition.nodes.find(item => item.id === proof.ref.nodeId)
       if (!node || node.kind === 'job' || !node.artifactOutputs) return
       if (!same(capture.source, proof.original) || !same(capture.session, proof.session)

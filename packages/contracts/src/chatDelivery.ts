@@ -142,18 +142,3 @@ export function legacyAgentChatStopScope(scope?: ChatStopRequest['scope']): Chat
 export function operatorChatDeliveryMode(intent?: ChatDeliveryIntent): 'legacy' | 'explicit' {
   return intent === undefined ? 'legacy' : 'explicit';
 }
-
-/** Bounded original-input reads are independent of native transcript availability. */
-export const ChatDeliveryInputReadSchema = z.object({
-  cursor: z.string().optional(), limit: z.number().int().min(1).max(100).optional(),
-  receiptId: IdSchema.optional(), bodyCursor: z.string().optional(),
-}).strict();
-export const ChatDeliveryInputPageSchema = z.object({
-  items: z.array(z.object({
-    commandId: IdSchema, receiptId: IdSchema, target: DeliveryTargetSchema,
-    origin: z.enum(['direct', 'group']), sourcePostId: IdSchema.optional(),
-    content: z.string(), truncated: z.boolean(), bodyCursor: z.string().nullable(),
-    ...MessageAttachmentFields, intent: ChatDeliveryIntentSchema, createdAt: TimestampSchema,
-  }).strict()).max(100),
-  nextCursor: z.string().nullable(), hasMore: z.boolean(), revision: z.number().int().nonnegative(),
-}).strict();

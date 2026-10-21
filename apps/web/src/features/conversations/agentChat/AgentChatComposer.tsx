@@ -6,13 +6,12 @@ import { useConversationDraftStore } from '../conversationDraftStore'
 import { useSlashCommandMenu } from '../sessionControls/useSlashCommandMenu'
 
 export function AgentChatComposer({ name, draftKey, inputRef, disabled, reason, controlReason, pending, controlPending,
-  hasAttachments, attachmentControl, actions, canStop, stopReason, onStop, onSubmit, deliveryActions, sessionCommands = true }: {
+  hasAttachments, attachmentControl, actions, canStop, stopReason, onStop, onSubmit }: {
   name: string; draftKey: string; inputRef: RefObject<HTMLTextAreaElement | null>
   disabled: boolean; reason?: string; controlReason?: string
   pending: boolean; controlPending: boolean
   hasAttachments: boolean; attachmentControl?: ReactNode; actions?: ReactNode
   canStop: boolean; stopReason?: string; onStop(): void; onSubmit(content: string, mode?: SessionMode): void
-  deliveryActions?: ReactNode; sessionCommands?: boolean
 }) {
   const id = useId()
   const draft = useConversationDraftStore(store => store.drafts[draftKey] ?? '')
@@ -26,9 +25,9 @@ export function AgentChatComposer({ name, draftKey, inputRef, disabled, reason, 
     const unavailable = sessionCommand ? controlReason : reason
     const inFlight = sessionCommand ? controlPending : pending
     if (disabled || inFlight || unavailable || (!content.trim() && !hasAttachments) || content.length > 32_000) return
-    onSubmit(content, submitted.kind === 'plan-task' ? 'plan' : undefined)
+    onSubmit(content.trim(), submitted.kind === 'plan-task' ? 'plan' : undefined)
   }
-  const menu = useSlashCommandMenu(draft, value => setDraft(draftKey, value), content => submit(content), true, sessionCommands)
+  const menu = useSlashCommandMenu(draft, value => setDraft(draftKey, value), content => submit(content), true)
   useLayoutEffect(() => {
     const input = inputRef.current
     if (!input) return
@@ -62,7 +61,7 @@ export function AgentChatComposer({ name, draftKey, inputRef, disabled, reason, 
           event.preventDefault()
           submit()
         }} />
-      {deliveryActions ? null : canStop ? <Tooltip content={stopReason ?? 'Stop this chat’s active turn and queued messages'}>
+      {canStop ? <Tooltip content={stopReason ?? 'Stop this chat’s active turn and queued messages'}>
         <IconButton label="Stop chat" className="agent-chat-send" variant="ghost" disabled={pending || !!stopReason}
           onClick={onStop}><Square size={14} fill="currentColor" aria-hidden="true" /></IconButton>
       </Tooltip> : <Tooltip content={reason ?? 'Send message'}>
@@ -75,13 +74,12 @@ export function AgentChatComposer({ name, draftKey, inputRef, disabled, reason, 
     {reason && reason.length > 64 ? <p id={`${id}-hint`} className="agent-chat-reason" title={reason}>{reason}</p>
       : <span id={`${id}-hint`} className="n-sr-only">{reason ?? 'Enter to send. Shift+Enter for a new line.'}</span>}
     <div className="agent-chat-composer-tools">
-      {!deliveryActions && canStop ? <Tooltip content={reason ?? 'Queue a message for the next turn'}>
+      {canStop ? <Tooltip content={reason ?? 'Queue a message for the next turn'}>
         <IconButton label="Queue message" variant="ghost" disabled={blocked} onClick={() => submit()}>
           <CornerDownLeft size={15} aria-hidden="true" />
         </IconButton>
       </Tooltip> : null}
       {actions}
     </div>
-    {deliveryActions}
   </form>
 }

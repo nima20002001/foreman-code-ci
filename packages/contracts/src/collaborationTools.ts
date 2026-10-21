@@ -1,4 +1,3 @@
-import type { GraphqlAgentTool, GraphqlToolOverride } from './graphqlMcpTools.js';
 /** Contract names reserve the feature seam. They are never evidence of a live handler. */
 const roles = ['master', 'orchestrator', 'coder'] as const;
 
@@ -18,9 +17,9 @@ export const COLLABORATION_AGENT_TOOLS = {
   browser_state_read: { label: 'Read page state', description: 'Observe an owned tab through its control lease.', roles, readOnly: true },
   browser_screenshot: { label: 'Read screenshot', description: 'Observe a bounded screenshot of an owned tab.', roles, readOnly: true },
   browser_action: { label: 'Act on page', description: 'Perform a typed page action through the session ownership and control checks.', roles, readOnly: false },
-  workflow_chat_read: { label: 'Read group chat', description: 'Read bounded posts in this workflow’s channel.', roles: [...roles, 'operator'], readOnly: true },
-  workflow_chat_post: { label: 'Post to group chat', description: 'Publish a scoped agent post without resolving user mentions.', roles: [...roles, 'operator'], readOnly: false },
-  workflow_chat_deliveries_read: { label: 'Read chat deliveries', description: 'Read scoped delivery receipt state.', roles: [...roles, 'operator'], readOnly: true },
+  workflow_chat_read: { label: 'Read group chat', description: 'Read bounded posts in this workflow’s channel.', roles, readOnly: true },
+  workflow_chat_post: { label: 'Post to group chat', description: 'Publish a scoped agent post without resolving user mentions.', roles, readOnly: false },
+  workflow_chat_deliveries_read: { label: 'Read chat deliveries', description: 'Read scoped delivery receipt state.', roles, readOnly: true },
 } as const;
 
 export type CollaborationAgentTool = keyof typeof COLLABORATION_AGENT_TOOLS;
@@ -38,19 +37,4 @@ export function newAgentMemoryBoardAccess(role: 'master' | 'orchestrator' | 'cod
 
 export function isCollaborationAgentTool(name: string): name is CollaborationAgentTool {
   return Object.prototype.hasOwnProperty.call(COLLABORATION_AGENT_TOOLS, name);
-}
-
-export const BROWSER_AGENT_TOOL_NAMES = Object.keys(COLLABORATION_AGENT_TOOLS)
-  .filter((name): name is Extract<keyof typeof COLLABORATION_AGENT_TOOLS, `browser_${string}`> => name.startsWith('browser_'));
-
-/** Browser opts this workflow node into its tools; explicit node exclusions still win. */
-export function withBrowserToolDefaults<T extends {
-  browser?: { enabled: boolean } | undefined;
-  graphqlTools?: GraphqlToolOverride | undefined;
-}>(node: T) {
-  if (!node.browser?.enabled) return node;
-  const remove = node.graphqlTools?.remove ?? [];
-  const add: GraphqlAgentTool[] = [...new Set([...(node.graphqlTools?.add ?? []), ...BROWSER_AGENT_TOOL_NAMES])]
-    .filter(tool => !remove.includes(tool));
-  return { ...node, graphqlTools: { add, remove: [...remove] } };
 }

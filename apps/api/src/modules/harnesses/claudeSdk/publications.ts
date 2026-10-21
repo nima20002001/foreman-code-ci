@@ -1,4 +1,4 @@
-import type { SqlQuery } from '../../../infrastructure/transaction.js'
+import type pg from 'pg'
 import { MessageAttachmentRefSchema, type MessageAttachmentRef } from '@foreman-code/contracts/files'
 import { bindingIdentity } from '../../files/tools/context.js'
 import type { FileToolContext } from '../../files/tools/types.js'
@@ -12,7 +12,7 @@ export interface ClaudeMessagePublicationReceipt {
 /** Read-only recovery of finalized output after publish-before-adoption loss.
  * The exact native message receipt and sender come from admitted persisted facts;
  * uploads, current selection, callbacks, and native turn guesses are irrelevant. */
-export async function readClaudeMessagePublications(query: SqlQuery,
+export async function readClaudeMessagePublications(query: Pick<pg.PoolClient, 'query'>,
   conversationId: string, messageIds: readonly string[], onReceipt?: (receipt: ClaudeMessagePublicationReceipt) => void): Promise<Map<string, MessageAttachmentRef[]>> {
   const result = new Map<string, MessageAttachmentRef[]>()
   if (!messageIds.length) return result
@@ -75,7 +75,7 @@ export async function readClaudeMessagePublications(query: SqlQuery,
 
 /** Original finalized ledger receipts, including outputs not yet adopted by the message.
  * This read does not reissue credentials or mutate publication/adoption authority. */
-export async function readClaudeMessagePublicationReceipts(query: SqlQuery,
+export async function readClaudeMessagePublicationReceipts(query: Pick<pg.PoolClient, 'query'>,
   conversationId: string, messageIds: readonly string[]): Promise<ClaudeMessagePublicationReceipt[]> {
   const receipts: ClaudeMessagePublicationReceipt[] = []
   await readClaudeMessagePublications(query, conversationId, messageIds, (receipt) => receipts.push(receipt))

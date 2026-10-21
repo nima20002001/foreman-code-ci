@@ -21,9 +21,6 @@ import type { AgentPlacementProducer } from './agentProducer.js'
 import { DomainError, databaseReadFailure } from '../errors.js'
 import { assertRemoteReviewAssignment, canCloseRetainedRemoteReviewer, remoteReviewerPolicy } from './remoteReviewerAuthority.js'
 import { RemoteOperationReceiptSchema } from '@foreman-code/contracts/remote-execution'
-import { readWorkflowControlDispositionLocked } from '../collaboration/workflowControlDisposition.js'
-import { assertWorkflowRemoteControl } from '../collaboration/workflowRemoteControl.js'
-import { remoteActiveNative } from '@foreman-code/contracts/remote-execution'
 
 const denied = (): never => { throw new DomainError('REMOTE_AUTHORITY_DENIED', 'Exact original execution authority is unavailable or revoked.', 403) }
 /** Read-only admission fence. This NEVER issues an entry capability, command,
@@ -90,13 +87,7 @@ async function checkRemoteExecutionAuthority(sql: GraphSqlClient,
     if (stored && (!receipt.success || !sameWorkflowValue(receipt.data.intent, current)
       || !sameWorkflowValue(receipt.data.connection, connection))) denied()
     resident = receipt.success && receipt.data.native !== undefined
-    if (input.workflowControl) {
-      const action = input.workflowControl.action.kind === 'stop' ? 'stop' : 'control'
-      if (input.action !== action || changedBoot || row!.stopped || row!.cleanup || !receipt.success
-        || !sameWorkflowValue(input.workflowControl.native, remoteActiveNative(receipt.data))) denied()
-      await assertWorkflowRemoteControl(sql, current!, input.workflowControl)
-    }
-    if (input.action === 'stop' && !input.workflowControl && !row!.cleanup && !row!.failed
+    if (input.action === 'stop' && !row!.cleanup && !row!.failed
       && (!receipt.success || !await canCloseRetainedRemoteReviewer(sql, receipt.data))) denied()
   }
   // Cleanup observes and cancels the admitted owner even when it can no longer launch.
@@ -151,8 +142,8 @@ export function createExecutionAuthorityExtension(pool: pg.Pool,
         const node = version.definition.nodes.find(item => item.id === input.intent.nodeId)
         if (!node || node.kind === 'job' || node.agentId !== pinned.agentId
           || version.agentConfigurationVersionIds[node.agentId] !== pinned.id) return denied()
-        const configuration = node.skills || node.browser?.enabled
-          ? configurationWithNodeSkills(pinned, node.skills, version.nodeSkillSnapshots?.[node.id], node.browser) : pinned
+        const configuration = node.skills
+          ? configurationWithNodeSkills(pinned, node.skills, version.nodeSkillSnapshots?.[node.id]) : pinned
         const origin = (await sql.query<{ connection: unknown }>(
           'select connection from remote_dispatch_origins where operation_id=$1',
           [input.intent.operationId])).rows[0]
@@ -167,20 +158,11 @@ export function createExecutionAuthorityExtension(pool: pg.Pool,
       }
       const policy = input.action === 'retain-reviewer' || input.action === 'review'
         ? await remoteReviewerPolicy(sql, input.intent) : undefined
-      const disposition = policy && await readWorkflowControlDispositionLocked(sql,
-        input.intent.runId, input.intent.executionId)
-      const reviewer = policy && disposition?.kind === 'ordinary' && (policy.execution.state !== 'completed'
-        || policy.execution.result?.outcome === 'succeeded') ? policy : undefined
-      if (reviewer) beforeGraphCommit(sql, async () => {
-        const current = await readWorkflowControlDispositionLocked(sql, input.intent.runId, input.intent.executionId)
-        if (current.kind !== 'ordinary') denied()
-      })
       return { payload: ExecutionAuthorityResultSchema.parse({ version: 1, action: input.action,
         operationId: input.intent.operationId, attemptId: input.intent.attemptId, bindingHash: input.intent.bindingHash,
         owner: input.intent.owner, ...authority,
-        ...(input.workflowControl ? { workflowControlCommandId: input.workflowControl.commandId } : {}),
-        ...(reviewer ? { reviewer: { agentId: reviewer.execution.agentId,
+        ...(policy ? { reviewer: { agentId: policy.execution.agentId,
           expiresAt: new Date(Date.now() + 60_000).toISOString() } } : {}) }) }
-    }), { preparedReads: true }).catch((error: unknown) => { throw databaseReadFailure(error) })
+    })).catch((error: unknown) => { throw databaseReadFailure(error) })
   } }
 }

@@ -15,8 +15,6 @@ import { requirePrincipal } from '../modules/access/http.js'
 import { DomainError } from '../modules/errors.js'
 import type { OperatorChatService } from '../modules/conversations/operatorChat.js'
 import { createSseWriter } from './sseWriter.js'
-import { registerOperatorDeliveryRoutes } from '../modules/workflow-chat/httpDelivery.js'
-import { operatorDeliveryBridge } from '../modules/workflow-chat/deliveryBridgeAccess.js'
 
 interface ConversationParams { conversationId: string }
 const MAX_STREAMS = 64
@@ -25,8 +23,6 @@ const MAX_BOOTSTRAP_BYTES = 256 * 1024
 const MAX_BOOTSTRAP_EVENTS = 128
 
 export function registerOperatorChatRoutes(app: FastifyInstance, chat: OperatorChatService): void {
-  const delivery = operatorDeliveryBridge(chat)
-  if (delivery) registerOperatorDeliveryRoutes(app, delivery.router)
   app.get<{ Params: ConversationParams }>('/api/operator/conversations/:conversationId/session-controls', async request =>
     SessionControlStateSchema.parse(await chat.readSessionControls(request.params.conversationId, requirePrincipal(request))))
   app.post<{ Params: ConversationParams; Body: unknown }>('/api/operator/conversations/:conversationId/session-controls', async request =>

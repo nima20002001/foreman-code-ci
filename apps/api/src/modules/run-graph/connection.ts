@@ -16,7 +16,6 @@ interface GraphConnectionClient extends pg.ClientBase {
   end?: () => Promise<void>
 }
 const adoptedClients = new WeakSet<pg.ClientBase>()
-const pooledReadPlans = new WeakMap<pg.ClientBase, Map<string, string>>()
 const leases = new WeakMap<GraphSqlClient, {
   live: boolean; failed: boolean; committed: boolean; finalizing: boolean; readOnly: boolean; finalizers: (() => Promise<void>)[]
 }>()
@@ -100,7 +99,7 @@ export class ExclusiveGraphConnection implements GraphSqlClient {
     this.#assertOwner = assertOwner
   }
   private readQuery<R extends pg.QueryResultRow>(text: string, values?: unknown[]): Promise<pg.QueryResult<R>> {
-    // The owner holds the physical client. Plans are reused; rows and authority are read on every call.
+    // Only dedicated physical sessions opt in. Plans are reused; rows and authority are read on every call.
     if (!this.readPlans || !values?.length || !/^\s*(select|with)\b/i.test(text)) {
       return this.#client.query<R>(text, values)
     }
@@ -225,21 +224,15 @@ function assertStatement(text: string): void {
 }
 
 /** Fresh checked-out Pool lease. Never uses pool.query to simulate a transaction. */
-export async function withExclusiveGraphConnection<T>(pool: pg.Pool, work: (connection: ExclusiveGraphConnection) => Promise<T>,
-  options: { preparedReads?: true } = {}): Promise<T> {
+export async function withExclusiveGraphConnection<T>(pool: pg.Pool, work: (connection: ExclusiveGraphConnection) => Promise<T>): Promise<T> {
   const client = await pool.connect()
-  let readPlans: Map<string, string> | undefined
-  if (options.preparedReads) {
-    readPlans = pooledReadPlans.get(client)
-    if (!readPlans) { readPlans = new Map(); pooledReadPlans.set(client, readPlans) }
-  }
   let lost = false
   const markLost = () => { lost = true }
   client.on('error', markLost)
   client.on('end', markLost)
   const connection = new ExclusiveGraphConnection(client, () => {
     if (lost) throw new RunGraphError('GRAPH_OWNER_LOST')
-  }, readPlans)
+  })
   try { return await work(connection) } finally {
     await connection.close()
     client.removeListener('error', markLost)

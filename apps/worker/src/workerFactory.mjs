@@ -1,9 +1,6 @@
 import { RemoteOperationJournal } from '../../../apps/api/src/modules/runs/remote/operationJournal.ts';
 import { lstat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { createInstalledBrowserComposition } from '../../../apps/api/src/modules/collaboration/workerBrowser.ts';
-import { createWorkerBrowserRuntime } from './browserRuntime.mjs';
-import { createWorkerBrowserDeviceExtension } from './browserDeviceExtension.mjs';
+import { join } from 'node:path';
 import { createInstalledWorkerDomains } from '../../../apps/api/src/modules/devices/installedWorkerDomains.ts';
 import { codexQualificationSuite } from '../../../apps/api/src/modules/harnesses/qualification/suites/codex.ts';
 import { qualificationRevisionWithIdentity } from '../../../apps/api/src/modules/harnesses/qualification/identity.ts';
@@ -18,8 +15,7 @@ import { startWorker, acquireWorkerLock } from './runtime.mjs';
 import { approvedRootExtensions } from './rootExtension.mjs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { workerUpdateExtension } from './update.mjs';
-import { createInstalledWorkerUpdater } from './installedUpdater.mjs';
+import { WorkerUpdater, workerUpdateExtension } from './update.mjs';
 import { loadWorkerRsyncEntrypoint } from '../../../apps/api/src/modules/byte-transfer/installedEntrypoints.ts';
 import { ensurePairedManagedSetup } from './managedSetup.mjs';
 import { refreshWorkflowSelection } from './workflowSelection.mjs';
@@ -85,7 +81,7 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
   const manifest = await prepareWorkerState(stateDirectory);
   stateDirectory = await realpath(stateDirectory);
   const execution = executionDomains ? createWorkerExecutionDomains(executionDomains) : undefined;
-  let installed, connection, rsyncEntrypoint, updater, managedSetup, manifestSha256, browser, browserStarting;
+  let installed, connection, rsyncEntrypoint, updater, managedSetup, manifestSha256;
   const startupCi = { pending: false, error: null };
   const startupLifetime = new AbortController();
   let startupTask;
@@ -100,7 +96,7 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
   const bindingFailures = [];
   const bindingLost = binding => {
     let task;
-    try { task = Promise.allSettled([installed?.rsyncWriters?.bindingLost(binding), browser?.bindingLost(binding)]).then(results => {
+    try { task = Promise.allSettled([installed?.rsyncWriters?.bindingLost(binding)]).then(results => {
       const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
       if (failures.length) throw new AggregateError(failures, 'Worker binding loss remains incomplete.');
     }); }
@@ -111,12 +107,10 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
   const runtime = await startWorker({ stateDirectory, appVersion: manifest.version,
     loadIdentity: loadOrCreateWorkerIdentity, beforeUnlock: async () => {
     startupLifetime.abort(new Error('Worker stopped during CI smoke.'));
-    browser?.stopAdmission();
-    await browserStarting;
     const updaterClosing = updater?.close();
     // Connection cancellation ends its deadline wait, but pairing reads can still write identity state.
     const results = await Promise.allSettled([execution?.close(), installed?.close(),
-      installed?.rsyncWriters?.close(), updaterClosing, startupTask, browser?.close(), ...pairingReads]);
+      installed?.rsyncWriters?.close(), updaterClosing, startupTask, ...pairingReads]);
     while (bindingDrains.size) await Promise.allSettled([...bindingDrains]);
     const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []).concat(bindingFailures);
     if (failures.length) throw new AggregateError(failures, 'Worker shutdown remains incomplete.');
@@ -133,21 +127,17 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
       const facts = await hostFacts(process.env.HOME ?? '', [stateDirectory]);
       const releaseDirectory = fileURLToPath(new URL('../', import.meta.url));
       manifestSha256 = createHash('sha256').update(await readFile(join(releaseDirectory, 'manifest.json'))).digest('hex');
-      browser = createInstalledBrowserComposition({ stateDirectory, root: dirname(dirname(releaseDirectory.replace(/\/$/, ''))), facts,
-        installationId: pairing.workerInstallationId, computerId: pairing.deviceId, connection: () => connection,
-        readPairing: () => loadWorkerPairing(stateDirectory), assertHostOwnership: async () => assertStateOwnership(),
-        createRuntime: createWorkerBrowserRuntime, createExtension: createWorkerBrowserDeviceExtension,
-        reportFailure: error => process.stderr.write(`Browser runtime: ${error.code ?? 'browser_runtime_failed'}\n`) });
       const update = await readUpdateRecord(stateDirectory);
       startupCi.pending = update?.status.state === 'restarting' && update.manifestSha256 === manifestSha256
         && !update.restart?.ciSmoke;
-      updater = await createInstalledWorkerUpdater({ browser, domains: () => installed, stateDirectory, version: manifest.version, manifestSha256,
+      updater = await new WorkerUpdater({ stateDirectory, version: manifest.version, manifestSha256,
         workerInstallationId: pairing.workerInstallationId, releaseDirectory, facts, assertStateOwnership,
-        connection: () => connection,
+        connection: () => connection, drain: signal => installed.drainForUpdate(signal),
+        resume: () => installed.resumeAfterUpdate(),
         reportError: error => process.stderr.write(`Worker update: ${error.message ?? error.code ?? 'worker_update_failed'}\n`),
         log: (msg, fields) => process.stdout.write(`${JSON.stringify({ level: 'info', time: new Date().toISOString(),
           component: 'worker-update', ...fields, msg })}\n`),
-      });
+      }).initialize();
     }
     const rootExtensions = managedSetup?.state === 'failed' ? []
       : await approvedRootExtensions(stateDirectory, pairing, bootId);
@@ -201,7 +191,6 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
         ciStartupPending: async () => startupCi.pending || (await updater?.status())?.state === 'restarting',
         ...(updater ? { workerUpdate: { status: () => updater.status(), start: options => updater.start(options),
           outcome: (task, deadlineAt) => updater.maintenanceOutcome(task, deadlineAt) } } : {}),
-        browserRuntime: { status: () => browser.status(), retry: () => browser.retry() },
         configuration: selection,
         ...(managedSetup?.state !== 'failed' ? { refreshWorkflowConfiguration } : {}),
         jobConfiguration: jobSelection && managedSetup?.state !== 'failed'
@@ -224,9 +213,6 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
       readPairing,
       onBindingLost: bindingLost,
       onReady: () => {
-        browserStarting = browser?.start().catch(error => {
-          process.stderr.write(`Browser startup: ${error.code ?? 'browser_startup_failed'}\n`);
-        });
         if (!startupCi.pending) { updater?.ready(); return; }
         startupTask ??= runWorkerStartupSmoke({ manifestSha256,
           request: payload => {
@@ -240,7 +226,7 @@ export async function startConfiguredWorker({ stateDirectory, extensions = [], e
           process.stderr.write(`Worker startup CI smoke failed: ${error.message}\n`);
         });
       },
-      extensions: [...extensions, ...(browser ? [browser.registration] : []), ...(updater ? [workerUpdateExtension] : []),
+      extensions: [...extensions, ...(updater ? [workerUpdateExtension] : []),
         ...(execution?.extensions ?? []), ...(installed?.extensions ?? []), ...rootExtensions] });
     return {
       start: () => connection.start(),

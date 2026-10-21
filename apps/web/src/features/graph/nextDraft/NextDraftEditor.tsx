@@ -8,7 +8,7 @@ import { useGraphDraftStore } from '../store'
 import { hasLocalChanges } from './model'
 import { nextDraftKey, type NextDraftEdit } from './state'
 import { nextDraftApi, type AuthoringContext } from './transport'
-import { claimEditTabOwnership, readEditSnapshot, readConflictRecoveries } from './editIntentStorage'
+import { claimEditTabOwnership, readEditSnapshot } from './editIntentStorage'
 import { type BoardUpdateFailure } from '../../workflow-board/BoardAlerts'
 import { boardDraftContextKey } from '../../workflow-board/keys'
 import { BoardLoading } from '../../workflow-board/BoardLoading'
@@ -48,7 +48,6 @@ function DraftLoader({ draftKey, workspaceId, workflowId, initialContext, update
     if (!ownershipReady || useGraphDraftStore.getState().nextDrafts[draftKey]) return
     try {
       const snapshot = readEditSnapshot(draftKey)
-      const conflictRecovery = readConflictRecoveries(draftKey)
       if (snapshot && !initialContext && !source.isFetchedAfterMount && !source.isError) return
       const fresh = source.data && !source.isError ? source.data.draft : undefined
       // A snapshot of an older saved base is superseded when it was clean or its
@@ -57,7 +56,6 @@ function DraftLoader({ draftKey, workspaceId, workflowId, initialContext, update
       // Retained Agent edits are never superseded by a newer saved workflow: they
       // belong to shared Agents, not the graph, and need explicit save or discard.
       const agentEdited = Object.keys(snapshot?.agentEdits ?? {}).length > 0 || Object.keys(snapshot?.agentForms ?? {}).length > 0
-        || Object.keys(snapshot?.workflowForms ?? {}).length > 0
       const stale = snapshot && !snapshot.remoteEditIntent && !agentEdited && fresh && (snapshot.context.draft.baseWorkflowVersionId !== fresh.baseWorkflowVersionId
         || snapshot.context.draft.publishedRevision !== fresh.publishedRevision
         || !sameAuthoredWorkflow(snapshot.context.draft.graph, fresh.graph))
@@ -68,11 +66,9 @@ function DraftLoader({ draftKey, workspaceId, workflowId, initialContext, update
         const catalog = new Map([...(source.data?.agents ?? []), ...retained.context.agents].map((record) => [record.agent.id, record]))
         useGraphDraftStore.getState().installNextDraft(draftKey, { ...retained.context, agents: [...catalog.values()] })
         useGraphDraftStore.getState().updateNextDraft(draftKey, (state) => ({ ...state,
-          graph: retained.graph, agentEdits: retained.agentEdits, agentForms: retained.agentForms,
-          workflowForms: retained.workflowForms, remoteEditIntent: retained.remoteEditIntent, conflictRecovery }))
+          graph: retained.graph, agentEdits: retained.agentEdits, agentForms: retained.agentForms, remoteEditIntent: retained.remoteEditIntent }))
       } else if (source.data && !source.isError) {
         useGraphDraftStore.getState().installNextDraft(draftKey, { draft: GraphDraftV3Schema.parse(source.data.draft), agents: source.data.agents, savedDraft: source.data.savedDraft })
-        useGraphDraftStore.getState().updateNextDraft(draftKey, state => ({ ...state, conflictRecovery }))
       }
     } catch (error) { setStorageError(errorMessage(error, 'Retained edits are unavailable.')) }
   }, [draftKey, initialContext, ownershipReady, source.data, source.isError, source.isFetchedAfterMount])

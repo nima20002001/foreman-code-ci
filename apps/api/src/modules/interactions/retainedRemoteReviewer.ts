@@ -104,7 +104,7 @@ async function readRemoteReviewerWithPlacement(sql: GraphSqlClient, execution: H
   if (terminal.rowCount !== 1) throw new DomainError('REMOTE_REVIEWER_DENIED', 'Original reviewer terminal proof is required.', 409)
   const credentials = (await sql.query<{ principal_id: string }>(`select b.principal_id from worker_credential_bindings b
     join management_principals p on p.id=b.principal_id where b.execution_id=$1 and b.run_id=$2
-    and b.agent_id=$3 and b.purpose in ('workflow','reviewer') and b.revoked_at is null and p.revoked_at is null and p.expires_at>clock_timestamp()
+    and b.agent_id=$3 and b.revoked_at is null and p.revoked_at is null and p.expires_at>clock_timestamp()
     and p.audience='worker' and p.agent_id=b.agent_id order by b.principal_id limit 2`,
   [execution.id, execution.runId, execution.agentId])).rows
   if (purpose === 'recovery' && credentials.length === 0) return undefined
@@ -151,7 +151,7 @@ export async function retainRemoteReviewerCredential(sql: GraphSqlClient, execut
     approval_native_session_id=$4,approval_connection_generation=$5::bigint,
     approval_review_job_id=(select id from retained_job),
     approval_review_lease_fence=(select lease_fence from retained_job)
-    where principal_id=$1 and execution_id=$2 and agent_id=$3 and purpose in ('workflow','reviewer') and revoked_at is null`,
+    where principal_id=$1 and execution_id=$2 and agent_id=$3 and revoked_at is null`,
   [retained.principalId, execution.id, execution.agentId, retained.session.nativeSessionId, lane.generation])
   if (result.rowCount !== 1) throw new DomainError('REMOTE_REVIEWER_DENIED', 'The process lease changed during retention.', 409)
 }

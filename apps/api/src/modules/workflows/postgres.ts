@@ -1,5 +1,5 @@
-import type { SqlQuery } from '../../infrastructure/transaction.js'
-import type { AgentConfigurationVersion, ResolvedSkill, NodeBrowserSettings } from '@foreman-code/contracts'
+import type { AgentConfigurationVersion, ResolvedSkill } from '@foreman-code/contracts'
+import type pg from 'pg'
 import type { SavedWorkflowDefinition, SavedWorkflowVersion } from '@foreman-code/contracts/wave25'
 import { DomainError } from '../errors.js'
 import { configurationWithNodeSkills } from '../skills/nodeSkills.js'
@@ -9,7 +9,7 @@ import { readImmutableWorkflowVersion, readImmutableAgentConfiguration, readSave
   type ImmutableWorkflowVersionRow, type ImmutableAgentConfigurationRow } from './immutableRead.js'
 
 export class PostgresWorkflowRepository {
-  constructor(private readonly pool: SqlQuery) {}
+  constructor(private readonly pool: Pick<pg.Pool, 'query'>) {}
 
   async list(workspaceId: string): Promise<SavedWorkflowDefinition[]> {
     const result = await this.pool.query<{ id: string; workspace_id: string; record: unknown }>(
@@ -68,9 +68,9 @@ export class PostgresWorkflowRepository {
   }
 
   /** Composes one node's saved skill snapshots without consulting the mutable catalog. */
-  async resolveNodeSkills(configuration: AgentConfigurationVersion, override: NodeSkillOverride | undefined,
-    additions: readonly ResolvedSkill[] = [], browser?: NodeBrowserSettings): Promise<AgentConfigurationVersion> {
-    return configurationWithNodeSkills(configuration, override, additions, browser)
+  async resolveNodeSkills(configuration: AgentConfigurationVersion, override: NodeSkillOverride,
+    additions: readonly ResolvedSkill[] = []): Promise<AgentConfigurationVersion> {
+    return configurationWithNodeSkills(configuration, override, additions)
   }
 
   /** References are valid only for records this same execution created. */

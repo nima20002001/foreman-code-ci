@@ -43,9 +43,6 @@ export const WorkflowChatPostRequestSchema = z.object({
   replyToPostId: IdSchema.optional(), cardIds: z.array(IdSchema).max(32),
 }).strict().superRefine((request, context) => {
   refineMentions(request, context);
-  if (new TextEncoder().encode(request.body).byteLength > 16 * 1024) {
-    context.addIssue({ code: 'custom', path: ['body'], message: 'Post text must fit within 16 KiB UTF-8.' });
-  }
   const mentioned = new Set(request.mentions.map((mention) => mention.workflowNodeId));
   const delivered = new Set<string>();
   for (const [index, delivery] of request.deliveries.entries()) {
@@ -96,8 +93,6 @@ export const EngineChatReadbackSchema = z.object({
   state: z.enum(['queued','starting','active','waiting_children','settling','idle']),
   capabilities: z.object({ steer: z.enum(['native_expected_turn','unavailable']),
     queue: z.boolean(), interruptAndSend: z.boolean() }).strict(),
-  /** Current native owner observation, independent of retained transcript messages. */
-  nativeTurnId: z.string().min(1).optional(),
   messages: z.array(EngineChatMessageSchema).max(100), receipts: z.array(ChatDeliveryReceiptSchema),
   nextCursor: z.string().nullable(), hasMore: z.boolean(),
   revision: z.number().int().nonnegative(),
@@ -129,8 +124,8 @@ export type EngineChatMessage = z.infer<typeof EngineChatMessageSchema>;
 export type EngineChatReadback = z.infer<typeof EngineChatReadbackSchema>;
 
 function refineMentions(value: { body: string; mentions: WorkflowMention[] }, context: z.RefinementCtx): void {
-  if (!value.body.trim()) {
-    context.addIssue({ code: 'custom', path: ['body'], message: 'Post text must be nonempty.' });
+  if (!value.body.trim() || new TextEncoder().encode(value.body).byteLength > 16 * 1024) {
+    context.addIssue({ code: 'custom', path: ['body'], message: 'Post text must be nonempty and fit within 16 KiB UTF-8.' });
   }
   const sorted = value.mentions.map((mention, index) => ({ ...mention, index })).sort((a, b) => a.start - b.start);
   let previousEnd = 0;

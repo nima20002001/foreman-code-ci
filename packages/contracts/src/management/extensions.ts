@@ -33,7 +33,6 @@ export const AgentCreateInputSchema = z.object({
 export const AgentUpdateInputSchema = z.object({
   ...Workspace, agentId: IdSchema, ...Mutation,
   expectedConfigurationVersionId: IdSchema,
-  productRole: AgentProductRoleSchema.optional(),
   name: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(10_000).nullable().optional(),
   role: z.string().trim().min(1).max(200).nullable().optional(),
@@ -42,7 +41,7 @@ export const AgentUpdateInputSchema = z.object({
   prompt: AgentSchema.shape.prompt, assignedSkills: AgentSchema.shape.assignedSkills,
   graphqlTools: AgentSchema.shape.graphqlTools,
   nativeTools: AgentSchema.shape.nativeTools,
-}).strict().refine((value) => [value.name, value.description, value.role, value.productRole, value.configuration,
+}).strict().refine((value) => [value.name, value.description, value.role, value.configuration,
   value.prompt, value.assignedSkills, value.graphqlTools, value.nativeTools, value.harnessProfileSelection].some((item) => item !== undefined), "At least one editable field is required");
 export const AgentCloneInputSchema = z.object({
   ...Workspace, commandId: optionalCommandId(Command), agentId: IdSchema, sourceAgentId: IdSchema,

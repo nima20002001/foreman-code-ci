@@ -1,4 +1,3 @@
-import { OperatorConversationStateSchema } from '@foreman-code/contracts'
 import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
@@ -99,12 +98,12 @@ beforeEach(() => {
     const command = SendOperatorMessageRequestSchema.parse(await request.json())
     requests.push(command)
     if (!command.recovery) {
-      accepted = OperatorConversationStateSchema.parse(SendOperatorMessageResponseSchema.parse({ replayed: false, state: {
+      accepted = SendOperatorMessageResponseSchema.parse({ replayed: false, state: {
         conversation: { id: 'chat-a', scope: 'application', agentId: 'operator-a', operatorConfigurationVersionId: 'configuration-a' },
         messages: [{ id: 'accepted-message', conversationId: 'chat-a', requestId: command.requestId,
           role: 'user', content: command.content, attachments: command.attachments.map((pin) => files.get(pin.fileId)!) }],
         turnState: 'idle', revision: 2,
-      } }).state)
+      } }).state
       return HttpResponse.error() // Durable admission succeeded; only the response is lost.
     }
     if (gateReceipt) await gate

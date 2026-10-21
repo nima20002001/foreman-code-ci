@@ -1,4 +1,3 @@
-import { nativeWorkerTarget } from './fixtures/browserTarget.mjs';
 import test, { before, after } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -20,9 +19,9 @@ before(async () => {
   const repository = fileURLToPath(new URL('../../../', import.meta.url));
   artifactDirectory = await mkdtemp(join(persistentFixtureRoot, 'managed-worker-artifact-'));
   artifact = join(artifactDirectory, 'release');
-  const { file: targetFile } = await nativeWorkerTarget(repository);
   execFileSync(process.execPath, ['scripts/build-worker-artifact.mjs',
-    targetFile, artifact],
+    'apps/worker/artifacts/ubuntu-26.04-x64-target.json', artifact,
+    'apps/worker/artifacts/node-22.23.3-linux-x64.json'],
   { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 });
 

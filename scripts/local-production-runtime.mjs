@@ -1,18 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants, existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { createConnection } from 'node:net'
 import { readProductEnvironment, resolveProductEnvironment } from '../packages/contracts/src/productEnvironment.mjs'
 import { productionMaintenanceKey } from '../packages/contracts/src/productionMaintenance.mjs'
-import { stageBundledBrowserRuntime, activateBrowserRuntime, rollbackBrowserRuntime, offlineBrowserRuntimeLifecycle,
-  readBrowserRuntimeActivation, readInstalledBrowserRuntime, pruneBrowserRuntimeVersions,
-  matchesBrowserRuntimeTarget, readBrowserRuntimeDrain, cancelStoppedBrowserRuntimeDrain } from '../apps/worker/src/browserRuntimeInstall.mjs'
 
 export function parseRunWaitMinutes(value) {
   const minutes = value === undefined ? 120 : Number(value)
@@ -178,25 +174,18 @@ async function saveDeployment(stateFile, state, phase) {
 
 export async function recoverReleaseCutover({ stateFile, steps }) {
   const state = await readDeployment(stateFile)
-  if (!state) return
-  if (['ready', 'recovered'].includes(state.phase)) {
-    if (steps.browserRuntime) await steps.browserRuntime.cancelDrain(state.browserTransactionId)
-    return
-  }
+  if (!state || ['ready', 'recovered'].includes(state.phase)) return
   if (state.apiMayHaveStopped === false) {
-    if (steps.browserRuntime) await steps.browserRuntime.cancelDrain(state.browserTransactionId)
     await saveDeployment(stateFile, state, 'recovered')
     return
   }
   try {
     await saveDeployment(stateFile, state, 'recovering')
     await steps.stop()
-    if (steps.browserRuntime) await steps.browserRuntime.rollback(state.browserRuntime, state.release, state.browserTransactionId)
     await steps.activate(state.previousRelease)
     if (state.previousRelease) {
       await steps.start()
       await steps.ready(state.previousRelease)
-      if (steps.browserRuntime) await steps.browserRuntime.cancelDrain(state.browserTransactionId)
     }
     await saveDeployment(stateFile, state, 'recovered')
   } catch (error) {
@@ -215,7 +204,7 @@ export async function recoverReleaseCutover({ stateFile, steps }) {
 }
 
 export async function runReleaseCutover({ release, previousRelease, stateFile, steps }) {
-  const state = { release, previousRelease, apiMayHaveStopped: false, browserTransactionId: randomBytes(16).toString('hex') }
+  const state = { release, previousRelease, apiMayHaveStopped: false }
   let recoveryAttempted = false
   const perform = async (phase, action) => {
     await saveDeployment(stateFile, state, phase)
@@ -235,8 +224,6 @@ export async function runReleaseCutover({ release, previousRelease, stateFile, s
   try {
     await saveDeployment(stateFile, state, 'checking-migrations')
     const pendingMigrations = await measureProductionStep('checking-migrations', () => steps.pendingMigrations(release))
-    if (steps.browserRuntime) await perform('draining-browser', () =>
-      steps.browserRuntime.beginDrain(state.browserTransactionId, previousRelease))
     state.apiMayHaveStopped = true
     await perform('stopping', steps.stop)
     if (pendingMigrations.length) {
@@ -244,12 +231,6 @@ export async function runReleaseCutover({ release, previousRelease, stateFile, s
       await saveDeployment(stateFile, state, 'migrated')
     }
     await perform('upgrading-launcher', () => steps.upgradeLauncher(release))
-    if (steps.browserRuntime) await perform('activating-browser', async () => {
-      state.browserRuntime = await steps.browserRuntime.activate(release, state.browserTransactionId, async receipt => {
-        state.browserRuntime = receipt
-        await saveDeployment(stateFile, state, 'activating-browser')
-      })
-    })
     await perform('activating', () => steps.activate(release))
     const start = async () => {
       await perform('configuring-startup', steps.enable)
@@ -262,8 +243,6 @@ export async function runReleaseCutover({ release, previousRelease, stateFile, s
       await start()
       await measureProductionStep('checking-readiness', () => steps.ready(release))
     }
-    if (steps.browserRuntime) await steps.browserRuntime.verify(release)
-    if (steps.browserRuntime) await steps.browserRuntime.cancelDrain(state.browserTransactionId)
     await saveDeployment(stateFile, state, 'ready')
   } catch (error) {
     if (!recoveryAttempted) await rollback(error)
@@ -426,8 +405,6 @@ export function localProductionEnvironment(desktopHome, password) {
     WORKSPACE_STORAGE_ROOT: join(data, 'workspaces'),
     FILE_STORAGE_ROOT: join(data, 'files'),
     HARNESS_WORKSPACE_ROOT: join(state, 'runs'),
-    BROWSER_STATE_DIRECTORY: state,
-    BROWSER_RUNTIME_ROOT: join(desktopHome, '.local/lib/graphql-production/browser-runtime'),
     // Native entries use one reviewed launcher; each credential selects its own app.
     FOREMAN_CODE_APP_MCP_DIRECTORY: join(desktopHome, '.local/share/graphql/mcp'),
     LOG_DIR: join(state, 'logs'),
@@ -929,160 +906,5 @@ export async function copyVerificationRuntime(source, release) {
     const destination = join(release, path)
     await mkdir(dirname(destination), { recursive: true })
     await copyFile(join(source, path), destination)
-  }
-}
-
-/** Main reuses the exact target's already locked Worker unit; no second dependency resolution. */
-export async function stageProductionBrowserRuntime({ release, appRoot, readiness, stage = stageBundledBrowserRuntime }) {
-  try {
-  const index = JSON.parse(await readFile(join(release, 'worker-artifacts', 'index.json'), 'utf8'))
-  const osRelease = await readFile('/etc/os-release', 'utf8')
-  const values = Object.fromEntries(osRelease.split('\n').filter(line => /^[A-Z_]+=/.test(line)).map(line => {
-    const equal = line.indexOf('=')
-    return [line.slice(0, equal), line.slice(equal + 1).replace(/^"|"$/g, '')]
-  }))
-  const facts = { os: values.ID, osRelease: values.VERSION_ID, arch: process.arch, node: process.version,
-    libc: `glibc-${process.report.getReport().header.glibcVersionRuntime}` }
-  const candidates = index.artifacts.filter(entry => matchesBrowserRuntimeTarget(entry.target, facts))
-  if (candidates.length !== 1) throw new Error('No matching native browser runtime target for this Main computer.')
-  const candidate = candidates[0]
-  if (!/^[a-f0-9]{64}$/.test(candidate.manifestSha256)) throw new Error('Invalid browser carrier identity.')
-  const artifact = join(release, 'worker-artifacts', candidate.manifestSha256)
-  const bytes = await readFile(join(artifact, 'manifest.json'))
-  if (createHash('sha256').update(bytes).digest('hex') !== candidate.manifestSha256) throw new Error('Browser carrier checksum mismatch.')
-  const manifest = JSON.parse(bytes)
-  const staged = await stage({ root: appRoot, artifact, manifest, target: facts, readiness })
-  if (!staged) throw new Error('The release does not contain its managed browser runtime.')
-  await publish(join(release, 'browser-runtime.json'), `${JSON.stringify({ runtimeRoot: join(appRoot, 'browser-runtime'), state: 'ready', staged })}\n`)
-  return staged
-  } catch (error) {
-    const failure = { runtimeRoot: join(appRoot, 'browser-runtime'), state: 'failed', retryable: true, reason: error.message }
-    await publish(join(release, 'browser-runtime.json'), `${JSON.stringify(failure)}\n`)
-    console.warn(`Core release staged; browser runtime setup failed: ${error.message}`)
-    return null
-  }
-}
-
-/** Used only after systemctl stop; the checkpoint export independently rejects live native writers. */
-export function productionBrowserRuntimeLifecycle({ appRoot, stateDirectory, drainTimeoutMs = 120 * 60_000 }) {
-  const runtimeRoot = join(appRoot, 'browser-runtime')
-  const read = async release => {
-    const info = await lstat(join(release, 'browser-runtime.json'))
-    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077)) throw new Error('Private browser release descriptor required.')
-    const receipt = JSON.parse(await readFile(join(release, 'browser-runtime.json'), 'utf8'))
-    if (receipt.runtimeRoot !== runtimeRoot) throw new Error('Browser release belongs to a different installation.')
-    if (receipt.state === 'failed' && receipt.retryable === true && typeof receipt.reason === 'string') return null
-    if (!receipt.staged) throw new Error('Browser release has no staged runtime or explicit failure status.')
-    return receipt.staged
-  }
-  return {
-    beginDrain: async (commandId, previousRelease) => {
-      if (!previousRelease) return
-      try { if (!await read(previousRelease)) return } catch (error) { if (error.code === 'ENOENT') return; throw error }
-      await waitForProductionBrowserDrain({ stateDirectory, commandId, timeoutMs: drainTimeoutMs })
-    },
-    cancelDrain: async commandId => {
-      if (!commandId) return
-      const record = await readBrowserRuntimeDrain(join(stateDirectory, 'browser'))
-      if (!record || record.state === 'canceled') return
-      if (record.commandId !== commandId) throw new Error('Another runtime update owns this drain.')
-      try {
-        const result = await requestProductionBrowserDrain({ stateDirectory, operation: 'cancelDrain', commandId })
-        if (result.state !== 'canceled') throw new Error('Browser admission recovery remains pending.')
-      } catch (error) {
-        if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error
-        // A release without a browser host cannot serve control requests. Complete its owned drain durably.
-        await cancelStoppedBrowserRuntimeDrain(join(stateDirectory, 'browser'), commandId)
-      }
-    },
-    activate: async (release, transactionId, onPrepared) => {
-      const staged = await read(release)
-      if (!staged) return { changed: false, state: 'failed' }
-      const lifecycle = await offlineBrowserRuntimeLifecycle({ nativeHostModule: staged.nativeHostModule,
-        profileStateRoot: join(stateDirectory, 'browser', 'profile-data') })
-      return activateBrowserRuntime({ runtimeRoot, staged, transactionId, drain: lifecycle.drain, onPrepared })
-    },
-    rollback: async (receipt, release, transactionId) => {
-      if (!transactionId || receipt?.changed === false) return
-      const activation = receipt ?? await readBrowserRuntimeActivation(runtimeRoot)
-      if (!activation || activation.transactionId !== transactionId || activation.state === 'rolled-back') return
-      const staged = await read(release)
-      if (activation.nextReference !== `versions/${staged.manifestSha256}`) throw new Error('Browser cutover receipt does not match the release.')
-      const lifecycle = await offlineBrowserRuntimeLifecycle(activation)
-      await rollbackBrowserRuntime({ runtimeRoot, ...activation, drain: async () => undefined, restoreProfiles: lifecycle.restoreProfiles })
-    },
-    verify: async release => {
-      let expected
-      try { expected = await read(release) } catch (error) { if (error.code === 'ENOENT') return; throw error }
-      if (!expected) return
-      const current = await readInstalledBrowserRuntime({ runtimeRoot, target: expected.target })
-      if (current.manifestSha256 !== expected.manifestSha256) throw new Error('The running release has the wrong managed browser runtime.')
-    },
-    prune: () => pruneBrowserRuntimeVersions(runtimeRoot),
-  }
-}
-
-/** Private same-owner installer channel. It carries no browser credentials, CDP addresses or file paths. */
-export async function requestProductionBrowserDrain({ stateDirectory, operation, commandId, signal, timeoutMs = 5000 }) {
-  const directory = join(stateDirectory, 'browser'), path = join(directory, 'runtime-control.sock')
-  for (const [location, socket] of [[directory, false], [path, true]]) {
-    const info = await lstat(location)
-    if ((socket ? !info.isSocket() : !info.isDirectory()) || info.isSymbolicLink()
-      || info.uid !== process.getuid() || (info.mode & 0o077)) throw new Error('Private browser installer channel required.')
-  }
-  signal?.throwIfAborted()
-  const anchor = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-  try {
-    return await new Promise((resolve, reject) => {
-    const socket = createConnection(`/proc/self/fd/${anchor.fd}/runtime-control.sock`)
-    let bytes = Buffer.alloc(0), settled = false
-    const finish = (error, value) => {
-      if (settled) return
-      settled = true; clearTimeout(timer); signal?.removeEventListener('abort', aborted); socket.destroy()
-      if (error) reject(error); else resolve(value)
-    }
-    const timer = setTimeout(() => finish(new Error('Browser host drain request timed out.')), timeoutMs)
-    const aborted = () => finish(signal.reason ?? new Error('Browser drain was canceled.'))
-    signal?.addEventListener('abort', aborted, { once: true })
-    socket.once('connect', () => socket.write(`${JSON.stringify({ operation, commandId })}\n`))
-    socket.on('data', chunk => {
-      bytes = Buffer.concat([bytes, chunk])
-      if (bytes.length > 16_384) { finish(new Error('Browser host drain reply is oversized.')); return }
-      const newline = bytes.indexOf(10)
-      if (newline < 0) return
-      try {
-        const result = JSON.parse(bytes.subarray(0, newline).toString('utf8'))
-        if (!['waiting', 'drained', 'canceled'].includes(result.state)) throw new Error(result.reason || 'Browser drain was rejected.')
-        finish(null, result)
-      } catch (error) { finish(error) }
-    })
-    socket.once('error', error => finish(error))
-    socket.once('end', () => { if (!settled) finish(new Error('Browser host closed before confirming drain.')) })
-    })
-  } finally { await anchor.close() }
-}
-
-export async function waitForProductionBrowserDrain({ stateDirectory, commandId, timeoutMs, signal,
-  request = requestProductionBrowserDrain, sleep = delay, log = console.log }) {
-  const deadline = Date.now() + timeoutMs
-  let operation = 'beginDrain', lastCount
-  try {
-    for (;;) {
-      signal?.throwIfAborted()
-      const result = await request({ stateDirectory, operation, commandId, signal })
-      if (result.state === 'drained') return result
-      if (result.state !== 'waiting') throw new Error('Browser admission drain was not retained by this install.')
-      if (lastCount !== result.activeSessions) {
-        lastCount = result.activeSessions
-        log(`Waiting for ${lastCount ?? 'owned'} browser session(s) to release before updating. Close setup browsers and return/end active browser work.`)
-      }
-      if (Date.now() >= deadline) throw new Error('Browser sessions are still active. Close their browsers and retry the update.')
-      operation = 'status'
-      await sleep(Math.min(1000, Math.max(0, deadline - Date.now())), undefined, { signal })
-    }
-  } catch (error) {
-    try { await request({ stateDirectory, operation: 'cancelDrain', commandId }) }
-    catch (cancelError) { throw new AggregateError([error, cancelError], 'Browser drain failed and admission recovery remains pending.') }
-    throw error
   }
 }

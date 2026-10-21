@@ -743,10 +743,6 @@ export class RemoteOperationJournal {
       if (command.nativeTarget && (command.nativeTarget.kind !== 'session' || command.nativeTarget.sessionId !== receipt.native?.sessionId
         || (command.nativeTarget.turnId && command.nativeTarget.turnId !== remoteActiveNative(receipt)?.turnId))) throw new Error('Wrong explicit native target')
       if (command.native && !same(command.native, remoteActiveNative(receipt))) throw new Error('Wrong native control target')
-      if (command.workflowControl && (receipt.turnInput?.correlationId !== command.workflowControl.ownerRequestId
-        || command.action.kind === 'steer' && (receipt.stopFence || receipt.phase !== 'running'))) {
-        throw new Error('The workflow control no longer owns its original input')
-      }
       if (command.action.kind === 'respond') {
         const target = receipt.interaction
         if (receipt.stopFence || receipt.phase !== 'running' || !target || target.interactionId !== command.action.interactionId
@@ -789,9 +785,6 @@ export class RemoteOperationJournal {
       }
       if (!same(receipt.intent.owner, deliveryOwner)
         || command.native && !same(command.native, active)) throw new Error('Stale control ownership')
-      if (command.workflowControl && receipt.turnInput?.correlationId !== command.workflowControl.ownerRequestId) {
-        throw new Error('The workflow input changed before control delivery')
-      }
       if (command.nativeTarget && (command.nativeTarget.kind !== 'session'
         || command.nativeTarget.sessionId !== receipt.native?.sessionId
         || command.nativeTarget.turnId && command.nativeTarget.turnId !== active?.turnId)) {
@@ -800,7 +793,7 @@ export class RemoteOperationJournal {
       const delivery = data.controlDeliveries.find(value => value.operationId === command.operationId
         && value.commandId === command.commandId)
       if (!delivery || delivery.phase !== 'reserved' || receipt.terminal || !receipt.native
-        || command.action.kind !== 'stop' && receipt.stopFence) return false
+        || command.action.kind === 'respond' && receipt.stopFence) return false
       delivery.phase = 'entered'
       return true
     }, { controlOperationId: command.operationId })

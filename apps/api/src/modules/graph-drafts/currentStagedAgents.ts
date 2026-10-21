@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type pg from 'pg'
-import { AgentSchema, AgentConfigurationVersionSchema, agentTemplateForRole, newAgentGraphqlTools, projectHarnessEffort } from '@foreman-code/contracts'
+import { AgentSchema, AgentConfigurationVersionSchema, projectHarnessEffort } from '@foreman-code/contracts'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { type CurrentEditSaveInput, sameWorkflowValue } from '@foreman-code/contracts/wave25'
 import { requireAuthorization } from '../access/policy.js'
@@ -9,28 +9,18 @@ import { configurationInput, lockAgentConfigurations, pinnedConfigurationContent
 import { authorizeAgentConfiguration } from '../workspaces/operatorAgents.js'
 import { readImmutableAgentConfiguration } from '../workflows/immutableRead.js'
 import type { ProviderAccountConfigurationService } from '../harnesses/providerAccountConfiguration.js'
-import { readAgentDefaultsSetting } from '../settings/foundation.js'
 
 export function authorizeStagedAgents(principal: ManagementPrincipal, input: Pick<CurrentEditSaveInput, 'workspaceId' | 'stagedAgents'>) {
   for (const item of input.stagedAgents ?? []) {
     requireAuthorization(principal, item.baseRevision === null ? 'agents:create' : 'agents:update', { workspaceId: input.workspaceId })
   }
 }
-/** Resolve creation-only templates once before a private intent is retained.
- * The normalized payload then survives retries and later template changes. */
-export async function resolveNewStagedAgentDefaults(client: pg.PoolClient, input: CurrentEditSaveInput): Promise<CurrentEditSaveInput> {
-  if (!input.stagedAgents?.some(item => item.baseRevision === null && item.agent.productRole && item.agent.graphqlTools === undefined)) return input
-  const defaults = await readAgentDefaultsSetting(client)
-  return { ...input, stagedAgents: input.stagedAgents.map(item => item.baseRevision === null && item.agent.productRole && item.agent.graphqlTools === undefined
-    ? { ...item, agent: { ...item.agent, graphqlTools: agentTemplateForRole(defaults.value, item.agent.productRole).graphqlTools
-      ?? newAgentGraphqlTools(item.agent.productRole) } } : item) }
-}
 /** Read-only planning. Reserved IDs derive from the immutable save command;
  * no Agent/configuration row is inserted until publication admission succeeds. */
 export async function prepareCurrentStagedAgents(client: pg.PoolClient, principal: ManagementPrincipal, input: CurrentEditSaveInput,
   accounts?: ProviderAccountConfigurationService) {
+  const updates = input.stagedAgents ?? []
   authorizeStagedAgents(principal, input)
-  const updates = (await resolveNewStagedAgentDefaults(client, input)).stagedAgents ?? []
   const ids = updates.map((item) => item.agent.id)
   if (new Set(ids).size !== ids.length || ids.some((id) => !input.graph.nodes.some((node) => node.kind !== 'job' && node.agentId === id))) {
     throw new DomainError('AGENT_CONFIGURATION_CONFLICT', 'Stage Agent updates must be unique authored graph Agents.', 409)
@@ -58,7 +48,7 @@ export async function prepareCurrentStagedAgents(client: pg.PoolClient, principa
     const configRow = original ? (await client.query('select id,workspace_id,agent_id,version,record from agent_configuration_versions where id=$1', [original])).rows[0] : undefined
     const current = configRow ? readImmutableAgentConfiguration(configRow, { id: original!, workspaceId: input.workspaceId, agentId: item.agent.id }) : undefined
     if (row && !current) throw new DomainError('AGENT_CONFIGURATION_CONFLICT', 'The original immutable Agent configuration is unavailable.', 409)
-    const requested = configurationInput(input.workspaceId, item.agent, current, item.baseRevision === null)
+    const requested = configurationInput(input.workspaceId, item.agent, current)
     const configInput = { ...requested, harnessProfileSelection: requested.harnessProfileSelection, harness: accounts
       ? await accounts.resolve(requested.harness, requested.harnessProfileSelection, { sql: client }) : requested.harness }
     if (accounts) {

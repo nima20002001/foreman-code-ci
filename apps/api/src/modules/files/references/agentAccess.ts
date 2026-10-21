@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream'
-import { FileRevisionSchema, fileStateAt } from '@foreman-code/contracts/files'
+import { FileRevisionSchema } from '@foreman-code/contracts/files'
 import type { AgentFileReadInput, AgentFileReadResult, FileWithRevision, PermanentFileScope } from '@foreman-code/contracts/files'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { DomainError } from '../../errors.js'
@@ -112,22 +112,17 @@ export class AgentReferenceAccess {
     // Do not even probe file existence for a global Operator conversation.
     if (!context) return unavailable('not_found')
     const stored = await this.dependencies.files.read(ref.fileId, ref.revisionId)
-    if (!stored) return unavailable('not_found')
-    const attachment = stored.value.file.scope.kind === 'temporary'
-    const authorizeAttachment = this.dependencies.authorization.attachment?.bind(this.dependencies.authorization)
-    if (attachment ? !this.dependencies.reads.completeAttachment || !authorizeAttachment
-      || !await authorizeAttachment(principal, subject, context, ref)
-      : !effectiveReference(context, stored.value.file.scope)) return unavailable('not_found')
+    if (!stored || !effectiveReference(context, stored.value.file.scope)) return unavailable('not_found')
     const { file, revision } = stored.value
     if (file.fileId !== ref.fileId || revision.fileId !== ref.fileId || revision.revisionId !== ref.revisionId) {
       throw new DomainError('FILE_REFERENCE_METADATA_INVALID', 'Reference metadata did not match the requested pin.', 500)
     }
-    if (context.runId && !attachment) {
+    if (context.runId) {
       const pin = (await this.dependencies.reads.pinned(context.runId, [ref.fileId])).get(ref.fileId)
       if (pin && pin !== ref.revisionId) return pinConflict()
     }
     if (file.state === 'pending' || file.state === 'removed') return unavailable(file.state)
-    if (fileStateAt(file, this.now()) !== 'ready') return unavailable('not_found')
+    if (file.state !== 'ready') return unavailable('not_found')
     if (input.offset > revision.byteSize) {
       throw new DomainError('FILE_RANGE_INVALID', 'The offset is outside this immutable revision.', 416)
     }
@@ -142,13 +137,8 @@ export class AgentReferenceAccess {
     if (Date.parse(readAt) < Date.parse(revision.createdAt)) throw new Error('Read time predates the immutable revision.')
     // Only successful bounded reads reach this transaction. The file-row lock serializes removal;
     // Run-wide pins and execution facts commit together, before any bytes are returned to the caller.
-    const reauthorize = async (query: FileQuery) => {
-      await this.reauthorize(principal, subject, context, query)
-      if (attachment && !await authorizeAttachment!(principal, subject, context, ref, query)) throw new DomainError(
-        'FILE_ATTACHMENT_ACCESS_DENIED', 'This immutable attachment no longer belongs to the admitted input.', 403)
-    }
-    const state = attachment ? await this.dependencies.reads.completeAttachment!(context, ref, reauthorize)
-      : await this.dependencies.reads.complete(context, ref, readAt, reauthorize)
+    const state = await this.dependencies.reads.complete(context, ref, readAt,
+      (query) => this.reauthorize(principal, subject, context, query))
     if (state !== 'ready') return unavailable(state)
     return { status: 'ready', file, revision, readAt, offset: input.offset,
       byteLength: content.length, contentBase64: content.toString('base64'), eof: input.offset + content.length === revision.byteSize }

@@ -26,8 +26,6 @@ const EnvironmentSchema = z.object({
   DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().positive().max(2147483647).default(1000),
   READINESS_TIMEOUT_MS: z.coerce.number().int().positive().max(2147483647).default(2000),
   LANGGRAPH_CHECKPOINT_SCHEMA: databaseSchemaName.default('langgraph'),
-  BROWSER_STATE_DIRECTORY: z.string().refine(isAbsolute).optional(),
-  BROWSER_RUNTIME_ROOT: z.string().refine(isAbsolute).optional(),
   FILE_STORAGE_ROOT: z.string().trim().min(1).refine(isAbsolute, 'File storage requires an absolute directory').optional(),
   WORKSPACE_STORAGE_ROOT: z.string().trim().min(1).refine(isAbsolute, 'Workspace storage requires an absolute directory').optional(),
   HARNESS_WORKSPACE_ROOT: z.string().trim().min(1).default('/tmp/graphql-harness-runs'),
@@ -47,8 +45,6 @@ export interface ApiConfig {
   /** Trusted composition override for an isolated storage root; never a request field. */
   workspaceStorageRoot?: string
   /** App-managed durable upload storage; separate from workspace and harness directories. */
-  browserStateDirectory?: string | undefined
-  browserRuntimeRoot?: string | undefined
   fileStorageRoot?: string
   browserOrigin?: string
   host: string
@@ -89,8 +85,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv): ApiConfig {
       managedBy: environment.FOREMAN_CODE_LAPTOP_EXECUTION_ENABLED === undefined ? 'settings' : 'startup',
     },
     browserOrigin,
-    browserStateDirectory: parsed.BROWSER_STATE_DIRECTORY,
-    browserRuntimeRoot: parsed.BROWSER_RUNTIME_ROOT,
     fileStorageRoot: parsed.FILE_STORAGE_ROOT ?? defaultFileStorageRoot(),
     ...(parsed.WORKSPACE_STORAGE_ROOT ? { workspaceStorageRoot: parsed.WORKSPACE_STORAGE_ROOT } : {}),
     host: parsed.HOST,

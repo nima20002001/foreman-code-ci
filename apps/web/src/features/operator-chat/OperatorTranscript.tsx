@@ -9,7 +9,6 @@ import { OperatorMessages } from './OperatorMessages'
 import { OperatorHistory } from './OperatorHistory'
 import { HistoryWindowNotice } from '../conversations/HistoryWindowNotice'
 import { useChatTurnCompleted } from '../conversations/chatTurnCompletion'
-import { useRememberedChatScroll } from '../conversations/chatScrollStore'
 import type { OperatorTextProjection } from './operatorTextProjection'
 
 function AcceptedModelMessages(props: ComponentProps<typeof OperatorMessages>) {
@@ -43,7 +42,6 @@ export function OperatorTranscript({ messages, partialText, thinkingText = '', h
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
-  useRememberedChatScroll(conversationId ? `operator:${conversationId}` : undefined, scrollRef, followLatest)
   const [hasNewContent, setHasNewContent] = useState(false)
   const onBrowse = () => { followLatest.current = false }
   const jumpToLatest = () => {

@@ -1,7 +1,6 @@
-import { nativeWorkerTarget } from './fixtures/browserTarget.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
@@ -19,7 +18,6 @@ async function fixture(t) {
   const directory = join(parent, 'artifacts-link');
   await symlink('artifacts', directory);
   const root = join(directory, 'repository');
-  const { file: targetFile } = await nativeWorkerTarget(repository);
   const environment = {
     ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
   };
@@ -39,7 +37,7 @@ async function fixture(t) {
       '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Worker imports']);
     const commit = git(['rev-parse', 'HEAD']).trim();
     return spawnSync(process.execPath, [join(root, 'scripts/build-worker-artifact.mjs'),
-      targetFile, join(directory, 'release')], {
+      'apps/worker/artifacts/ubuntu-26.04-x64-target.json', join(directory, 'release')], {
       cwd: root, encoding: 'utf8', timeout: 120_000,
       env: { ...environment, FOREMAN_CODE_WORKER_BUILD_COMMIT: commit, GRAPHQL_WORKER_BUILD_COMMIT: commit },
     });
@@ -55,24 +53,12 @@ test('Worker artifacts bundle new transitive API helpers without registering mod
     "import { value } from './value.js';\nexport const importedHelper = () => value;\n");
   await appendFile(join(f.root, 'apps/worker/src/workerFactory.mjs'),
     "\nexport { importedHelper } from '../../api/src/modules/worker-build-fixture/helper.ts';\n"
-      + "export { HostCiRunner } from '../../api/src/modules/ci-host/runner.ts';\n"
-      + "export { configurationWithNodeSkills } from '../../api/src/modules/skills/nodeSkills.ts';\n"
-      + "export { agentInstructionBundle } from '../../api/src/modules/skills/instructions.ts';\n"
-      + "export { makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25';\n");
+      + "export { HostCiRunner } from '../../api/src/modules/ci-host/runner.ts';\n");
   const result = f.build();
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
   const worker = await import(pathToFileURL(join(f.directory, 'release/src/worker.mjs')).href);
   assert.equal(worker.importedHelper(), 'bundled from the import graph');
-  await t.test('composes managed browser snapshots inside the installed Worker artifact', () => {
-    const configuration = worker.makeCurrentWorkflowFixture('browser-skill-artifact', 'single').configurations[0];
-    const instructions = 'Observe the owned browser tab before acting.';
-    const contentHash = `sha256:${createHash('sha256').update(instructions).digest('hex')}`;
-    const skill = { skillId: 'foreman-browser-use', version: contentHash, instructions, contentHash };
-    const effective = worker.configurationWithNodeSkills(configuration, undefined, [skill], { enabled: true });
-    assert.deepEqual(effective.resolvedSkills, [skill]);
-    assert.ok(worker.agentInstructionBundle(effective).text.includes(instructions));
-  });
   for (const suite of ['unit', 'integration']) {
     await t.test(`${suite} commands use a runnable bundled watchdog when the source has none`, async () => {
       await assertBundledWatchdog(f, worker, suite);

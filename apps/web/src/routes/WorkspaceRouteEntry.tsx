@@ -12,7 +12,6 @@ import { clearCurrentRunAccess, revokeCurrentRunWorkspace } from '../features/wo
 import { ApiError } from '../shared/api/client'
 import { queryKeys, useManagedWorkflowQuery, useWorkspaceDetailsQuery } from '../shared/api/query'
 import { WorkspaceSelection } from './WorkspaceRoute'
-import { WorkspaceMemoryRouteEntry } from './WorkspaceSectionRoutes'
 import { RunsSelectorSearchSchema, withoutRunsSelectorSearch,
   resolveRunsSelectorBoardLocation as resolveWorkflowBoardLocation } from '../features/runs-selector'
 import { clearSelectedSubagentHash } from '../features/runs-selector/search'
@@ -30,8 +29,6 @@ const BOARD_PATH = /^\/workspaces\/[^/]+(?:\/workflows\/[^/]+\/(?:draft|runs\/.+
 export function WorkspaceRouteEntry() {
   const location = useLocation()
   const last = useRef<WorkflowBoardLocation | undefined>(undefined)
-  if (/^\/workspaces\/[^/]+\/?$/.test(location.pathname) && !location.search.workflowId
-    && !location.search.runId && !location.search.selectedRunId) return <WorkspaceMemoryRouteEntry />
   let selection: WorkflowBoardLocation
   try {
     selection = resolveWorkflowBoardLocation(location.pathname, location.search)

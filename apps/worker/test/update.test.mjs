@@ -1,14 +1,13 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile, rm, readlink, readdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdtemp, mkdir, readFile, writeFile, rm, readlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { persistentFixtureRoot } from './fixtureStorage.mjs';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as wait } from 'node:timers/promises';
-import { createInstalledWorkerUpdater } from '../src/installedUpdater.mjs';
 import { WorkerUpdater, downloadWorkerArtifact, fetchGitHubAsset } from '../src/update.mjs';
 import { installVersion, readInstalledRelease, readRetainedRelease } from '../src/installation.mjs';
 import { startWorker, acquireWorkerLock, readWorkerStatus } from '../src/runtime.mjs';
@@ -23,8 +22,6 @@ import { workerArtifactContentSha256 } from '../../../packages/contracts/src/wor
 import { DeviceConnectionError } from '../../../apps/api/src/modules/devices/deviceWire.ts';
 import { DeviceApplicationError } from '../../../apps/api/src/modules/devices/deviceApplicationError.ts';
 import { COMPUTER_MAINTENANCE_NAMESPACE } from '@foreman-code/contracts/computer-maintenance';
-import { packBrowserRuntime } from '../../../scripts/browser-runtime-install.mjs';
-import { stageBrowserRuntime, activateBrowserRuntime, readInstalledBrowserRuntime, readBrowserRuntimeStatus } from '../src/browserRuntimeInstall.mjs';
 let bundleDirectory;
 let createWorkerRuntimeDrain;
 before(async () => {
@@ -141,138 +138,6 @@ async function fixture(t, targetVersion = '1.1.0') {
       await boot(child.stdout.trim(), phase);
     } };
 }
-
-async function browserArtifact(base, version, output) {
-  const unit = join(base, `browser-unit-${version}`), lock = '{}';
-  const entries = { 'python/bin/python3': 'fixture python', 'chromium/chrome': 'fixture chromium',
-    'bridge.py': '# fixture bridge', 'browser-use.md': '# fixture skill', 'LICENSES.txt': 'Fixture notices',
-    'runtime-lock.json': lock, 'native-host.mjs': 'export const fixture = true;' };
-  for (const [path, bytes] of Object.entries(entries)) {
-    await mkdir(dirname(join(unit, path)), { recursive: true, mode: 0o700 });
-    await writeFile(join(unit, path), bytes, { mode: path.endsWith('python3') || path.endsWith('chrome') ? 0o700 : 0o600 });
-  }
-  return packBrowserRuntime({ unit, output, manifest: { format: 1, kind: 'foreman-browser-runtime',
-    runtimeVersion: version, foremanVersion: version, sourceCommit: 'a'.repeat(40), profileFormat: 1, target: releaseTarget,
-    sourceInputs: [], pythonVersion: '3.13.16', browserUseVersion: '0.13.11', browserHarnessVersion: '0.1.13',
-    chromiumVersion: '153.0.8010.12', resolvedLockSha256: hash(lock), pythonExecutable: 'python/bin/python3',
-    chromiumExecutable: 'chromium/chrome', bridgeScript: 'bridge.py', nativeHostModule: 'native-host.mjs', skill: 'browser-use.md' } });
-}
-
-async function addIncomingBrowser(f) {
-  const output = join(f.incoming.directory, 'artifacts/browser-runtime');
-  await mkdir(dirname(output), { recursive: true, mode: 0o700 });
-  const packed = await browserArtifact(f.base, '1.1.0', output);
-  const manifest = f.incoming.release.manifest;
-  for (const path of await readdir(output)) {
-    const bytes = await readFile(join(output, path));
-    manifest.files.push({ path: `artifacts/browser-runtime/${path}`, size: bytes.length, sha256: hash(bytes) });
-  }
-  manifest.browserRuntime = { descriptorSha256: packed.descriptorSha256, manifestSha256: packed.descriptor.manifestSha256 };
-  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  await writeFile(join(f.incoming.directory, 'manifest.json'), bytes, { mode: 0o600 });
-  f.incoming.release.manifestSha256 = hash(bytes);
-}
-
-for (const rollback of [false, true]) {
-  test(`browser readiness failure permits a running core update while preserving browser activation through ${rollback ? 'core rollback' : 'restart'}`, async t => {
-    const f = await fixture(t);
-    await addIncomingBrowser(f);
-    const oldArtifact = join(f.base, 'old-browser');
-    const packed = await browserArtifact(f.base, '1.0.0', oldArtifact);
-    const runtimeRoot = join(f.root, 'browser-runtime');
-    const retained = await stageBrowserRuntime({ runtimeRoot, artifact: oldArtifact, expectedSha256: packed.descriptorSha256,
-      target: facts, readiness: async () => ({ ready: true }), activate: false });
-    await activateBrowserRuntime({ runtimeRoot, staged: retained,
-      drain: async () => ({ profileCheckpointId: 'retained-profile', profileStateRoot: f.stateDirectory }) });
-    const events = [];
-    let probes = 0;
-    const updater = await new WorkerUpdater({ ...f.options,
-      browserRuntimeReadiness: async () => { probes++; throw new Error('Browser prerequisite unavailable'); },
-      browserRuntimeLifecycle: { drain: async () => { events.push('browser-drain'); },
-        stop: async () => { events.push('browser-stop'); }, restoreProfiles: async () => { events.push('browser-restore'); } },
-      drain: async () => { events.push('core-drain'); },
-      launchSupervisor: async () => {
-        const record = await readUpdateRecord(f.stateDirectory);
-        assert.equal(record.restart.browserRuntime, undefined);
-        assert.equal((await readInstalledRelease({ root: f.root, facts, expected })).manifest.version, '1.0.0');
-        await superviseWorkerUpdate(record, { prepareService: f.prepareService, restart: () => f.restart('ready'),
-          ready: async input => {
-            if (rollback && input.version === '1.1.0') throw new Error('Core startup failed');
-            await waitForWorkerReady(input);
-          } });
-      } }).initialize();
-    t.after(() => updater.close());
-    await updater.start();
-    assert.equal(probes, 1);
-    assert.deepEqual(events, ['core-drain']);
-    assert.deepEqual(f.connections, rollback ? ['1.0.0', '1.1.0', '1.0.0'] : ['1.0.0', '1.1.0']);
-    assert.equal((await readUpdateRecord(f.stateDirectory)).status.state, rollback ? 'rolled-back' : 'current');
-    assert.equal((await readInstalledRelease({ root: f.root, facts, expected })).manifest.version, rollback ? '1.0.0' : '1.1.0');
-    assert.equal((await readInstalledBrowserRuntime({ runtimeRoot })).manifestSha256, retained.manifestSha256);
-    assert.deepEqual(await readBrowserRuntimeStatus(f.root), { state: 'failed', retryable: true,
-      manifestSha256: f.incoming.release.manifestSha256, reason: 'Browser prerequisite unavailable' });
-  });
-}
-
-for (const failHandoff of [false, true]) {
-  test(`installed updater carries browser checkpoint and rollback ownership through ${failHandoff ? 'failed handoff' : 'activation'}`, async t => {
-    const f = await fixture(t);
-    await addIncomingBrowser(f);
-    const events = [];
-    const browser = {
-      stopAdmission() { events.push('pause'); },
-      drain: async () => { events.push('domain-drain'); },
-      resumeAdmission: async () => { events.push('resume'); },
-      runtime: {
-        drain: async () => { events.push('checkpoint'); return { profileCheckpointId: 'profile-checkpoint', profileStateRoot: f.stateDirectory }; },
-        stop: async () => { events.push('stop'); },
-        restoreProfiles: async checkpoint => { assert.equal(checkpoint, 'profile-checkpoint'); events.push('restore'); },
-      },
-    };
-    const updater = await createInstalledWorkerUpdater({ ...f.options, browser,
-      domains: () => ({ drainForUpdate: async () => { events.push('core-drain'); }, resumeAfterUpdate: async () => {} }),
-      browserRuntimeReadiness: async () => ({ ready: true }),
-      launchSupervisor: async () => {
-        events.push('handoff');
-        if (failHandoff) throw new Error('Supervisor could not start');
-      },
-    });
-    t.after(() => updater.close());
-    if (failHandoff) await assert.rejects(updater.start(), /Supervisor could not start/);
-    else assert.match(await updater.start(), /restart is scheduled/);
-    assert.deepEqual(events.slice(0, 4), ['pause', 'core-drain', 'domain-drain', 'checkpoint']);
-    assert.ok(events.includes('handoff'));
-    if (failHandoff) {
-      assert.ok(events.includes('stop'));
-      assert.ok(events.includes('restore'));
-    } else {
-      const record = await readUpdateRecord(f.stateDirectory);
-      assert.equal(record.status.state, 'restarting');
-      assert.equal(record.restart.browserRuntime.profileCheckpointId, 'profile-checkpoint');
-    }
-  });
-}
-
-test('stopping a running Worker during browser readiness still aborts the core update', async t => {
-  const f = await fixture(t);
-  await addIncomingBrowser(f);
-  const entered = Promise.withResolvers();
-  let drains = 0, restarts = 0;
-  const updater = await new WorkerUpdater({ ...f.options,
-    browserRuntimeReadiness: async (_descriptor, { signal }) => {
-      entered.resolve();
-      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-    }, drain: async () => { drains++; }, launchSupervisor: async () => { restarts++; } }).initialize();
-  t.after(() => updater.close());
-  const updating = updater.start();
-  const rejected = assert.rejects(updating, error => error.code === 'worker_updater_stopped');
-  await entered.promise;
-  await updater.close();
-  await rejected;
-  assert.equal(drains, 0);
-  assert.equal(restarts, 0);
-  assert.equal((await readInstalledRelease({ root: f.root, facts, expected })).manifest.version, '1.0.0');
-});
 
 async function until(predicate) {
   for (let count = 0; count < 200; count++) {

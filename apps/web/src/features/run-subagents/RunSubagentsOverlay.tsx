@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { ViewportPortal } from '@xyflow/react'
 import { Button, Icon } from '../../shared/ui/nocturne'
 import { layoutSubagents, isTerminalSubagent, SUBAGENT_ORB, type SubagentLayoutNode } from './layout'
@@ -9,12 +9,11 @@ import { SubagentPanel } from './SubagentPanel'
 import { useBlockingReadError } from '../../shared/api/readFailure'
 import './runSubagents.css'
 
-export function RunSubagentsOverlay({ scope, nodes, visible = true }: {
-  scope: SubagentsScope; nodes: readonly SubagentLayoutNode[]; visible?: boolean
+export function RunSubagentsOverlay({ scope, nodes }: {
+  scope: SubagentsScope; nodes: readonly SubagentLayoutNode[]
 }) {
-  const query = useRunSubagents(scope, visible)
+  const query = useRunSubagents(scope)
   const { selected, select } = useSelectedSubagent(scope)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const trigger = useRef<HTMLButtonElement | null>(null)
   const closePanel = () => {
     const orb = trigger.current
@@ -25,9 +24,9 @@ export function RunSubagentsOverlay({ scope, nodes, visible = true }: {
   const chips = layoutSubagents(nodes, children)
   // Every page loads on its own so all children appear as nodes without a status strip.
   const { hasNextPage, isFetchingNextPage, isError, fetchNextPage } = query
-  useEffect(() => { if (visible && hasNextPage && !isFetchingNextPage && !isError && !blocked) void fetchNextPage() }, [visible, hasNextPage, isFetchingNextPage, isError, blocked, fetchNextPage])
+  useEffect(() => { if (hasNextPage && !isFetchingNextPage && !isError && !blocked) void fetchNextPage() }, [hasNextPage, isFetchingNextPage, isError, blocked, fetchNextPage])
   return <>
-    {visible ? <ViewportPortal>
+    <ViewportPortal>
       <div className="run-subagents-overlay">
         <svg className="run-subagents-links" aria-hidden="true">
           {chips.map(({ subagent, x, y, from }) =>
@@ -50,13 +49,11 @@ export function RunSubagentsOverlay({ scope, nodes, visible = true }: {
           </button>
         })}
       </div>
-    </ViewportPortal> : null}
-    {visible && query.isError && <div className="run-subagents-notice nopan nodrag" role="status">
+    </ViewportPortal>
+    {query.isError && <div className="run-subagents-notice nopan nodrag" role="status">
       <span>Couldn't load subagents.</span><Button size="sm" onClick={() => void query.refetch()}>Retry</Button>
     </div>}
     {!blocked && selected && <SubagentPanel key={`${scope.runId}:${selected}`} scope={scope}
-      subagentId={selected} anchor={trigger} onClose={closePanel}
-      draft={{ text: drafts[selected] ?? '', onChange: text => setDrafts(current => ({ ...current, [selected]: text })) }}
-      visible={visible && chips.some(chip => chip.subagent.id === selected)} />}
+      subagentId={selected} anchor={trigger} onClose={closePanel} />}
   </>
 }

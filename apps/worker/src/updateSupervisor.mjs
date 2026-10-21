@@ -10,8 +10,6 @@ import { pruneWorkerVersions } from './installation.mjs';
 import { readWorkerStatus } from './runtime.mjs';
 import { WORKER_UPDATE_STARTUP_TIMEOUT_MS } from './ciSmokeTiming.mjs';
 import { waitForUpdateOperation } from './updateOperation.mjs';
-import { offlineBrowserRuntimeLifecycle, rollbackBrowserRuntime, readInstalledBrowserRuntime,
-  pruneBrowserRuntimeVersions } from './browserRuntimeInstall.mjs';
 
 const execute = promisify(execFile);
 const services = ['graphql-worker.service', 'foreman-ci-worker.service'];
@@ -210,24 +208,13 @@ async function readWorkerStartupFailure(plan, since) {
 }
 
 export async function superviseWorkerUpdate(record, ports = {}) {
-  const { stop = async service => {
-    await execute('/usr/bin/systemctl', ['--user', 'stop', service],
-      { timeout: 30_000, maxBuffer: 4096, env: environment() });
-  }, restart = async (service, { signal } = {}) => {
+  const { restart = async (service, { signal } = {}) => {
     await execute('/usr/bin/systemctl', ['--user', 'reset-failed', service],
       { timeout: 5000, maxBuffer: 4096, env: environment(), signal });
     await execute('/usr/bin/systemctl', ['--user', 'restart', service],
       { timeout: 30_000, maxBuffer: 4096, env: environment(), signal });
   }, ready = waitForWorkerReady, switchPointer = switchWorkerPointer,
   prepareService = migrateWorkerService, persist = writeUpdateRecord,
-  browserReady = async runtime => {
-    const installed = await readInstalledBrowserRuntime({ runtimeRoot: runtime.runtimeRoot, target: runtime.target });
-    if (installed.manifestSha256 !== runtime.manifestSha256) throw new WorkerError('browser_runtime_cutover_mismatch');
-  }, browserRollback = async runtime => {
-    const lifecycle = await offlineBrowserRuntimeLifecycle(runtime);
-    // The service is stopped before this callback. Profile restoration verifies native writer exit.
-    await rollbackBrowserRuntime({ ...runtime, drain: async () => undefined, restoreProfiles: lifecycle.restoreProfiles });
-  },
   readStartupFailure = ports.restart ? async () => '' : readWorkerStartupFailure,
   smoke = async (plan, { signal }) => {
     if (!plan.ciSmoke) return;
@@ -274,7 +261,6 @@ export async function superviseWorkerUpdate(record, ports = {}) {
   };
   try {
     signal.throwIfAborted();
-    if (plan.browserRuntime?.state === 'rolled-back') throw new WorkerError('worker_update_rollback_pending');
     await prepareService(plan);
     signal.throwIfAborted();
     await switchPointer(plan.pointer, plan.directory);
@@ -292,7 +278,6 @@ export async function superviseWorkerUpdate(record, ports = {}) {
       workerInstallationId: plan.workerInstallationId,
       signal, timeoutMs: startupTimeoutMs }));
     waitingForReady = false;
-    if (plan.browserRuntime) await run(() => browserReady(plan.browserRuntime));
     await run(() => smoke(plan, { signal }));
     await save('current', record.status.targetVersion, null);
   } catch (error) {
@@ -309,12 +294,6 @@ export async function superviseWorkerUpdate(record, ports = {}) {
     }
     process.stderr.write(`Worker update failed: ${failure}\n`);
     try {
-      if (plan.browserRuntime?.changed) {
-        await stop(plan.service);
-        await browserRollback(plan.browserRuntime);
-        plan.browserRuntime.state = 'rolled-back';
-        await persist(plan.stateDirectory, record);
-      }
       await switchPointer(plan.pointer, plan.previousDirectory);
       await restartWorker();
       await ready({ stateDirectory: plan.stateDirectory, version: plan.previousVersion,
@@ -331,7 +310,6 @@ export async function superviseWorkerUpdate(record, ports = {}) {
   if (record.status.state === 'current') {
     try {
       await pruneWorkerVersions({ root: plan.root, stateDirectory: plan.stateDirectory });
-      if (plan.browserRuntime) await pruneBrowserRuntimeVersions(plan.browserRuntime.runtimeRoot);
     } catch (error) {
       // Cleanup failure does not undo a healthy update; the next update retries it.
       process.stderr.write(`Worker version cleanup failed: ${workerUpdateErrorMessage(error)}\n`);

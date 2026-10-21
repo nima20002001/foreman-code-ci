@@ -94,36 +94,6 @@ it('closes the stream and withdraws private state when the event readback is den
   mounted.unmount()
 })
 
-it('retains a newly committed native row when an older full snapshot resolves afterward', async () => {
-  const { initial, mounted, source } = await openChat()
-  const bootstrap = vi.spyOn(agentChatApi, 'read')
-  act(() => source.snapshot(initial))
-  await waitFor(() => expect(bootstrap).toHaveBeenCalled())
-  await waitFor(() => expect(mounted.client.isFetching()).toBe(0))
-  bootstrap.mockRestore()
-  const read = deferred<AgentChatState>()
-  const stale = { ...initial, revision: initial.revision + 1 }
-  releases.push(() => read.resolve(stale))
-  vi.spyOn(agentChatApi, 'read').mockImplementationOnce(() => read.promise)
-  const refresh = mounted.refresh()
-  await waitFor(() => expect(mounted.client.isFetching()).toBeGreaterThan(0))
-  const message = { id: 'new-committed-answer', conversationId: initial.conversation!.id,
-    requestId: initial.activeTurn!.requestId, role: 'assistant' as const, content: 'New committed row survives',
-    revision: '1', sequence: '100', nativeMessageComplete: false, nativeMessageId: 'native-new-item',
-    activityNative: { harness: 'codex' as const, sessionId: initial.conversation!.nativeSession!.nativeSessionId,
-      turnId: initial.activeTurn!.nativeTurnId, itemId: 'native-new-item' } }
-  act(() => source.event({ id: 1, conversationId: initial.conversation!.id, type: 'delta',
-    data: { message, scopeRevision: String(initial.revision + 2) } }))
-  await screen.findByText('New committed row survives')
-  await act(async () => { read.resolve(stale); await refresh })
-  expect(screen.getByText('New committed row survives')).toBeVisible()
-  mounted.mock.setState({ ...initial, revision: initial.revision + 2,
-    messages: [...initial.messages, { ...message, content: 'Authoritative completed row', revision: '2', nativeMessageComplete: true }] })
-  await act(async () => { await mounted.refresh() })
-  expect(await screen.findByText('Authoritative completed row')).toBeVisible()
-  expect(screen.queryByText('New committed row survives')).not.toBeInTheDocument()
-})
-
 it('refreshes a loaded oversized provisional answer when the accepted conversation revision advances', async () => {
   const { initial, mounted, source } = await openChat()
   const provisional = 'Provisional ' + 'a'.repeat(270_000)

@@ -14,8 +14,6 @@ import { ownedControl, deliverCredentials } from './sessionCredentials.js'
 import { rejectCallbackWaiters } from './sessionCallbacks.js'
 import { observed, pump } from './sessionPump.js'
 import { inspectSettings, applyPreferences } from './sessionSettings.js'
-import { assertConsultationSession, assertConsultationRebind } from '../consultationSession.js'
-import { runtimeFor } from './sessionState.js'
 
 export async function prepareRuntime(ctx: ClaudeManagerContext, start: NativeSessionStart, signal?: AbortSignal): Promise<Runtime> {
   signal?.throwIfAborted()
@@ -188,8 +186,6 @@ export async function createSession(manager: ClaudeNativeSessionManager, start: 
 }
 
 export function startInitialTurn(ctx: ClaudeManagerContext, start: NativeSessionStart, input: ClaudeInitialTurnInput, signal?: AbortSignal): AsyncIterable<NativeHarnessEvent> {
-  if (start.kind === 'workflow-consultation') throw new HarnessExecutionError('CONSULTATION_NATIVE_ATTACH_REQUIRED',
-    'A consultation can only attach its persisted coordinator session.')
   signal?.throwIfAborted()
   qualified(ctx, 'basicTurns')
   if (ctx.disposed) throw new HarnessExecutionError('CLAUDE_MANAGER_DISPOSED', 'Claude manager is disposed.')
@@ -210,7 +206,6 @@ export function startInitialTurn(ctx: ClaudeManagerContext, start: NativeSession
 }
 
 export async function attachSession(ctx: ClaudeManagerContext, manager: ClaudeNativeSessionManager, session: NativeSessionReference, start: NativeSessionStart, signal?: AbortSignal): Promise<NativeSessionReference> {
-  assertConsultationSession(start, session)
   signal?.throwIfAborted()
   if (session.harness !== ctx.harness) throw new HarnessExecutionError('CLAUDE_SESSION_MISMATCH', 'Persisted Claude installation identity differs.')
   if (ctx.disposed) throw new HarnessExecutionError('CLAUDE_MANAGER_DISPOSED', 'Claude manager is disposed.')
@@ -257,8 +252,6 @@ export async function attachSession(ctx: ClaudeManagerContext, manager: ClaudeNa
 }
 
 export async function forkSession(ctx: ClaudeManagerContext, source: NativeSessionReference, start: NativeSessionStart, signal?: AbortSignal): Promise<NativeSessionReference> {
-  if (start.kind === 'workflow-consultation') throw new HarnessExecutionError('CONSULTATION_NATIVE_ATTACH_REQUIRED',
-    'A consultation cannot fork its coordinator session.')
   qualified(ctx, 'fork')
   signal?.throwIfAborted()
   const cwd = sessionStartDirectory(start)
@@ -294,29 +287,6 @@ export async function close(ctx: ClaudeManagerContext, session: NativeSessionRef
   await runtime.pumping
   ctx.resident.delete(session.nativeSessionId)
   ctx.all.delete(runtime)
-}
-
-export async function rebindApplicationAccess(ctx: ClaudeManagerContext, session: NativeSessionReference,
-  start: NativeSessionStart, signal?: AbortSignal): Promise<void> {
-  const runtime = runtimeFor(ctx, session)
-  assertConsultationRebind(runtime.start, start, session)
-  if (runtime.active || runtime.startingTurn || runtime.controlPending) throw new HarnessExecutionError(
-    'CLAUDE_TURN_ACTIVE', 'Finish the exact current message before changing its application subject.')
-  // The SDK owns the same saved session. Credential replacement uses its
-  // explicit idle control and does not offer another model input.
-  const servers = queryOptions(ctx, start).mcpServers as Record<string, unknown> | undefined
-  if (servers) await deliverCredentials(ctx, runtime, start, servers, signal)
-  else {
-    throw new HarnessExecutionError('CLAUDE_MCP_CONTROL_UNAVAILABLE', 'The retained SDK query has no scoped MCP configuration.')
-  }
-  runtime.start = structuredClone(start)
-}
-
-export async function closeForResume(ctx: ClaudeManagerContext, session: NativeSessionReference): Promise<void> {
-  const runtime = runtimeFor(ctx, session)
-  if (runtime.active || runtime.startingTurn || runtime.controlPending) throw new HarnessExecutionError(
-    'CLAUDE_TURN_ACTIVE', 'Finish the current message before closing its idle process.')
-  await close(ctx, session)
 }
 
 export async function dispose(ctx: ClaudeManagerContext): Promise<void> {

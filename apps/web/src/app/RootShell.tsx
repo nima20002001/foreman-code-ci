@@ -1,4 +1,3 @@
-import { CollaborationFeatures } from './CollaborationFeatures'
 import { UnsavedChangesProvider } from '../shared/ui/UnsavedChangesProvider'
 import { AppNavigationHistoryProvider } from '../shared/ui/AppNavigationHistory'
 import { Outlet } from '@tanstack/react-router'
@@ -25,5 +24,5 @@ function LocalShell() {
   const enabled = !sessionIsSwitching() && !denied && defaults.data?.value.operator.uiEnabled === true
   const settingsWarning = enabled && (defaults.isError || defaults.failureCount > 0)
     ? 'Settings could not be refreshed. Showing the last confirmed Operator setting for this app.' : undefined
-  return <OperatorChatVisibilityProvider enabled={enabled}><WorkflowOperatorDockProvider><CollaborationFeatures><Outlet /></CollaborationFeatures><ApprovalInbox /><WorkflowOperatorChat settingsWarning={settingsWarning} /></WorkflowOperatorDockProvider></OperatorChatVisibilityProvider>
+  return <OperatorChatVisibilityProvider enabled={enabled}><WorkflowOperatorDockProvider><Outlet /><ApprovalInbox /><WorkflowOperatorChat settingsWarning={settingsWarning} /></WorkflowOperatorDockProvider></OperatorChatVisibilityProvider>
 }

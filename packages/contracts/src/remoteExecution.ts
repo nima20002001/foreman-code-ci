@@ -20,15 +20,8 @@ export const RemoteNativeIdentitySchema = z.object({
 export type RemoteNativeIdentity = z.infer<typeof RemoteNativeIdentitySchema>
 export const RemoteOwnerControlSchema = OwnerControlSchema.extend({
   native: RemoteNativeIdentitySchema.optional(),
-  workflowControl: z.object({ ownerRequestId: z.string().min(1) }).strict().optional(),
-  action: z.discriminatedUnion('kind', [...OwnerControlSchema.shape.action.options,
-    z.object({ kind: z.literal('steer'), prompt: z.string().min(1).max(1_000_000) }).strict()]),
 }).superRefine((value, context) => {
   if (value.action.kind === 'respond' && !value.native?.turnId) context.addIssue({ code: 'custom', message: 'Respond requires the exact native session and turn.' })
-  if (value.workflowControl && (!value.native?.turnId || value.commandId === value.workflowControl.ownerRequestId
-    || value.action.kind === 'respond') || value.action.kind === 'steer' && !value.workflowControl) {
-    context.addIssue({ code: 'custom', message: 'Workflow control requires distinct durable command and active input identities.' })
-  }
 })
 export type RemoteOwnerControl = z.infer<typeof RemoteOwnerControlSchema>
 export const WorkflowArtifactValidationFailureSchema = z.object({

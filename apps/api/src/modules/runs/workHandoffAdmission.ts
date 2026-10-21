@@ -1,8 +1,8 @@
 import { HarnessExecutionSchema } from '@foreman-code/contracts'
 import {
-  AcceptedCurrentNodeResultSchema, WorkActivationIdentitySchema, HierarchyWorkTaskSchema,
+  AcceptedCurrentNodeResultSchema, WorkActivationIdentitySchema, WorkHandoffResultSchema,
   WorkActivationInputSchema, WorkLimitDenialSchema, WorkRequestSchema, WorkReturnSchema,
-  canonicalGraphJson, workConnectionForRequest,
+  canonicalGraphJson, parseWorkHandoffResult, workConnectionForRequest,
   type WorkActivationInput, type WorkHandoffResult, type WorkLimitDenial, type WorkNotice,
   type WorkRequest, type WorkReturn, type WorkflowVersionV3,
 } from '@foreman-code/contracts/wave25'
@@ -17,12 +17,6 @@ import {
 } from './workReturnContinuation.js'
 import { readWorkReturnFeedbackLocked } from './workReturnInput.js'
 import { selectedWorkHandoffRoutes } from './workHandoffRouting.js'
-import { isHierarchyWorkflow } from './hierarchyResults.js'
-import { hierarchyContinuationForRequestLocked, readHierarchyGroupInputLocked,
-  resolveHierarchyGroupsLocked } from './hierarchyGroupSettlement.js'
-import { readHierarchyDirectionInputLocked } from './hierarchyDirection.js'
-import { parseWorkflowWorkResult } from './workflowCoordinationResult.js'
-import { workflowLifecycleLocked } from './workflowCollaborationRuntime.js'
 
 async function assertAcceptedWorkResult(sql: GraphTransactionSql, scope: RepeatScope,
   execution: ReturnType<typeof HarnessExecutionSchema.parse>, activationId: string): Promise<void> {
@@ -54,12 +48,6 @@ export async function readWorkActivationInputLocked(context: AdmissionContext, a
     || activation.workflowNodeId !== row.workflow_node_id || activation.cause.kind !== row.cause_kind) {
     return repeatConflict('WORK_ACTIVATION_PIN_CONFLICT')
   }
-  if (activation.cause.kind === 'hierarchy_group') {
-    return readHierarchyGroupInputLocked(context, activationId)
-  }
-  if (activation.cause.kind === 'hierarchy_direction') {
-    return readHierarchyDirectionInputLocked(context, activationId)
-  }
   const parentRequest = activation.cause.kind === 'work_return' || activation.cause.kind === 'limit_denial'
     ? await readParentWorkRequestLocked(context, activationId) : undefined
   const base = { executionSemanticsVersion: 3, runInput: context.hooks.run.input,
@@ -83,12 +71,7 @@ export async function readWorkActivationInputLocked(context: AdmissionContext, a
     if (!accepted || accepted.result_digest !== request.payloadDigest) return repeatConflict('WORK_SOURCE_RESULT_CONFLICT')
     const acceptedSourceResult = AcceptedCurrentNodeResultSchema.parse(JSON.parse(accepted.result_json))
     if (repeatDigest(acceptedSourceResult, 64 * 1024) !== accepted.result_digest) return repeatConflict('WORK_SOURCE_RESULT_CONFLICT')
-    const member = (await sql.query<{ task_json: string }>(
-      'select task_json from run_hierarchy_group_members where run_id=$1 and request_id=$2',
-      [scope.runId, request.requestId])).rows[0]
-    const task = member ? HierarchyWorkTaskSchema.parse(JSON.parse(member.task_json)) : undefined
-    return WorkActivationInputSchema.parse({ ...base, work: { kind: 'work_request', activation, request,
-      acceptedSourceResult, ...(task ? { task } : {}) } })
+    return WorkActivationInputSchema.parse({ ...base, work: { kind: 'work_request', activation, request, acceptedSourceResult } })
   }
   if (activation.cause.kind === 'work_return') {
     const returnedRow = (await sql.query<{ record: unknown }>(
@@ -197,9 +180,6 @@ async function claimWorkJoinDispatchLocked(context: AdmissionContext,
 export async function resolveWaitingWorkJoinsLocked(context: AdmissionContext,
   sourceActivationId: string): Promise<string[]> {
   await context.hooks.assertAuthorityLocked(context.sql)
-  if (isHierarchyWorkflow(context.version)) {
-    return resolveHierarchyGroupsLocked(context, sourceActivationId)
-  }
   const ready = await reconcileAcceptedWorkReturnsLocked(context, sourceActivationId)
   const rows = (await context.sql.query<{ activation_id: string; workflow_node_id: string; state: string }>(
     `select a.activation_id,a.workflow_node_id,a.state from run_work_activations a
@@ -255,9 +235,8 @@ export async function recordUnresolvedWorkLocked(context: AdmissionContext,
         return repeatConflict('WORK_RETURN_RESULT_CONFLICT')
       }
     }
-    const routing = result.routing
-    const route = routing.kind === 'finish'
-      ? node.choice?.outcomes.find((item) => item.outcome === routing.outcome)?.target : undefined
+    const route = result.routing.kind === 'finish'
+      ? node.choice?.outcomes.find((item) => item.outcome === result.routing.outcome)?.target : undefined
     if (route?.kind === 'edge') return repeatConflict('WORK_UNRESOLVED_ROUTE_EXISTS')
   } else {
     const selected = (await sql.query<{ routes: string[] }>(
@@ -299,8 +278,6 @@ export async function recordUnresolvedWorkLocked(context: AdmissionContext,
   [scope.runId, sourceExecutionId, context.now, canonicalGraphJson({ unresolvedId,
     activationId: row.work_activation_id, workflowNodeId: node.id, reason,
     relationshipId: relationshipId ?? null })])
-  await workflowLifecycleLocked(context, execution, 'blocked', `workflow:${sourceExecutionId}:unresolved:${unresolvedId}`,
-    { reason: 'Unresolved work requires direction.' })
   return { unresolvedId, replayed: false }
 }
 
@@ -348,23 +325,6 @@ async function readAcceptedWorkSourceLocked(context: AdmissionContext, sourceExe
   return { execution, activationId: row.work_activation_id }
 }
 
-async function recordWorkRerouteActivityLocked(context: AdmissionContext, request: WorkRequest,
-  sourceActivationId: string): Promise<void> {
-  const { sql, scope, now } = context
-  const sourceNotices = (await sql.query<{ notice_id: string; relationship_id: string }>(
-    `select notice_id,relationship_id from run_work_notices
-      where run_id=$1 and continuation_activation_id=$2 order by notice_id`,
-    [scope.runId, sourceActivationId])).rows
-  for (const sourceNotice of sourceNotices) {
-    if (sourceNotice.relationship_id === request.relationshipId) continue
-    await sql.query(`insert into run_activity(run_id,source,kind,harness_execution_id,occurred_at,payload)
-      values($1,'backend','work_rerouted',$2,$3,$4::jsonb)`, [scope.runId, request.requesterExecutionId,
-      now, canonicalGraphJson({ requestId: request.requestId, noticeId: sourceNotice.notice_id,
-        fromRelationshipId: sourceNotice.relationship_id,
-        relationshipId: request.relationshipId, destinationNodeId: request.destinationNodeId })])
-  }
-}
-
 /** Called only inside RepeatRunRepository's owner-fenced, Run-locked transaction.
  * This is an admission receipt; native launch still uses the original one-use
  * claim, authorization, session and possible-submission boundary. */
@@ -383,10 +343,7 @@ export async function admitWorkHandoffLocked(context: AdmissionContext, sourceEx
   if (!sameRepeatValue(activation.scope, scope) || activation.activationId !== sourceActivationId) {
     return repeatConflict('WORK_SOURCE_ACTIVATION_CONFLICT')
   }
-  const result = await parseWorkResultLocked(context, execution, sourceActivationId)
-  if (isHierarchyWorkflow(version) || result.routing.kind === 'delegate') {
-    return repeatConflict('HIERARCHY_GROUP_ADMISSION_REQUIRED')
-  }
+  const result = WorkHandoffResultSchema.parse(parseWorkHandoffResult(execution.result))
   const routing: WorkHandoffResult['routing'] = result.routing.kind === 'return' && result.routing.outcome === 'accepted'
     && !result.data.remainingFindings.length ? { kind: 'finish' as const } : result.routing
   const node = version.definition.nodes.find((item) => item.id === execution.workflowNodeId)
@@ -547,13 +504,6 @@ export async function admitWorkHandoffLocked(context: AdmissionContext, sourceEx
     payload_digest,record,accepted_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)`,
   [requestId, scope.runId, scope.workflowVersionId, relationship.id, reserved.used, activation.activationId,
     sourceExecutionId, activationId, node.id, destinationNodeId, payloadDigest, canonicalGraphJson(request), context.now])
-  if (hooks.run.resultProtocol) {
-    const requests = (await sql.query<{ request_id: string }>(`select request_id from run_work_requests
-      where run_id=$1 and requester_activation_id=$2 order by request_id`, [scope.runId, activation.activationId])).rows
-    await workflowLifecycleLocked(context, execution, 'waiting_children', `workflow:${sourceExecutionId}:requested:${requestId}`,
-      { outstandingRequestIds: requests.map(item => item.request_id),
-        ...('summary' in result ? { summary: result.summary } : {}) })
-  }
   let destinationReady = !join
   if (join) destinationReady = await resolveWorkJoinLocked(context, activationId, destinationNodeId)
     && await claimWorkJoinDispatchLocked(context, activationId, dispatchSourceActivationId ?? activation.activationId)
@@ -561,7 +511,18 @@ export async function admitWorkHandoffLocked(context: AdmissionContext, sourceEx
     values($1,'backend','work_handoff_accepted',$2,$3,$4::jsonb)`, [scope.runId, sourceExecutionId,
     context.now, canonicalGraphJson({ requestId, relationshipId: relationship.id, requesterNodeId: node.id,
       destinationNodeId, used: reserved.used, maximum })])
-  await recordWorkRerouteActivityLocked(context, request, activation.activationId)
+  const sourceNotices = (await sql.query<{ notice_id: string; relationship_id: string }>(
+    `select notice_id,relationship_id from run_work_notices
+      where run_id=$1 and continuation_activation_id=$2 order by notice_id`,
+    [scope.runId, activation.activationId])).rows
+  for (const sourceNotice of sourceNotices) {
+    if (sourceNotice.relationship_id === relationship.id) continue
+    await sql.query(`insert into run_activity(run_id,source,kind,harness_execution_id,occurred_at,payload)
+      values($1,'backend','work_rerouted',$2,$3,$4::jsonb)`, [scope.runId, sourceExecutionId,
+      context.now, canonicalGraphJson({ requestId, noticeId: sourceNotice.notice_id,
+        fromRelationshipId: sourceNotice.relationship_id,
+        relationshipId: relationship.id, destinationNodeId })])
+  }
   return { kind: 'accepted', request, replayed: false, destinationReady }
 }
 
@@ -580,9 +541,6 @@ async function reconcileAcceptedWorkReturnsLocked(context: AdmissionContext,
 
 async function forwardAcceptedWorkReturnsLocked(context: AdmissionContext,
   request: WorkRequest, sourceActivationId: string): Promise<string[]> {
-  const group = await context.sql.query(`select 1 from run_hierarchy_group_members
-    where run_id=$1 and request_id=$2`, [context.scope.runId, request.requestId])
-  if (group.rowCount) return resolveHierarchyGroupsLocked(context, sourceActivationId)
   const settled = await workRequestSettlementsLocked(context, request.requesterActivationId)
   if (settled.pending || settled.failures.length) return []
   const rows = (await context.sql.query<{ record: unknown; node_id: string; result_json: string }>(
@@ -597,8 +555,7 @@ async function forwardAcceptedWorkReturnsLocked(context: AdmissionContext,
   if (returns.some(row => row.returned.outcome !== 'accepted' || row.returned.remainingFindings.length)) return []
   const destinations: string[] = []
   for (const row of returns) {
-    const result = parseWorkflowWorkResult(AcceptedCurrentNodeResultSchema.parse(JSON.parse(row.result_json)),
-      context.version, row.node_id, context.hooks.run.resultProtocol)
+    const result = parseWorkHandoffResult(AcceptedCurrentNodeResultSchema.parse(JSON.parse(row.result_json)))
     for (const relationshipId of selectedWorkHandoffRoutes(context.version.definition, row.node_id, result)) {
       const admitted = await admitWorkHandoffLocked(context, row.returned.sourceExecutionId,
         relationshipId, sourceActivationId)
@@ -650,18 +607,12 @@ export async function returnWorkHandoffLocked(context: AdmissionContext, sourceE
   const request = await readWorkReturnRequestLocked(context, activation.activationId, routing.requestId)
   if (request.destinationNodeId !== execution.workflowNodeId) return repeatConflict('WORK_RETURN_ANCESTRY_CONFLICT')
   const resultDigest = repeatDigest(execution.result, 64 * 1024)
-  const grouped = (await sql.query(`select 1 from run_hierarchy_group_members
-    where run_id=$1 and request_id=$2`, [scope.runId, request.requestId])).rowCount === 1
   const prior = (await sql.query<{ record: unknown }>(
     'select record from run_work_returns where run_id=$1 and request_id=$2', [scope.runId, request.requestId])).rows[0]
   if (prior) {
     const value = WorkReturnSchema.parse(prior.record)
     if (value.sourceExecutionId !== sourceExecutionId || value.acceptedResultDigest !== resultDigest
       || !sameRepeatValue(value.scope, scope)) return repeatConflict('WORK_RETURN_REPLAY_CONFLICT')
-    if (grouped) {
-      return { value, replayed: true,
-        destinations: await resolveHierarchyGroupsLocked(context, activation.activationId) }
-    }
     if (value.outcome === 'accepted' && value.remainingFindings.length) {
       await recordUnresolvedWorkLocked(context, sourceExecutionId, 'finish_with_findings')
     }
@@ -672,8 +623,7 @@ export async function returnWorkHandoffLocked(context: AdmissionContext, sourceE
   await hooks.assertSettlementLocked(sql, [sourceExecutionId])
   const returnId = repeatId('work-return', sourceExecutionId)
   const continuationActivationId = routing.outcome === 'needs_changes'
-    ? grouped ? await hierarchyContinuationForRequestLocked(context, request)
-      : await ensureWorkReturnContinuationLocked(context, request, returnId) : undefined
+    ? await ensureWorkReturnContinuationLocked(context, request, returnId) : undefined
   const value = WorkReturnSchema.parse({ scope, returnId, requestId: request.requestId,
     sourceActivationId: activation.activationId, sourceExecutionId,
     requesterActivationId: request.requesterActivationId,
@@ -690,16 +640,6 @@ export async function returnWorkHandoffLocked(context: AdmissionContext, sourceE
     values($1,'backend','work_handoff_returned',$2,$3,$4::jsonb)`, [scope.runId, sourceExecutionId,
     context.now, canonicalGraphJson({ returnId, requestId: request.requestId,
       relationshipId: request.relationshipId, outcome: value.outcome, continuationActivationId: continuationActivationId ?? null })])
-  await workflowLifecycleLocked(context, execution, value.outcome === 'accepted' && !value.remainingFindings.length
-    ? 'accepted' : 'blocked', `workflow:${execution.id}:returned`, {
-    ...(value.outcome === 'needs_changes' || value.remainingFindings.length
-      ? { reason: 'The returned work has unresolved findings or requires changes.' } : {}),
-    ...('summary' in result ? { summary: result.summary } : {}),
-  })
-  if (grouped) {
-    return { value, replayed: false,
-      destinations: await resolveHierarchyGroupsLocked(context, activation.activationId) }
-  }
   if (value.outcome === 'needs_changes') {
     const usage = (await sql.query<{ used: number; maximum: number | null }>(
       `select used,maximum from run_work_connection_usage

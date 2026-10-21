@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionControlStateSchema, unavailableSessionControls, type OperatorConversationState } from '@foreman-code/contracts'
 import { http, HttpResponse } from 'msw'
@@ -10,12 +11,12 @@ import { listOperatorConversationSummaries } from '../../shared/api/operatorChat
 import { useConversationDraftStore } from '../conversations'
 import { ConversationComposer } from '../conversations/ConversationComposer'
 import { OperatorChat } from './OperatorChat'
-import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorTranscript } from './OperatorTranscript'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { summarizeOperatorConversation } from './operatorChatStatus'
 import { operatorState } from './pr17-test-fixtures'
+import { readPendingOperatorMessage } from './operatorOutbox'
 
 vi.mock('../../shared/api/client', async (original) => ({ ...await original<typeof import('../../shared/api/client')>(),
   getOperatorConversation: vi.fn(), sendOperatorMessage: vi.fn(),
@@ -31,7 +32,6 @@ function renderChat() {
   render(<QueryClientProvider client={client}><button>Before chat</button><OperatorChatVisibilityProvider enabled><OperatorChat /></OperatorChatVisibilityProvider><button>After chat</button></QueryClientProvider>)
   return client
 }
-beforeEach(installCanonicalOperatorFixture)
 beforeEach(() => {
   vi.clearAllMocks()
   useOperatorChatStore.setState({ open: false, historyOpen: false, selectedConversationId: 'conversation-one' })
@@ -42,15 +42,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.unstubAllGlobals() })
 
 describe('Operator chat interactions', () => {
-  it('does no hidden history polling and reads attention when opened', async () => {
-    renderChat()
-    expect(listOperatorConversationSummaries).not.toHaveBeenCalled()
+  it('polls attention while closed without downloading message histories', async () => {
+    const client = renderChat()
+    await waitFor(() => expect(listOperatorConversationSummaries).toHaveBeenCalled())
     expect(getOperatorConversation).not.toHaveBeenCalled()
     const pending = { ...summarizeOperatorConversation(operatorState()), conversationId: 'decision-chat', needsAttention: true }
     vi.mocked(listOperatorConversationSummaries).mockResolvedValue({ conversations: [pending] })
-    fireEvent.click(screen.getByRole('button', { name: 'Open Operator chat' }))
-    await waitFor(() => expect(listOperatorConversationSummaries).toHaveBeenCalled())
-    expect(await screen.findByRole('button', { name: /1 conversation need your decision/ })).toBeVisible()
+    await act(() => client.invalidateQueries({ queryKey: ['operator-chat', 'summaries'] }))
+    const launcher = await screen.findByRole('button', { name: /1 conversation need your decision/ })
+    fireEvent.click(launcher)
+    await waitFor(() => expect(getOperatorConversation).toHaveBeenCalledWith('decision-chat', expect.anything()))
+    expect(useOperatorChatStore.getState().selectedConversationId).toBe('decision-chat')
   })
   it('focuses the nonmodal chat and restores its retained launcher on Escape', async () => {
     renderChat()
@@ -63,19 +65,21 @@ describe('Operator chat interactions', () => {
     await waitFor(() => expect(launcher).toHaveFocus())
     expect(launcher).toHaveAttribute('aria-expanded', 'false')
   })
-  it('keeps active drafting editable and exposes separate live delivery and active-only Stop', async () => {
+  it('allows drafting, but not sending, while the Operator is active', async () => {
     useOperatorChatStore.setState({ open: true })
     renderChat()
     const textarea = await screen.findByRole('textbox', { name: 'Message' })
     expect(textarea).not.toBeDisabled()
     fireEvent.change(textarea, { target: { value: 'My next message' } })
-    expect(await screen.findByRole('button', { name: 'Stop active turn' })).toBeEnabled()
-    await waitFor(() => expect(screen.getByRole('button', { name: /Steer now|Queue next/ })).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Stop response' })).toBeEnabled()
     expect(useConversationDraftStore.getState().drafts['conversation-one']).toBe('My next message')
     expect(sendOperatorMessage).not.toHaveBeenCalled()
-    fireEvent.change(screen.getByLabelText('Delivery action'), { target: { value: 'interrupt_and_send' } })
-    expect(sendOperatorMessage).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Interrupt and send' })).toBeEnabled()
+    const user = userEvent.setup()
+    textarea.focus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Stop response' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: /Agent settings:/ })).toHaveFocus()
   })
   it('keeps context-left in the header beside Close, showing the model window before the first turn', async () => {
     server.use(http.get('/api/operator/conversations/:conversationId/session-controls', ({ params }) =>
@@ -118,13 +122,14 @@ describe('Operator chat interactions', () => {
       const textarea = await screen.findByRole('textbox', { name: 'Message' })
       fireEvent.change(textarea, { target: { value: 'Audit ping. Do not call tools.' } })
       fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
-      await screen.findByText(reason)
+      await waitFor(() => expect(readPendingOperatorMessage('conversation-one').sendFailure).toBe(reason))
+      expect(screen.getByRole('alert')).toHaveTextContent(reason)
       expect(sendOperatorMessage).toHaveBeenCalledTimes(1)
 
       cleanup()
       renderChat()
-      expect(await screen.findByRole('button', { name: 'Retry original message' })).toBeEnabled()
-      expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Audit ping. Do not call tools.')
+      expect(await screen.findByRole('alert')).toHaveTextContent(reason)
+      expect(screen.getByRole('button', { name: 'Retry pending message' })).toBeEnabled()
       expect(sendOperatorMessage).toHaveBeenCalledTimes(1)
     } finally {
       window.localStorage.clear()
@@ -137,18 +142,19 @@ describe('Operator chat interactions', () => {
     renderChat()
     await screen.findByRole('textbox', { name: 'Message' })
     const listeners = vi.mocked(subscribeOperatorChat).mock.calls.at(-1)![1]
-    act(() => listeners.event({ id: 1, type: 'delta', conversationId: 'conversation-one', data: { scopeRevision: '2', message: {
-      id: 'final', conversationId: 'conversation-one', requestId: 'request-one', role: 'assistant',
-      activityNative: { harness: 'codex', sessionId: 'native-session', turnId: 'native-turn', itemId: 'answer' },
-      nativeMessageId: 'answer', nativeMessageComplete: false, content: 'Streaming reply', revision: '1', sequence: '2',
+    act(() => listeners.event({ id: 1, type: 'delta', conversationId: 'conversation-one', data: { activityChange: {
+      schemaVersion: 1, owner: { kind: 'chat_request', conversationId: 'conversation-one', requestId: 'request-one' },
+      native: { harness: 'codex', sessionId: 'native-session', turnId: 'native-turn', itemId: 'answer' },
+      source: { schemaVersion: 1, system: 'codex', eventId: 'streaming-answer', observedAt: '2026-10-01T00:00:00Z' },
+      change: { kind: 'text.append', itemId: 'answer', text: 'Streaming reply', finality: 'provisional' },
     } } }))
-    expect(await screen.findByText('Streaming reply')).toBeInTheDocument()
+    expect(screen.getByText('Streaming reply')).toBeInTheDocument()
     vi.mocked(getOperatorConversation).mockImplementation(() => new Promise(() => {}))
     act(() => listeners.event({ id: 2, type: 'message', conversationId: 'conversation-one', data: { requestId: 'request-one' } }))
     expect(screen.getByText('Streaming reply')).toBeInTheDocument()
     act(() => listeners.snapshot(operatorState({ revision: 2, turnState: 'idle', activeRequestId: null,
       messages: [{ id: 'final', conversationId: 'conversation-one', requestId: 'request-one', role: 'assistant',
-        nativeMessageId: 'answer', nativeMessageComplete: true, content: 'Streaming reply', revision: '2', sequence: '2' }] })))
+        nativeMessageId: 'answer', nativeMessageComplete: true, content: 'Streaming reply' }] })))
     expect(screen.getAllByText('Streaming reply')).toHaveLength(1)
     expect(screen.queryByLabelText('Operator is typing')).not.toBeInTheDocument()
   })

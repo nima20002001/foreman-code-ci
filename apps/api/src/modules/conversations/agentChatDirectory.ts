@@ -1,7 +1,7 @@
 import { posix } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
-import type { SqlQuery } from '../../infrastructure/transaction.js'
+import type pg from 'pg'
 import type { AgentConfigurationVersion, ExecutionLocation } from '@foreman-code/contracts'
 import { AgentChatDirectoryBindingSchema, type AgentChatDirectoryBinding } from '@foreman-code/contracts/agent-chat'
 import { SavedNodePlacementSchema, type SavedNodePlacement } from '@foreman-code/contracts/node-placement'
@@ -15,7 +15,7 @@ import { lockWorkspaceFolders } from '../workspaces/folderLocks.js'
 function unavailable(message: string): never { throw new DomainError('AGENT_CHAT_DIRECTORY_UNAVAILABLE', message, 409) }
 
 /** Admission holds the saved Main directory until the queued turn commits. */
-export async function assertAgentChatDirectoryAvailable(sql: SqlQuery, conversationId: string) {
+export async function assertAgentChatDirectoryAvailable(sql: Pick<pg.Pool, 'query'>, conversationId: string) {
   const directory = (await sql.query<{
     path: string; host_kind: string; origin_run_id: string | null; workflow_node_id: string
   }>(`
@@ -40,7 +40,7 @@ export async function assertAgentChatDirectoryAvailable(sql: SqlQuery, conversat
 }
 
 /** The workspace's current folder on the Agent's paired computer, as an implicit project-root node placement. */
-async function deviceWorkspacePlacement(sql: SqlQuery, workspaceId: string,
+async function deviceWorkspacePlacement(sql: Pick<pg.Pool, 'query'>, workspaceId: string,
   selector: NonNullable<AgentConfigurationVersion['harnessProfileSelection']>): Promise<SavedNodePlacement> {
   const rows = (await sql.query<{ policy: unknown }>(`select p.record as policy from workspace_root_policy_heads h
     join workspace_root_policies p on p.root_policy_id=h.root_policy_id and p.root_policy_revision=h.root_policy_revision
@@ -56,7 +56,7 @@ async function deviceWorkspacePlacement(sql: SqlQuery, workspaceId: string,
 
 /** Called inside Agent-chat admission; reading the saved directory does not grant source-management access. */
 export async function resolveAgentChatDirectory(input: {
-  sql: SqlQuery
+  sql: Pick<pg.Pool, 'query'>
   configuration: AgentConfigurationVersion
   workflowVersionId: string
   placement?: SavedNodePlacement
@@ -111,7 +111,7 @@ export async function resolveAgentChatDirectory(input: {
     directoryBinding: AgentChatDirectoryBindingSchema.parse({ workflowVersionId: input.workflowVersionId, placement, policy }) }
 }
 
-export async function revalidateAgentChatDirectory(sql: SqlQuery,
+export async function revalidateAgentChatDirectory(sql: Pick<pg.Pool, 'query'>,
   configuration: AgentConfigurationVersion, raw: AgentChatDirectoryBinding, workingDirectory: string) {
   const binding = AgentChatDirectoryBindingSchema.parse(raw)
   const current = await resolveAgentChatDirectory({ sql, configuration,

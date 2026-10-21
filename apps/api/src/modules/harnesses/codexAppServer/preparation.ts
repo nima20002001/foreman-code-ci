@@ -3,7 +3,7 @@ import { worktreeSecurity } from '../worktreeSecurity.js'
 import { codexDisabledMcpTransports } from '../codexNativeTools.js'
 import { APP_MCP_SERVER_NAMES, APP_MCP_TOKEN_NAMES } from '@foreman-code/contracts/product'
 import { timeRuntimeOperation } from '../../diagnostics/runtimeTiming.js'
-import { isWorkflowStart, hasWorkflowRequest, sessionStartDirectory } from '../sessionStart.js'
+import { isWorkflowStart, sessionStartDirectory } from '../sessionStart.js'
 import { chatExcludedAppMcpServerNames, appMcpServerName, appLauncherTokenName, isAppLauncher,
   isSupportedAppMcpServerName, isSupportedAppMcpTokenName } from '../appMcpLauncher.js'
 import { normalize } from 'node:path'
@@ -164,20 +164,20 @@ export abstract class CodexManagerPreparation extends CodexManagerBase {
     signal.throwIfAborted()
     const input = structuredClone(this.startupPreferences && !source.sessionPreferences
       ? { ...source, sessionPreferences: this.startupPreferences } : source)
-    const observationOnly = (input.kind === 'operator' || input.kind === 'workflow-consultation') && input.observationOnly === true
+    const observationOnly = input.kind === 'operator' && input.observationOnly === true
     const appMcpDisabled = this.appMcpAccess === 'none' || observationOnly
     validateEnvironmentOwner(input)
     validateEnvironmentVariables(input.environment)
     if (observationOnly) delete input.environment
-    if (this.chatFiles && this.appMcpAccess === 'scoped' && input.kind !== 'operator' && input.kind !== 'agent-chat') {
+    if (this.chatFiles && this.appMcpAccess === 'scoped' && input.kind !== 'operator') {
       throw new HarnessExecutionError('CODEX_FILE_CHAT_ISOLATION_REQUIRED',
-        'Only conversation owners can combine file tools with scoped application credentials.')
+        'Only Operator chat can combine file tools with application management credentials.')
     }
     if (this.appMcpAccess === 'none' && Object.keys(input.environment?.variables ?? {}).length) {
       throw new HarnessExecutionError('CODEX_APP_MCP_UNAVAILABLE', 'Agent chat cannot receive scoped App MCP credentials.')
     }
     const workingDirectory = sessionStartDirectory(input)
-    const harnessConfiguration = hasWorkflowRequest(input)
+    const harnessConfiguration = isWorkflowStart(input)
       ? await worktreeSecurity(configuration(input), workingDirectory, signal)
       : configuration(input)
     const environment = io.environment(input.environment)
@@ -209,7 +209,7 @@ export abstract class CodexManagerPreparation extends CodexManagerBase {
       excludedCredentialVariable = mcp.configured.bearerTokenEnvironmentVariable ?? undefined
       if (!appMcpDisabled && mcp.configured.enabled) {
         scopedCredentialVariable = excludedCredentialVariable
-        if (hasWorkflowRequest(input)) approvedAppMcpServerName = mcp.serverName
+        if (isWorkflowStart(input)) approvedAppMcpServerName = mcp.serverName
       }
     } catch (error) {
       if (!(error instanceof HarnessExecutionError) || error.result.error?.code !== 'CODEX_MCP_NOT_CONFIGURED') throw error
@@ -226,7 +226,7 @@ export abstract class CodexManagerPreparation extends CodexManagerBase {
           args[11] = { ...args[11], nativeApps, mcpTransportOverrides }
           return this.ownTransport(this.dependencies.transport(...args))
         } })
-    if (this.nativeOutputs && input.kind !== 'workflow-consultation') {
+    if (this.nativeOutputs) {
       if (!isWorkflowStart(input) || this.appMcpAccess !== 'scoped' || harnessConfiguration.sandbox === 'read-only'
         || harnessConfiguration.sandbox === 'danger-full-access' && this.nativeOutputs.storageKind !== 'buffer') {
         throw new HarnessExecutionError('CODEX_NATIVE_OUTPUT_UNQUALIFIED', 'Native outputs require an original writable workflow, scoped App MCP and compatible output storage.')

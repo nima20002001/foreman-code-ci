@@ -6,8 +6,6 @@ import { graphSourceDigest } from '../run-graph/publication.js'
 import { approvalAttentionFacts } from '../interactions/wave25/attention.js'
 import { interactionFact } from '../interactions/wave25/publication.js'
 import { DomainError } from '../errors.js'
-import { readAcceptedRepeatRunLocked } from './repeatStartRead.js'
-import { parseWorkflowWorkResult } from './workflowCoordinationResult.js'
 
 export const workDirectionInteractionId = (runId: string) => `work-direction-${runId}`
 
@@ -28,7 +26,6 @@ export async function ensureWorkDirectionInteraction(publication: RunGraphPublic
   if (!rows.length || rows.length > 1000) throw new DomainError(
     'WORK_DIRECTION_WAIT_CONFLICT', 'The Run has no readable direction wait.', 409)
   const executions = rows.map((row) => HarnessExecutionSchema.parse(row.record))
-  const snapshot = run.resultProtocol ? await readAcceptedRepeatRunLocked(sql, run.id) : undefined
   const requester = executions[0]!
   const config = (await sql.query<{ harness: string }>(
     "select record#>>'{harness,harness}' as harness from agent_configuration_versions where id=$1",
@@ -37,8 +34,7 @@ export async function ensureWorkDirectionInteraction(publication: RunGraphPublic
     message: 'The agents finished with unresolved work. Accept the remaining findings, continue with direction, or stop.',
     unresolved: rows.map((row, index) => {
       const execution = executions[index]!
-      const result = snapshot ? parseWorkflowWorkResult(execution.result!, snapshot.version,
-        execution.workflowNodeId, run.resultProtocol) : parseWorkHandoffResult(execution.result)
+      const result = parseWorkHandoffResult(execution.result)
       return { unresolvedId: row.unresolved_id, executionId: execution.id, reason: row.reason,
         latestDeliverable: result.data.latestDeliverable, remainingFindings: result.data.remainingFindings }
     }),

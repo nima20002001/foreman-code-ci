@@ -53,31 +53,21 @@ describe.skipIf(!connectionString)('Operator recent snapshot newest message rete
     try {
       const first = await readBoth()
       expect(first.messages).toHaveLength(1)
-      expect(first.messages[0]).toMatchObject({ role: 'user', requestId,
-        truncation: { truncated: true, originalBytes: Buffer.byteLength(userContent) } })
-      expect(userContent.startsWith(first.messages[0]!.content)).toBe(true)
-      expect(first.messages[0]!.content.length).toBeGreaterThan(0)
-      expect(Buffer.byteLength(JSON.stringify(first.messages))).toBeLessThanOrEqual(OPERATOR_SNAPSHOT_MESSAGE_BYTES)
+      expect(first.messages[0]).toMatchObject({ role: 'user', requestId, content: userContent })
       expect(first.hasEarlierMessages).toBe(false)
 
       const assistantContent = 'newest answer '.repeat(OPERATOR_SNAPSHOT_MESSAGE_BYTES / 8)
       expect(await repository.appendAssistantMessage(conversation.id, requestId, 'large-answer', assistantContent)).toBe(true)
       const recent = await readBoth()
       expect(recent.messages).toHaveLength(1)
-      expect(recent.messages[0]).toMatchObject({ role: 'assistant', requestId, nativeMessageId: 'large-answer',
-        truncation: { truncated: true, originalBytes: Buffer.byteLength(assistantContent) } })
-      expect(assistantContent.startsWith(recent.messages[0]!.content)).toBe(true)
-      expect(recent.messages[0]!.content.length).toBeGreaterThan(0)
-      expect(Buffer.byteLength(JSON.stringify(recent.messages))).toBeLessThanOrEqual(OPERATOR_SNAPSHOT_MESSAGE_BYTES)
+      expect(recent.messages[0]).toMatchObject({ role: 'assistant', requestId, content: assistantContent,
+        nativeMessageId: 'large-answer' })
       expect(recent.hasEarlierMessages).toBe(true)
       const latest = await chat.history(conversation.id, writer.principal, { limit: 1 })
-      expect(latest.entries[0]?.message).toMatchObject({ id: recent.messages[0]!.id, role: 'assistant', requestId,
-        nativeMessageId: 'large-answer', content: assistantContent })
-      expect(latest.entries[0]?.message.truncation).toBeUndefined()
+      expect(latest.entries[0]?.message).toEqual(recent.messages[0])
       expect(latest.nextCursor).not.toBeNull()
       const earlier = await chat.history(conversation.id, writer.principal, { before: latest.nextCursor!, limit: 1 })
-      expect(earlier.entries[0]?.message).toMatchObject({ id: first.messages[0]!.id, role: 'user', requestId, content: userContent })
-      expect(earlier.entries[0]?.message.truncation).toBeUndefined()
+      expect(earlier.entries[0]?.message).toEqual(first.messages[0])
       expect(earlier.nextCursor).toBeNull()
 
       expect((await app.inject({ method: 'GET', url,

@@ -10,7 +10,7 @@ import { registerOperatorToolGroup } from '../../src/mcp/operator/server.js'
 import type { OperatorRequestContext } from '../../src/mcp/operator/types.js'
 import { vi } from 'vitest'
 import type pg from 'pg'
-import { AgentConfigurationVersionSchema, HarnessExecutionSchema, OperatorConfigurationVersionSchema, type CoordinatorConsultationBinding } from '@foreman-code/contracts'
+import { AgentConfigurationVersionSchema, HarnessExecutionSchema, OperatorConfigurationVersionSchema } from '@foreman-code/contracts'
 import { WorkflowRunV3Schema, WorkflowVersionV3Schema } from '@foreman-code/contracts/wave25'
 import { CLAUDE_QUALIFICATION_CHECKS } from '@foreman-code/contracts/claude-qualification'
 import type { HostHarnessOverride, HostHarnessProfileEvidence } from '@foreman-code/contracts/harness-registry'
@@ -35,8 +35,7 @@ const createdAt = '2026-10-01T00:00:00.000Z'
 /** Synthetic installed/profile records and redacted SDK frames. Exercises actual
  * admission/domain/factory/manager classes without native or PostgreSQL claims. */
 export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agent' | 'selected-run', sharedFactories?: NativeHarnessFactories, endpoint = 'http://127.0.0.1:3000/mcp', fileService?: AgentFileToolService,
-  runtime?: { database: pg.Pool; binding: ClaudeDomainBinding; start: NativeSessionStart; sdk: ClaudeSdkClient },
-  workflowOptions?: { coordinator?: boolean; consultation?: CoordinatorConsultationBinding }) {
+  runtime?: { database: pg.Pool; binding: ClaudeDomainBinding; start: NativeSessionStart; sdk: ClaudeSdkClient }) {
   const kind = surface === 'selected-run' ? 'agent' : surface
   const selection = runtime ? sessionStartConfiguration(runtime.start).harnessProfileSelection : undefined
   const target = selection?.target ?? { hostRef: { kind: 'main' as const, mainId: '77d29f00-408e-4000-8000-000000000001' },
@@ -81,7 +80,7 @@ export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agen
       lockRevision: async () => {} } as unknown as HarnessInstanceSettingsRepository,
     { latest: async () => proof } as unknown as HostHarnessProfileEvidenceRepository,
     { authorize: async () => {}, current: async () => ({ registry: binding, applicationInstallationId: target.applicationInstallationId, suiteRevision: proof.suiteRevision, pin }), assertCurrent: value => installations.assertCurrent(value) })
-  const agent = AgentConfigurationVersionSchema.parse({ id: 'configuration-1', workspaceId: 'workspace', agentId: 'agent', productRole: workflowOptions?.coordinator ? 'orchestrator' : 'coder', version: 1,
+  const agent = AgentConfigurationVersionSchema.parse({ id: 'configuration-1', workspaceId: 'workspace', agentId: 'agent', productRole: 'coder', version: 1,
     harness, prompt: {}, assignedSkills: [], contentHash: `sha256:${'0'.repeat(64)}`, createdAt })
   const operator = OperatorConfigurationVersionSchema.parse({ id: 'configuration-1', operatorId: 'operator', version: 1, harness, contentHash: `sha256:${'0'.repeat(64)}`, createdAt })
   const version = WorkflowVersionV3Schema.parse({ id: 'version', workspaceId: 'workspace', workflowId: 'workflow', version: 1, executionSemanticsVersion: 3,
@@ -91,22 +90,12 @@ export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agen
   const run = WorkflowRunV3Schema.parse({ id: 'run', workspaceId: 'workspace', workflowId: 'workflow', workflowVersionId: version.id, executionSemanticsVersion: 3,
     agentConfigurationVersionIds: version.agentConfigurationVersionIds, approval: version.approval, executionCondition: { kind: 'manual' }, executionState: 'running', outcome: 'pending', input: {}, createdAt })
   const execution = HarnessExecutionSchema.parse({ id: 'execution', runId: 'run', workflowNodeId: 'node', agentId: 'agent', agentConfigurationVersionId: agent.id, attempt: 1, state: 'starting', input: {}, createdAt })
-  const workflow = { run, version, execution, configuration: agent, consultation: workflowOptions?.consultation }
   const row = { kind, owner_principal_id: 'sender', workspace_id: 'workspace', workflow_id: 'workflow', origin_run_id: surface === 'selected-run' ? 'selected-run' : null,
     active_request_id: 'request-1', native_session_id: null as string | null, provider_version: null as string | null, cancel_requested: false, deleted_at: null, record: { status: 'open' }, payload: { ownerPrincipalId: 'sender', nativeSubmission: undefined as { kind: 'message'; nativeSessionId: string; nativeMessageId: string; clientCorrelationId: string } | undefined },
     pending_interaction: null as unknown, response_delivery: 'offered' }
   let receipts: unknown[] = []
   const callbacks = new Map<string, Record<string, unknown>>()
   const query = vi.fn(async (sql: string, values: unknown[] = []) => {
-    if (sql.includes('from run_coordinator_consultations c')) {
-      const consultation = workflow.consultation
-      const matches = consultation && values[0] === consultation.consultationId && values[1] === run.id
-        && isDeepStrictEqual(JSON.parse(String(values[2])), consultation) && values[3] === execution.nativeSessionId
-      return { rows: matches ? [{ binding: consultation, execution, run_id: run.id, workspace_id: run.workspaceId,
-        workflow_id: run.workflowId, source_execution_id: execution.id, agent: { workspaceId: run.workspaceId,
-          workflowId: run.workflowId, workflowNodeId: execution.workflowNodeId, agentId: execution.agentId,
-          configurationVersionId: agent.id, productRole: agent.productRole, displayName: 'Coordinator' } }] : [] }
-    }
     if (sql.includes('claude_callback_receipts')) {
       const key = JSON.stringify(values.slice(0, 2))
       if (sql.includes('insert into')) {
@@ -159,9 +148,7 @@ export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agen
   const queries: { frames: ClaudeBoundedQueue<unknown>; messages: AsyncIterator<ClaudeSdkUserMessage> }[] = []
   const initialFrames = new ClaudeBoundedQueue<unknown>(64)
   const ready = rejectableDeferred<AsyncIterator<ClaudeSdkUserMessage>>()
-  const setMcpServers = vi.fn<(servers: Readonly<Record<string, unknown>>) =>
-    Promise<{ added: string[]; removed: string[]; errors: Record<string, never> }>>(
-    async () => ({ added: ['graphql'], removed: [], errors: {} }))
+  const setMcpServers = vi.fn(async () => ({ added: ['graphql'], removed: [], errors: {} }))
   const sdkQuery = vi.fn<ClaudeSdkClient['query']>(options => {
     const frames = queries.length ? new ClaudeBoundedQueue<unknown>(64) : initialFrames
     const incoming = options.prompt[Symbol.asyncIterator]()
@@ -186,7 +173,6 @@ export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agen
     installationDiscovery: async () => launcher })
   const result = productionClaudeManager({ pool, factories, registry: { pinOverride: () => binding } as unknown as ProductionHarnessRegistry,
     profiles, selector: { instanceId: override.instanceId, instanceRevision: override.instanceRevision, target }, binding: domain,
-    ...(workflowOptions?.consultation ? { consultation: workflowOptions.consultation } : {}),
     role: kind === 'agent' ? 'agent-chat' : kind, configuration: harness, workingDirectory: sessionStartDirectory(start), ownerAgentId: surface,
     recovery: { root: '/forbidden-native-recovery', owner: surface }, appMcpAccess: kind === 'agent' ? 'none' : 'scoped', mode: 'replay',
     inspectionStart: async () => start, loadClient,
@@ -202,19 +188,19 @@ export function productionClaudeFixture(surface: 'workflow' | 'operator' | 'agen
       choice: { optionId: 'allow_once', semantic: 'approve_once' },
     } } }]
   }
-  return { ...result, row, claim, start, profiles, proof, ready, queries, workflow,
+  return { ...result, row, claim, start, profiles, proof, ready, queries,
     get frames() { return queries.at(-1)?.frames ?? initialFrames },
     sdkQuery, loadClient, query, factories, setMcpServers, harness, binding, installations, launcher }
 }
 
-export async function managementEndpoint(token: string | readonly string[] = 'synthetic-scoped-token') {
+export async function managementEndpoint(token = 'synthetic-scoped-token') {
   // MCP client close aborts fetch without joining its socket shutdown.
   const app = Fastify({ forceCloseConnections: true })
   const list = vi.fn(async () => ({ items: [], pageInfo: { nextCursor: null } }))
   const principal = { id: 'sender', name: 'Sender', audience: 'operator' as const,
     grants: [{ actions: ['workspaces:read' as const], scope: {} }], expiresAt: '2099-01-01T00:00:00Z', revokedAt: null }
   app.post('/mcp', async (request, reply) => {
-    if (!(typeof token === 'string' ? [token] : token).some(value => request.headers.authorization === `Bearer ${value}`)) return reply.code(401).send()
+    if (request.headers.authorization !== `Bearer ${token}`) return reply.code(401).send()
     const server = new McpServer({ name: 'graphql', version: '1.0.0' })
     registerOperatorToolGroup(server, { principal, services: { workspaces: { list } } } as unknown as OperatorRequestContext, workspaceTools)
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })

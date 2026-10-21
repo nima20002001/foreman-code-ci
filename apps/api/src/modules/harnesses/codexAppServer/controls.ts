@@ -9,7 +9,6 @@ import { codexRequest } from '../codexProtocol.js'
 import { CodexRpcError, object, type JsonObject } from '../codexStdioTransport.js'
 import { advanced, threadParameters } from './support.js'
 import { CodexManagerConnection } from './connection.js'
-import { assertConsultationRebind } from '../consultationSession.js'
 
 export abstract class CodexManagerControls extends CodexManagerConnection {
   async configureSessionPreferences(preferences: SessionPreferences) {
@@ -211,26 +210,6 @@ export abstract class CodexManagerControls extends CodexManagerConnection {
       await runtime.transport.close()
       await this.restart(runtime, signal, prepared)
       this.record(runtime, 'transport.environment_refreshed', { agentId: runtime.ownerId })
-    })
-  }
-
-  async rebindApplicationAccess(session: NativeSessionReference, start: NativeSessionStart, signal?: AbortSignal): Promise<void> {
-    await this.exclusive(session.nativeSessionId, async () => {
-      const runtime = this.requireRuntime(session)
-      assertConsultationRebind(runtime.input, start, session)
-      this.assertIdle(runtime)
-      const before = { generation: runtime.generation, transport: runtime.transport, closed: runtime.closed }
-      const prepared = await this.prepareIdleInput(runtime, start, signal)
-      this.assertIdleAfterDiagnostics(runtime, before, signal)
-      if (advanced(runtime.configuration).sessionPersistence === 'ephemeral') {
-        throw new HarnessExecutionError('CODEX_SETTING_UNSUPPORTED', 'A consultation requires its persistent native session.')
-      }
-      runtime.closed = true
-      await runtime.transport.close()
-      await this.restart(runtime, signal, prepared)
-      this.record(runtime, 'transport.application_access_rebound', {
-        agentId: runtime.ownerId, purpose: start.kind === 'workflow-consultation' ? 'consultation' : 'workflow',
-      })
     })
   }
 }

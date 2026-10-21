@@ -83,7 +83,7 @@ describe('saved-node coordination result parsing', () => {
     expect(() => parseCoordinationResult({ ...result, data: { latestDeliverable: ' ', remainingFindings: [] } }, selected)).toThrow();
   });
 
-  it('resolves direct-child delegation and preserves valid Master findings for the direction boundary', () => {
+  it('resolves delegation against saved direct children and refuses unresolved Master finish', () => {
     const definition: WorkflowDefinitionV3 = WorkflowDefinitionV3Schema.parse({
       ...context().definition, entryNodeId: 'master', handoffs: { contractVersion: 1 },
       hierarchy: { version: 1, masterNodeId: 'master', parents: [
@@ -105,10 +105,7 @@ describe('saved-node coordination result parsing', () => {
     const finish = { ...envelope, data, routing: { kind: 'finish' } };
     expect(parseCoordinationResult(finish, selected)).toEqual(finish);
     expect(() => parseCoordinationResult(finish, { ...selected, outstandingRequestIds: ['request'] })).toThrow('HIERARCHY_WORK_UNRESOLVED');
-    const needsDirection = { ...finish, data: { ...data, remainingFindings: ['Unresolved'] } };
-    expect(parseCoordinationResult(needsDirection, selected)).toEqual(needsDirection);
-    expect(() => parseCoordinationResult(needsDirection, { ...selected, outstandingRequestIds: ['request'] }))
-      .toThrow('HIERARCHY_WORK_UNRESOLVED');
+    expect(() => parseCoordinationResult({ ...finish, data: { ...data, remainingFindings: ['Unresolved'] } }, selected)).toThrow();
   });
 
   it('bounds serialized output and rejects caller extension fields in domain envelopes', () => {

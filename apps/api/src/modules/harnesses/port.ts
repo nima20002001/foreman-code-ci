@@ -19,7 +19,6 @@ import type {
   AgentConfigurationVersion,
   PromptSettingSnapshot,
   DurableInteraction,
-  CoordinatorConsultationBinding,
 } from '@foreman-code/contracts'
 import type { ChatResponseIdentity } from '@foreman-code/contracts/interaction-activity'
 
@@ -102,22 +101,7 @@ export interface AgentChatNativeSessionStart {
   sessionPreferences?: SessionPreferences
 }
 
-/** A retained coordinator session has its own live mailbox authority. The
- * completed execution in request is immutable lineage, never result authority. */
-export interface WorkflowConsultationNativeSessionStart {
-  kind: 'workflow-consultation'
-  consultation: CoordinatorConsultationBinding
-  request: HarnessExecutionRequest
-  correlationId: string
-  nativeTurnId?: string
-  environment?: ChildProcessEnvironment
-  instructionsDelivered: true
-  observationOnly?: true
-  sessionPreferences?: SessionPreferences
-}
-
-export type NativeSessionStart = WorkflowNativeSessionStart | OperatorNativeSessionStart
-  | AgentChatNativeSessionStart | WorkflowConsultationNativeSessionStart
+export type NativeSessionStart = WorkflowNativeSessionStart | OperatorNativeSessionStart | AgentChatNativeSessionStart
 
 
 export interface NativeCompactInput {
@@ -170,16 +154,6 @@ export interface NativeSteerInput {
   prompt: string
   clientCorrelationId: string
   expectedTurnId: string
-  /** Durable control correlation is distinct from the original active input. */
-  ownerRequestId?: string
-  controlCommandId?: string
-}
-
-export interface NativeCancelInput {
-  ownerRequestId: string
-  controlCommandId: string
-  nativeTurnId?: string
-  inputMessageId?: string
 }
 
 /** Positive acceptance of one steering correlation in one exact native turn; not proof of consumption. */
@@ -284,8 +258,6 @@ export interface NativeHarnessSessionManager extends ResponseAvailabilityInspect
   /** Synchronously stop client-side auto replies before cleanup reads; never terminal evidence. */
   stopAutomaticResponses?(session: NativeSessionReference): void
   cancel(session: NativeSessionReference, signal?: AbortSignal, nativeTurnId?: string): Promise<boolean>
-  /** Exact committed workflow control; a true return is a provider ACK only. */
-  cancelTurn?(session: NativeSessionReference, input: NativeCancelInput, signal?: AbortSignal): Promise<boolean>
   /** Read native descendants through their exact admitted parent. Never resumes a child or changes its input owner. */
   subagentHistory?(session: NativeSessionReference, cursor?: string, signal?: AbortSignal): Promise<NativeSubagentHistoryPage>
   /** Only an already-resident exact parent may expose child controls. Never allocate or attach here. */

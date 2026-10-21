@@ -73,7 +73,7 @@ async function freePort() {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   return address.port
 }
-export async function setup(options: { operatorSandbox?: 'read-only' | 'workspace-write'; form?: CurrentFixtureForm; handoffs?: boolean; approvalPolicy?: 'on-request'; chatTools?: boolean } = {}) {
+export async function setup(options: { operatorSandbox?: 'read-only' | 'workspace-write'; form?: CurrentFixtureForm; handoffs?: boolean; approvalPolicy?: 'on-request' } = {}) {
   const db = await agent3Database(); closes.push(db.close)
   const directory = await privateFixtureDirectory('activity-replay-workspace-')
   closes.push(() => removeFixtureDirectory(directory))
@@ -94,7 +94,6 @@ export async function setup(options: { operatorSandbox?: 'read-only' | 'workspac
   if (options.handoffs) seed.version = agentWorkflowVersion(WorkflowVersionV3Schema.parse({ ...seed.version,
     definition: { ...seed.version.definition, handoffs: { contractVersion: 1 } } }))
   seed.configurations = seed.configurations.map((configuration) => AgentConfigurationVersionSchema.parse({ ...configuration,
-    ...(options.chatTools ? { graphqlTools: ['workflow_chat_read', 'workflow_chat_post'] } : {}),
     harness: { harness: 'codex', model: 'test-model', reasoningEffort: 'low', sandbox: 'read-only', serviceTier: 'standard',
       ...(options.approvalPolicy ? { advanced: { ...DEFAULT_CODEX_ADVANCED_CONFIGURATION, approvalPolicy: options.approvalPolicy } } : {}),
     } }))
@@ -144,11 +143,6 @@ export async function setup(options: { operatorSandbox?: 'read-only' | 'workspac
 export async function admittedRun(f: Awaited<ReturnType<typeof setup>>, mode: 'complete' | 'approval' = 'complete') {
   const row = (await f.db.pool.query<{ revision: string }>('select revision::text from workflows where id=$1', [f.saved.scope.workflowId])).rows[0]!
   f.replay.nextStart = mode
-  f.replay.nextCompletionText = JSON.stringify({
-    ...(f.saved.version.definition.handoffs ? { routing: { kind: 'finish' },
-      data: { latestDeliverable: 'recorded workflow final', remainingFindings: [] } } : { data: 'recorded workflow final' }),
-    summary: 'Recorded workflow complete.', board: { kind: 'none', reason: 'no_access' },
-  })
   const response = await f.http('POST', `/api/management/workspaces/${f.saved.scope.workspaceId}/workflows/${f.saved.scope.workflowId}/runs`, {
     workflowVersionId: f.saved.version.id, commandId: randomUUID(), executionSemanticsVersion: 3,
     expectedWorkflowRevision: Number(row.revision), expectedAgentConfigurationVersionIds: f.saved.version.agentConfigurationVersionIds,

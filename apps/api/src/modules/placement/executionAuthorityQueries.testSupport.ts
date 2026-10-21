@@ -136,10 +136,9 @@ export function authorityQueryFixture() {
   let leases = 0
   const pool = { async connect() {
     leases++
-    return { async query(input: string | pg.QueryConfig, values?: unknown[]) {
+    return { async query(text: string, values?: unknown[]) {
       queries++
-      return catalog.query(typeof input === 'string' ? input : input.text,
-        typeof input === 'string' ? values : input.values)
+      return catalog.query(text, values)
     }, on() {}, removeListener() {}, release() {} }
   } } as unknown as pg.Pool
   const { policies } = createProductionRootPolicies({ pool, mainId, runtimeRoot: '/runtime',
