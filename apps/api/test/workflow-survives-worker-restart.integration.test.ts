@@ -30,6 +30,5 @@ describe.runIf(postgresEnabled)('workflow Worker restart', () => {
     expectBoundedNodeFault(details, fixture, /worker|restart|interrupt|uncertain/i)
     expect(details.run.workflowVersionId).toBe(before.run.workflowVersionId)
     expect(details.run.input).toEqual(before.run.input)
-    // Two full remote launches on a loaded CI host need more than 18 s; finished() still fails a Run that stops changing.
-  }, 30_000)
+  }, 18_000)
 })

@@ -23,6 +23,7 @@ import { useCollaborationUISlots } from '../../shared/ui/collaborationSlots'
 import { createWorkflowExecutionChatSlot } from '../workflow-hierarchy/execution-chat/createWorkflowExecutionChatSlot'
 import { SelectedRunControls } from './actions/SelectedRunControls'
 import { GroupChatPanel } from './GroupChatPanel'
+import { KanbanButton } from './kanban/KanbanButton'
 import './workflowBoard.css'
 
 /** This component is keyed by workspace/workflow only, NEVER by selected Run. */
@@ -45,7 +46,7 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
     : undefined, [sharedSlots, inheritedSlots, suppliedSlots, executionChat])
   const browserRelease = useBrowserPanelRelease(collaborationSlots?.beforeBrowserHide)
   const side = useWorkflowSidePanel(workspaceId, workflowId, requestedRun, browserRelease.request)
-  const { releaseBrowser } = side
+  const { releaseBrowser, setMemoryOpen } = side
   const [sidePanelHost, setSidePanelHost] = useState<HTMLDivElement | null>(null)
   const [authoringActions, setAuthoringActions] = useState<WorkflowAuthoringActions>()
   const registerAuthoringActions = useCallback((actions?: WorkflowAuthoringActions) => setAuthoringActions(actions), [])
@@ -139,12 +140,13 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
   // hidden editor/SelectedRunCanvas, or fabricate missing version/semantics pins.
   const value = useMemo(() => ({ workspaceId, workflowId, selectRun: chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent,
     sidePanel: side.panel, selectedPanelNodeId: side.agentSelection?.nodeId, selectSidePanel: side.selectPanel, sidePanelHost, memoryOpen: side.memoryOpen,
+    openMemoryCard: (cardId: string) => setMemoryOpen(true, cardId),
     executionChatMounted: !!collaborationSlots?.executionChat,
     canvasVisible: side.view === 'graph', teamNodeId: side.teamNodeId, selectTeam: side.selectTeam,
     collaborationFields: collaborationSlots,
     openLocation: () => setLocationOpen(true), openRuns: () => setRunsOpen(true), activeRuns, authoringActive: current, registerAuthoringActions,
     navigationControls: current && side.view === 'graph' ? <BoardNavigationControls workspaceId={workspaceId} workflowId={workflowId} selection={navigationSelection} /> : undefined,
-  }), [workspaceId, workflowId, chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent, activeRuns, setRunsOpen, setLocationOpen, navigationSelection, current, side.view, side.panel, side.agentSelection?.nodeId, side.selectPanel, sidePanelHost, side.memoryOpen, side.teamNodeId, side.selectTeam, collaborationSlots, registerAuthoringActions])
+  }), [workspaceId, workflowId, chooseRun, getSelectionToken, inspection, selectInspection, selectedAgentId, selectDraftAgent, activeRuns, setRunsOpen, setLocationOpen, navigationSelection, current, side.view, side.panel, side.agentSelection?.nodeId, side.selectPanel, sidePanelHost, side.memoryOpen, setMemoryOpen, side.teamNodeId, side.selectTeam, collaborationSlots, registerAuthoringActions])
   const detailsValue = useMemo(() => detailsScope ? { ...value, run: detailsScope } : value, [value, detailsScope])
   const authoringEvent = (event: SyntheticEvent) => {
     if (event.target instanceof Element && event.target.closest('.workflow-side-panel')) return
@@ -173,6 +175,7 @@ export function WorkflowBoard({ workspaceId, workflowId, run: requestedRun, sele
         <BoardNavigationControls workspaceId={workspaceId} workflowId={workflowId} selection={navigationSelection}
           runsLabel={current && side.view === 'overview' ? 'Choose run' : undefined} />
         {detailsScope ? <IconButton label="Activities" onClick={() => setRunsOpen(true)}><Icon name="history" size={16} /></IconButton> : null}
+        {side.view === 'graph' ? <KanbanButton workspaceId={workspaceId} workflowId={workflowId} /> : null}
         {boardSelection.active && !boardSelection.invalid && boardSelection.identity.runId ?
           <SelectedRunControls key={JSON.stringify(boardSelection.identity)} visible={!side.memoryOpen}
             scope={{ workspaceId, workflowId, runId: boardSelection.identity.runId,

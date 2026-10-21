@@ -30,8 +30,5 @@ describe.runIf(postgresEnabled)('workflow device reconnect', () => {
       fixture.worker.reconnect()
       fixture.release()
     }
-    // Two full remote launches (the dropped attempt and its fresh retry) plus closure of the
-    // abandoned one: about 6-8 s per launch on a loaded CI host, so 18 s left no headroom.
-    // finished() still fails a Run that stops changing for 8 s.
-  }, 30_000)
+  }, 18_000)
 })

@@ -34,6 +34,5 @@ describe.runIf(postgresEnabled)('workflow MCP startup readiness', () => {
     await fixture.makeMcpReady(Number(native.payload.delayMs))
     fixture.release()
     expectRecoveredFault(await fixture.finished(), fixture, /mcp|readiness|unavailable|retry/i)
-    // Two full remote launches on a loaded CI host need more than 18 s; finished() still fails a Run that stops changing.
-  }, 30_000)
+  }, 18_000)
 })

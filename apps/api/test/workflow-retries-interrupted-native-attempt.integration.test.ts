@@ -32,6 +32,5 @@ describe.runIf(postgresEnabled)('native interruption without an answer', () => {
     expect(details.run.stopCause).toBeUndefined()
     expectBoundedNodeFault(details, fixture, /interrupt|cancel|retry/i)
     expect(details.executions.find(item => item.id === execution.id)?.result?.output).toBeUndefined()
-    // Two full remote launches on a loaded CI host need more than 18 s; finished() still fails a Run that stops changing.
-  }, 30_000)
+  }, 18_000)
 })
