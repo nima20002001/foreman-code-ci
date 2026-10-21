@@ -10,12 +10,11 @@ import { ChatPrimaryActions } from '../conversations/ChatPrimaryActions'
 import '../conversations/chatAttachments.css'
 
 export function OperatorComposer({ conversationId, context, attachmentControl, fileDropProps, hasAttachments = false,
-  sendDisabled = false, isSending = false, onSubmit, onNewChat, onCancel, sessionControls, deliveryActions }: {
+  sendDisabled = false, isSending = false, onSubmit, onNewChat, onCancel, sessionControls }: {
   conversationId: string; context?: ReactNode; attachmentControl?: ReactNode; hasAttachments?: boolean;
   sendDisabled?: boolean; isSending?: boolean; sessionControls?: ComposerSessionControls;
   fileDropProps?: ReturnType<typeof useFileDrop>['dropTargetProps'];
   onSubmit(content: string, mode?: SessionMode): void; onNewChat(): void; onCancel?: () => void;
-  deliveryActions?: (submit: () => void) => ReactNode;
 }) {
   const value = useConversationDraftStore((state) => state.drafts[conversationId] ?? '')
   const setDraft = useConversationDraftStore((state) => state.setDraft)
@@ -33,7 +32,7 @@ export function OperatorComposer({ conversationId, context, attachmentControl, f
     input.current.style.height = `${Math.min(144, Math.max(36, input.current.scrollHeight))}px`
   }, [value])
   useLayoutEffect(() => { input.current?.focus() }, [conversationId])
-  async function send(content = deliveryActions ? value : value.trim()) {
+  async function send(content = value.trim()) {
     const parsed = parseSessionCommand(content)
     const controlOnly = parsed.kind === 'compact' || parsed.kind === 'mode'
     const blocked = controlOnly ? sessionControls?.mutation.isPending : isSending || sendDisabled
@@ -74,16 +73,15 @@ export function OperatorComposer({ conversationId, context, attachmentControl, f
             event.preventDefault(); void send()
           }
         }} />
-      {!deliveryActions ? <div className="operator-composer-actions">
+      <div className="operator-composer-actions">
         <ChatPrimaryActions appearance="icon" stopLabel="Stop response" {...(onCancel ? { onStop: onCancel } : {})}>
           <IconButton label="Send message" type="submit" disabled={cannotSend} className="operator-composer-send" loading={pending}><Icon name="arrow" className="operator-send-arrow" size={17} /></IconButton>
         </ChatPrimaryActions>
-      </div> : null}
+      </div>
     </div>
     <div className="operator-composer-options">
       <div className="operator-composer-model">{context}</div>
     </div>
-    {deliveryActions?.(() => { void send() })}
     {commandError?.conversationId === conversationId && !recovered
       ? <p role="alert">{compaction?.message ?? commandError.message}</p> : null}
   </form>

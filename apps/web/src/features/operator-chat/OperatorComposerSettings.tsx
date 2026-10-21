@@ -74,10 +74,10 @@ export function OperatorComposerSettings({ value, onChange, disabled, access, hi
     if (choosingModel) setChoosingModel(false)
     else { setOpen(false); trigger.current?.focus() }
   }}>
-    <button ref={trigger} type="button" className="operator-agent-trigger" aria-label={`Agent settings: ${futureChats ? 'New chats, ' : ''}${modelName}${value.harness === 'claude' && !effort ? '' : `, ${effort || 'default effort'}`}${value.harness === 'codex' && value.serviceTier === 'priority' ? ', Fast' : ''}`}
+    <button ref={trigger} type="button" className="operator-agent-trigger" aria-label={`Agent settings: ${modelName}${value.harness === 'claude' && !effort ? '' : `, ${effort || 'default effort'}`}${value.harness === 'codex' && value.serviceTier === 'priority' ? ', Fast' : ''}`}
       aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="dialog" disabled={disabled}
       onClick={() => { setOpen(!open); setChoosingModel(false) }}>
-      {futureChats ? <small>New chats</small> : null}<span>{modelName}</span>{value.harness !== 'claude' || effort ? <small>{effort || 'default'}</small> : null}{value.harness === 'codex' && value.serviceTier === 'priority' ? <small className="operator-fast-indicator">Fast</small> : null}<Icon name="down" size={13} />
+      <span>{modelName}</span>{value.harness !== 'claude' || effort ? <small>{effort || 'default'}</small> : null}{value.harness === 'codex' && value.serviceTier === 'priority' ? <small className="operator-fast-indicator">Fast</small> : null}<Icon name="down" size={13} />
     </button>
     {open ? <div ref={panel} popover="manual" className="operator-agent-panel" id={id} role="dialog" aria-label="Agent settings">
       {futureChats ? <p>These settings apply to new chats. The selected chat keeps its current settings.</p> : null}

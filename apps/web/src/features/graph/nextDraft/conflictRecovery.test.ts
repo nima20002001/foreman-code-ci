@@ -18,8 +18,7 @@ it('keeps each original form, staged Agent and unfinished editor separately acro
   original.agentForms = { 'node-0': { base: JSON.stringify({ agent: original.context.agents[0]!.agent }),
     name: 'Unapplied form', prompt: 'Exact prompt', editor: { ...createHarnessEditor(DEFAULT_HARNESS_DEFAULTS.codex),
       mcpText: '{ unfinished JSON', shellEnvironmentText: '{ unfinished environment' } } }
-  original.workflowForms = { hierarchy: { masterNodeId: 'node-1', parents: { 'node-0': '' } },
-    createAgent: { role: 'master', name: 'Unapplied new Master', parentNodeId: '' } }
+  original.workflowForms = { hierarchy: { masterNodeId: 'node-1', parents: { 'node-0': '' } } }
   storeEditSnapshot(scope, original)
   const first = retainConflictRecovery(scope, original)
   const second = retainConflictRecovery(scope, { ...original, graph: { ...original.graph, name: 'Second conflict' } })

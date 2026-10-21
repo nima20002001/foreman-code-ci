@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { installFlowLayout } from '../../run-board/testFlowLayout'
 import { GraphPresentationProvider } from '../GraphPresentation'
 import { useGraphDraftStore } from '../store'
@@ -32,9 +33,9 @@ const placed = (id: string) => {
 }
 function mount(context: ReturnType<typeof contextWith>, geometry = vi.fn()) {
   useGraphDraftStore.getState().installNextDraft(key, structuredClone(context))
-  render(<GraphPresentationProvider><ReactFlowProvider><DraftCanvas draftKey={key} graph={context.draft.graph}
+  render(<QueryClientProvider client={new QueryClient()}><GraphPresentationProvider><ReactFlowProvider><DraftCanvas draftKey={key} graph={context.draft.graph}
     agents={context.agents.map((item) => item.agent)} kind="execution" change={vi.fn()} geometry={geometry}
-    pending={vi.fn()} report={vi.fn()} /></ReactFlowProvider></GraphPresentationProvider>)
+    pending={vi.fn()} report={vi.fn()} /></ReactFlowProvider></GraphPresentationProvider></QueryClientProvider>)
   return geometry
 }
 

@@ -30,7 +30,6 @@ export const BoardSidePanelSchema = z.discriminatedUnion('kind', [
     tab: z.enum(['chat', 'settings', 'details']), executionId: GraphIdSchema.optional(), waitingActivationId: GraphIdSchema.optional() }).strict(),
   z.object({ kind: z.literal('browser'), nodeId: GraphIdSchema.optional(), executionId: GraphIdSchema.optional(),
     waitingActivationId: GraphIdSchema.optional(), sessionId: GraphIdSchema.optional(), tabId: GraphIdSchema.optional() }).strict(),
-  z.object({ kind: z.literal('operator') }).strict(),
 ]).superRefine((panel, context) => {
   if ((panel.kind === 'agent' || panel.kind === 'browser') && panel.executionId && panel.waitingActivationId) context.addIssue({ code: 'custom',
     path: ['waitingActivationId'], message: 'Select either an execution or a waiting coordinator.' })
@@ -39,7 +38,7 @@ export type BoardSidePanel = z.infer<typeof BoardSidePanelSchema>
 
 const BoardSurfaceSelectionFields = {
   boardView: z.enum(['graph', 'overview']).optional(),
-  boardPanel: z.enum(['group_chat', 'agent', 'browser', 'operator']).optional(),
+  boardPanel: z.enum(['group_chat', 'agent', 'browser']).optional(),
   boardAgentTab: z.enum(['chat', 'settings', 'details']).optional(),
   boardNodeId: GraphIdSchema.optional(), boardExecutionId: GraphIdSchema.optional(),
   boardWaitingActivationId: GraphIdSchema.optional(),
@@ -96,7 +95,6 @@ export type WorkflowBoardSelection = WorkspaceBoardSearch
 export function boardSidePanelFromSearch(search: WorkspaceBoardSearch): BoardSidePanel {
   switch (search.boardPanel) {
     case 'group_chat': return { kind: 'group_chat' }
-    case 'operator': return { kind: 'operator' }
     case 'agent': return BoardSidePanelSchema.parse({ kind: 'agent', nodeId: search.boardNodeId,
       tab: search.boardAgentTab ?? 'chat', ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}),
       ...(search.boardWaitingActivationId ? { waitingActivationId: search.boardWaitingActivationId } : {}) })

@@ -50,9 +50,10 @@ export function createMemoryTestPort(initial: { cards?: MemoryCard[]; notes?: Me
   const snapshot = (): MemoryBoardView => {
     const all = [...cards.values()], activeNotes = [...notes.values()].filter((item) => !item.archived)
     return { board: structuredClone(board), sequence: board.revision,
-      openColumns: (['todo', 'doing', 'blocked'] as const).map((status) => ({ status, ...page(all.filter((card) => card.status === status), board.revision) })),
+      openColumns: (['todo', 'doing', 'waiting_for_user', 'blocked'] as const).map((status) => ({ status, ...page(all.filter((card) => card.status === status), board.revision) })),
       notes: page(activeNotes, board.revision), counts: { todo: all.filter((item) => item.status === 'todo').length,
-        doing: all.filter((item) => item.status === 'doing').length, blocked: all.filter((item) => item.status === 'blocked').length,
+        doing: all.filter((item) => item.status === 'doing').length,
+        waiting_for_user: all.filter((item) => item.status === 'waiting_for_user').length, blocked: all.filter((item) => item.status === 'blocked').length,
         done: all.filter((item) => item.status === 'done').length, completed: all.filter((item) => item.completionKind === 'completed').length,
         dropped: all.filter((item) => item.completionKind === 'dropped').length, notes: activeNotes.length } }
   }
