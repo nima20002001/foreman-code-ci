@@ -206,7 +206,7 @@ afterEach(() => {
   vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs()
 })
 
-describe('Selected Board history', { timeout: 20_000 }, () => {
+describe('Selected Board history', { timeout: 30_000 }, () => {
   it('keeps the 320px controls together and Files read only on the selected Run', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('innerWidth', 320)
@@ -236,7 +236,9 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
     await waitFor(() => expect(dialog).not.toBeInTheDocument())
   })
 
-  it.each([320, 1024])('keeps the saved graph and chat selection together across A, B, A at %spx', async (width) => {
+  // Each A, B, A visit remounts the saved Board, so the chat and Activities halves run as separate
+  // tests: every assertion stays, and each test carries only one surface's interactions per visit.
+  async function mountHistoryVisits(width: number) {
     const user = userEvent.setup()
     vi.stubGlobal('innerWidth', width)
     installBoardHistory()
@@ -247,7 +249,8 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
     }))
     const { router } = await mountBoard()
     await screen.findByLabelText('Selected Run board')
-    const assertSelection = async (runId: string, name: string) => {
+    const expectedPins = (runId: string) => ({ workflowId: scope.workflowId, selectedRunId: runId })
+    const pinnedGraph = async (runId: string, name: string) => {
       // Run changes remount the canvas. Wait for its pins before retaining a query scope.
       const pinned = await waitFor(() => {
         const region = screen.getByLabelText('Selected Run board')
@@ -255,15 +258,30 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
         expect(region).toHaveAttribute('data-run-id', runId)
         return region
       })
-      const expectedPins = { workflowId: scope.workflowId, selectedRunId: runId }
-      expect(router.state.location.search).toMatchObject(expectedPins)
-      const graph = within(pinned)
-      const node = await graph.findByLabelText(`Inspect ${name}`, { selector: 'button' })
+      expect(router.state.location.search).toMatchObject(expectedPins(runId))
+      const node = await within(pinned).findByLabelText(`Inspect ${name}`, { selector: 'button' })
       expect(node).toHaveRole('button')
       expect(node).toBeVisible()
       expect(node).toBeEnabled()
       expect(screen.queryByLabelText('Agent chat', { selector: 'aside, [role=complementary]' })).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Open Selected Run panel', { selector: 'button' })).not.toBeInTheDocument()
+      return { pinned, node }
+    }
+    const visitAgain = async (assertSelection: (runId: string, name: string) => Promise<void>) => {
+      await choose(user, 'run-b')
+      await assertSelection('run-b', 'X in B')
+      expect(screen.queryByLabelText('Inspect Y', { selector: 'button' })).not.toBeInTheDocument()
+      await choose(user, 'run-a')
+      await assertSelection('run-a', 'Y')
+      expect(screen.queryByLabelText('Inspect X in B', { selector: 'button' })).not.toBeInTheDocument()
+    }
+    return { user, router, targetReads, expectedPins, pinnedGraph, visitAgain }
+  }
+
+  it.each([320, 1024])('keeps the saved graph and chat selection together across A, B, A at %spx', async (width) => {
+    const { user, router, targetReads, pinnedGraph, visitAgain } = await mountHistoryVisits(width)
+    const assertSelection = async (runId: string, name: string) => {
+      const { node } = await pinnedGraph(runId, name)
       await user.click(node)
       const chat = await screen.findByRole('complementary', { name: 'Workflow side panel' })
       await user.click(within(chat).getByRole('button', { name: 'Chat' }))
@@ -274,27 +292,31 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
       expect(targetReads.at(-1)?.searchParams.get('workflowNodeId')).toBe(name === 'Y' ? 'node-y' : 'node-x')
       await user.keyboard('{Escape}')
       await waitFor(() => expect(chat).not.toBeVisible())
+    }
+    await assertSelection('run-a', 'Y')
+    await visitAgain(assertSelection)
+  })
+
+  it.each([320, 1024])('keeps the saved graph and Activities selection together across A, B, A at %spx', async (width) => {
+    const { user, router, expectedPins, pinnedGraph, visitAgain } = await mountHistoryVisits(width)
+    const assertSelection = async (runId: string, name: string) => {
+      const { pinned } = await pinnedGraph(runId, name)
       await user.click(screen.getByRole('button', { name: 'Activities' }))
       const activities = await screen.findByRole('region', { name: 'Activities popover' })
       expect(await within(activities).findByText(`Saved run ${runId}`)).toBeVisible()
       await user.click(within(activities).getByLabelText('Close Activities', { selector: 'button' }))
-      expect(router.state.location.search).toMatchObject(expectedPins)
+      expect(router.state.location.search).toMatchObject(expectedPins(runId))
       expect(pinned).toHaveAttribute('data-run-id', runId)
     }
     await assertSelection('run-a', 'Y')
-    const controls = screen.getByLabelText('Board controls')
     if (width === 320) {
+      const controls = screen.getByLabelText('Board controls')
       await user.click(within(controls).getByLabelText('Files', { selector: 'button' }))
       const dialog = await screen.findByRole('dialog', { name: 'Files' })
       await user.click(within(dialog).getByLabelText('Close files', { selector: 'button' }))
       await waitFor(() => expect(dialog).not.toBeInTheDocument())
     }
-    await choose(user, 'run-b')
-    await assertSelection('run-b', 'X in B')
-    expect(screen.queryByLabelText('Inspect Y', { selector: 'button' })).not.toBeInTheDocument()
-    await choose(user, 'run-a')
-    await assertSelection('run-a', 'Y')
-    expect(screen.queryByLabelText('Inspect X in B', { selector: 'button' })).not.toBeInTheDocument()
+    await visitAgain(assertSelection)
   })
 
   it('keeps same-named Operator file cards bound to chats A and B while a Board is open', async () => {

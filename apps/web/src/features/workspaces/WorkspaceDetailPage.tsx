@@ -1,4 +1,3 @@
-import { MemoryBoardSurface } from '../workflow-board/MemoryBoardSurface'
 import { InfoHint } from '../../shared/ui/InfoHint'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
@@ -53,8 +52,6 @@ export function WorkspaceDetailPage({ workspaceId, section, children }: {
       </nav>
       <div className={`settings-editor-content workspace-detail-content${section === 'settings' ? ' workspace-detail-content--settings' : ''}`}>
         {!current && workspace.isError ? unavailable : children ?? (current ? settings(actions) : unavailable)}
-        {section === 'workflows' && current && <MemoryBoardSurface
-          scope={{ kind: 'workspace', workspaceId }} scopeName={current.workspace.name} />}
       </div>
     </div>
   return <div className="settings-page settings-experience workspace-detail-page">
