@@ -8,15 +8,7 @@ describe('handed-off node placement after a Worker reconnect', () => {
     const f = await handoffPlacementFixture()
     try {
       const accepted = await f.start()
-      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish').catch(async error => {
-        const events = JSON.parse((await f.base.client.callTool({ name: 'run_events_list', arguments: { workspaceId: f.startInput.workspaceId, runId: accepted.run.id, limit: 500 } }) as { content: { text: string }[] }).content[0]!.text).items as { sequence: number; kind: string; harnessExecutionId?: string; occurredAt: string; payload: { state?: string; executionState?: string; fact?: { phase?: string; work?: { kind?: string } }; workflowNodeId?: string } }[]
-        console.error('DEBUGDISPATCH', new Date().toISOString(), JSON.stringify(f.base.dispatchErrors.map(String)), 'DEBUGEVENTS', events.map(e => `${e.occurredAt.slice(17, 23)} ${e.sequence}:${e.kind}:${e.payload.state ?? e.payload.executionState ?? e.payload.fact?.phase ?? ''}:${e.payload.fact?.work?.kind ?? ''}:${(e.harnessExecutionId ?? '').slice(10, 14)}`).join(' | '))
-        const act = await f.base.db.pool.query("select pid,state,wait_event_type,wait_event,now()-query_start as age,left(query,260) as q from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid() and state<>'idle'")
-        const wa = await f.base.db.pool.query('select activation_id,state from run_work_activations where run_id=$1', [accepted.run.id])
-        const ex = await f.base.db.pool.query('select id,accepted,record->>$2 as st,right(workflow_node_id,2) as nd from harness_executions where run_id=$1', [accepted.run.id, 'state'])
-        console.error('DEBUGPG', JSON.stringify(act.rows), 'DEBUGACT', JSON.stringify(wa.rows.map(r => `${r.activation_id.slice(-4)}=${r.state}`)), 'DEBUGEX', JSON.stringify(ex.rows.map(r => `${r.nd}:${r.id.slice(10, 14)}=${r.accepted}/${r.st}`)))
-        throw error
-      })
+      const finished = await waitForHandoffCompletion(f, 'all three handed-off Agents finish')
       expect(finished.run, JSON.stringify(finished.run.result)).toMatchObject({ outcome: 'succeeded' })
       expect(finished.executions).toHaveLength(4)
       expect(finished.executions.every(execution => execution.result?.outcome === 'succeeded')).toBe(true)

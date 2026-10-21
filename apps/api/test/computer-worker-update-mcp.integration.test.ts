@@ -285,7 +285,7 @@ it('reports concrete updater failures through authenticated MCP and persists the
   const updater = await new WorkerUpdater({ stateDirectory: f.directory, version: '1.0.0',
     manifestSha256: 'c'.repeat(64), workerInstallationId: f.registration.workerInstallationId,
     facts: { ...target, rootPersistent: true, homePersistent: true, storagePersistent: true },
-    assertStateOwnership: () => {}, locateLaunch: async () => ({ root: f.directory }), drain: async () => {}, resume: () => {},
+    assertStateOwnership: () => {}, locateLaunch: async () => ({}), drain: async () => {}, resume: () => {},
     fetchAsset: async ({ github, destination }: { github: unknown; destination: string }) => {
       expect(github).toEqual(release.github)
       execFileSync('tar', ['-czf', destination, '-C', bundle, '.'])
