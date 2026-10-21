@@ -21,7 +21,7 @@ it('says there is nothing to add when no Agent is available', () => {
   const context = fixture()
   context.agents = context.agents.map((record) => ({ ...record, archivedAt: '2026-09-22T00:00:00Z' }))
   render(<AvailableAgentList context={context} change={vi.fn()} report={vi.fn()} />)
-  expect(screen.getByText(/No Agents are available to add/)).toBeVisible()
+  expect(screen.getByText(/No existing Agents are available/)).toBeVisible()
   expect(screen.queryByRole('button', { name: /^Add / })).not.toBeInTheDocument()
 })
 

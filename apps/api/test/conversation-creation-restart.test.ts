@@ -14,7 +14,6 @@ import { MainWorkerConversationBridge } from '../src/modules/conversations/worke
 import { workerConversationFixture } from '../src/modules/conversations/workerFixtures.test-support.js'
 import type { NativeHarnessSessionManager, NativeSessionStart, NativeInitialTurnInput } from '../src/modules/harnesses/port.js'
 import { memoryConversation, operator } from './fixtures/agent1OperatorChat.js'
-import { chatWorkflowVersionRow, isCurrentVersionRead, isRunVersionRead, isSavedVersionRead } from './helpers/chatWorkflowVersion.js'
 import { memorySessionControlPool } from './support/sessionControls.js'
 import { SessionControlStore } from '../src/modules/conversations/sessionControls/store.js'
 
@@ -167,8 +166,6 @@ it.each([['codex', 'fresh'], ['codex', 'worker-profile'], ['codex', 'main-profil
     open: async () => [structuredClone(row)], get: async () => structuredClone(row),
     restoreUnsettled: async () => structuredClone(row), unconfirmedSteers: async () => [],
     nextQueued: async () => undefined,
-    turnPreparedInput: async () => undefined,
-    initialInputOffered: async () => false,
     bindSession: async (_id: string, version: string, sessionId: string) => {
       row.provider_version = version
       row.native_session_id = sessionId
@@ -189,11 +186,7 @@ it.each([['codex', 'fresh'], ['codex', 'worker-profile'], ['codex', 'main-profil
       return true
     },
   } as unknown as PostgresAgentChatRepository
-  const savedVersion = chatWorkflowVersionRow({ workspaceId: configuration.workspaceId, workflowId: row.workflow_id,
-    workflowNodeId: row.workflow_node_id, agentId: configuration.agentId, configurationId: configuration.id })
   const pool = { query: async (sql: string, values: unknown[]) => {
-    if (isCurrentVersionRead(sql) || isSavedVersionRead(sql)) return { rows: [savedVersion] }
-    if (isRunVersionRead(sql)) return { rows: [{ workflow_version_id: savedVersion.id }] }
     if (fork && values[0] === 'execution') return { rows: [{ reference: f.source }] }
     if (sql.includes("payload->>'ownerPrincipalId' as principal_id")) return { rows: [] }
     return f.controlsPool.query(sql, values)

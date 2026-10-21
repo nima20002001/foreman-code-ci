@@ -115,10 +115,7 @@ describe.runIf(postgresEnabled)('loop node directory and native session retentio
           fixtureGit(first.workingDirectory!, 'add', 'monitoring-notes.txt')
           fixtureGit(first.workingDirectory!, 'commit', '-qm', 'Retain monitoring notes')
         }
-        // A turn reads completed before its closure fact is recorded.
-        for (const record of records) {
-          await vi.waitFor(() => f.production.sources.confirmClosed(record), { timeout: 10_000, interval: 200 })
-        }
+        for (const record of records) await f.production.sources.confirmClosed(record)
         await access(first.workingDirectory!)
         expect(await readFile(retainedFile, 'utf8')).toBe('Already reported the deployment failure.\n')
       }
