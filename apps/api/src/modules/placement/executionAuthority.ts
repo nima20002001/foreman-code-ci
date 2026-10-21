@@ -131,6 +131,7 @@ export function createExecutionAuthorityExtension(pool: pg.Pool,
     if (context.bytes?.byteLength) denied()
     const facts = ExecutionFactsRequestSchema.safeParse(raw)
     const input = facts.success ? facts.data.authorization : ExecutionAuthorityRequestSchema.parse(raw)
+    { const d = ((globalThis as { __diag?: Record<string, number> }).__diag ??= {}); const k = `auth:${facts.success ? 'facts' : input.action}`; d[k] = (d[k] ?? 0) + 1 }
     // Read-only admission: check, then verify again at COMMIT against the latest committed rows. No
     // row lock is needed because nothing is written and the Worker acts only after this reply.
     return withExclusiveGraphConnection(pool, connection => connection.transaction(async sql => {
