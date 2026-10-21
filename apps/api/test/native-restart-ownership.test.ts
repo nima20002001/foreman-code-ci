@@ -185,6 +185,23 @@ it('uses an adopted live Run owner when a previous shared owner has released', a
   }
 })
 
+it('does not report a Run owner that lost its lock as a reconciliation failure', async () => {
+  const f = restartOwnershipFixture()
+  await f.attachReviewers()
+  const lost = (await f.acquireOwnership())!
+  const stopSharing = f.coordinator.shareRunOwner(lost)
+  f.coordinator.workflowChatOwner({} as never, (async () => {}) as never)
+  await lost.release()
+  const failures: unknown[] = []
+  try {
+    await f.coordinator.reconcileWorkflowControls(error => failures.push(error))
+    expect(failures).toEqual([])
+  } finally {
+    stopSharing()
+    await f.managers.dispose()
+  }
+})
+
 it.each([
   { boundary: 'acquiring', timeout: false },
   { boundary: 'observing', timeout: false },
