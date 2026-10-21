@@ -12,11 +12,12 @@ export function useRunNodeInspectionNavigation(selection: SelectedRunState) {
   const linkedNodeId = typeof search.runNodeId === 'string' ? search.runNodeId : undefined
   const exchange = typeof search.runExchangeKey === 'string' ? search.runExchangeKey : undefined
   const linkedExecutionId = readRunInspectionKey(exchange).executionId
+  const selectSidePanel = board?.selectSidePanel
   useEffect(() => {
-    if (board?.selectSidePanel && !search.boardPanel && linkedNodeId && selection.isCurrent(selection.generation)) {
-      board.selectSidePanel({ kind: 'agent', nodeId: linkedNodeId, tab: 'details', executionId: linkedExecutionId })
+    if (selectSidePanel && !search.boardPanel && linkedNodeId && selection.isCurrent(selection.generation)) {
+      selectSidePanel({ kind: 'agent', nodeId: linkedNodeId, tab: 'details', executionId: linkedExecutionId })
     }
-  }, [board?.selectSidePanel, search.boardPanel, linkedNodeId, linkedExecutionId, selection])
+  }, [selectSidePanel, search.boardPanel, linkedNodeId, linkedExecutionId, selection])
   const selected = board?.sidePanel?.kind === 'agent' ? board.sidePanel : undefined
   const nodeId = board ? selected?.nodeId : linkedNodeId
   const executionId = board ? selected?.executionId : linkedExecutionId

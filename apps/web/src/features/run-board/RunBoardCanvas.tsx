@@ -18,7 +18,8 @@ import { savedEdgeCurve } from './curve'
 import { projectRunBoard, READ_ONLY_FLOW_PROPS, type AvailableRunBoardSnapshot, type SavedBoardEdge, type SavedBoardNode } from './model'
 import '@xyflow/react/dist/style.css'
 import './runBoard.css'
-import { HierarchyCanvasControls, useCollapsedWorkers } from '../workflow-hierarchy/HierarchyCanvasControls'
+import { HierarchyCanvasControls } from '../workflow-hierarchy/HierarchyCanvasControls'
+import { useCollapsedWorkers } from '../workflow-hierarchy/useCollapsedWorkers'
 import { useWorkflowBoard } from '../workflow-board/context'
 
 const sides = [Position.Top, Position.Right, Position.Bottom, Position.Left] as const

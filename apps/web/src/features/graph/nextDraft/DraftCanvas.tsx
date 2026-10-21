@@ -28,7 +28,8 @@ import { SelectedRunCanvas } from '../../workflow-board/inspect/SelectedRunCanva
 import { CiServerNode, type CiServerFlowNode } from '../../workflow-board/inspect/CiServer'
 import { CI_SERVER_NODE_ID } from '../../workflow-board/inspect/ciServer'
 import { useBoardCiServer } from '../../workflow-board/inspect/useBoardCiServer'
-import { HierarchyCanvasControls, useCollapsedWorkers } from '../../workflow-hierarchy/HierarchyCanvasControls'
+import { HierarchyCanvasControls } from '../../workflow-hierarchy/HierarchyCanvasControls'
+import { useCollapsedWorkers } from '../../workflow-hierarchy/useCollapsedWorkers'
 import '@xyflow/react/dist/style.css'
 
 export type OpenAgentPanel = { nodeId: string; panel: AgentPanel }

@@ -4,11 +4,6 @@ import { useSidePanelPresentation } from '../workflow-board/sidePanelPresentatio
 import './hierarchy.css'
 
 const empty: string[] = []
-export function useCollapsedWorkers(scope: string, hierarchy?: WorkflowHierarchy | null) {
-  const collapsed = useSidePanelPresentation(state => state.collapsedTeams[scope] ?? empty)
-  return new Set(hierarchy?.parents.filter(member => collapsed.includes(member.parentNodeId))
-    .map(member => member.workflowNodeId) ?? [])
-}
 
 /** Local display controls never change saved membership, routes or geometry. */
 export function HierarchyCanvasControls({ scope, hierarchy, name, onTeam }: {
