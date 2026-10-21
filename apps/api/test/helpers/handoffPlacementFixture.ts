@@ -24,6 +24,7 @@ import { mixedComputerPlacement } from './mixedComputerPlacement.js'
 import { readUntil } from './observableCondition.js'
 import { prepareHandoffSource } from './handoffSourcePreparation.js'
 import { handoffOutput } from './workHandoffSiblings.js'
+import { settlesWorkerTerminals } from './handoffWorkerReceipts.js'
 
 /** Real placement, graph, lifecycle and MCP services; only the native provider
  * and physical source preparation are synthetic. No device or CI job is contacted. */
@@ -51,9 +52,10 @@ export async function handoffPlacementFixture(options: { checkOutcome?: 'qualifi
   let base: Awaited<ReturnType<typeof currentOperatorIntegration>>
   try {
     base = await currentOperatorIntegration({ fixture: definition, insertRun: false,
-      approvalNodeIds: [], workerParallelism: 3,
+      approvalNodeIds: [], workerParallelism: 3, collaborationPorts: {},
       onRunTerminal: async () => { completion.resolve() },
       outputFor: handoffOutput,
+      managerFactory: () => settlesWorkerTerminals(base.db.pool, base.provider.connection()),
       admitPlacementExecutionLocked: async (sql, owner, run, execution, ref, digest) => {
         if (!placement) throw new Error('Placement fixture is not ready.')
         await placement.producer.admitExecution(sql, owner, execution, ref, digest, run.authorizationPrincipalId)

@@ -5,6 +5,7 @@ import { useSidePanelPresentation } from '../workflow-board/sidePanelPresentatio
 const empty: string[] = []
 export function useCollapsedWorkers(scope: string, hierarchy?: WorkflowHierarchy | null) {
   const collapsed = useSidePanelPresentation(state => state.collapsedTeams[scope] ?? empty)
+  // Stable between renders: the canvases memoize the node and edge lists they give React Flow on it.
   return useMemo(() => new Set(hierarchy?.parents.filter(member => collapsed.includes(member.parentNodeId))
-    .map(member => member.workflowNodeId) ?? []), [hierarchy, collapsed])
+    .map(member => member.workflowNodeId) ?? []), [collapsed, hierarchy])
 }

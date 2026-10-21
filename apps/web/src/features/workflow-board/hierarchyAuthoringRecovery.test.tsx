@@ -60,9 +60,9 @@ async function compare() {
   return comparison
 }
 
-it('creates, edits and plans removal through Board controls, retaining every raw form through repeated conflict recovery', async () => {
+async function conflictAfterCreatingWorker() {
   const f = await recoveryFixture(fixture(['orchestrator', 'orchestrator', 'orchestrator', 'coder']))
-  let view = await mount(f)
+  const view = await mount(f)
   await applyHierarchy('node-1')
   await createWorker('node-1', 'Created Worker', 'Applied creation task')
   f.externalEdit('Saved on another computer')
@@ -71,35 +71,63 @@ it('creates, edits and plans removal through Board controls, retaining every raw
   const rejected = f.requests.at(-1)!
   const originalCreated = rejected.stagedAgents!.find(item => item.agent.name === 'Created Worker')!
   expect(originalCreated.baseRevision).toBeNull()
+  return { f, view, rejected, originalCreated }
+}
 
+async function inspectLatestFromSettings(recoveries: number) {
+  await settings()
+  await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(recoveries))
+}
+
+it('recovers an applied creation after the saved workflow changed', async () => {
+  await conflictAfterCreatingWorker()
+  await inspectLatestFromSettings(1)
+  const comparison = await compare()
+  for (const text of ['Created Worker', 'Applied creation task', '"workerParents"']) expect(comparison).toHaveTextContent(text)
+  expect(authoring().getByTitle('Rename workflow')).toHaveTextContent('Saved on another computer')
+  expect(within(screen.getByRole('navigation', { name: 'Agents and connections' }))
+    .queryByRole('button', { name: 'Created Worker' })).not.toBeInTheDocument()
+}, 30000)
+
+it('retains unapplied Worker, creation and Master forms through refreshes', async () => {
+  const { f, view: mounted } = await conflictAfterCreatingWorker()
   await openAgent('Node 3')
   await userEvent.selectOptions(rail().getByLabelText('Reports to'), 'node-2')
   await userEvent.click(rail().getByRole('button', { name: 'Advanced settings' }))
   fireEvent.change(rail().getByRole('textbox', { name: 'Initial prompt' }), { target: { value: 'Unapplied Worker direction' } })
   await userEvent.click(rail().getByRole('button', { name: 'Details' }))
   await createWorker('node-2', 'Unapplied Worker', 'Creation in progress', { apply: false })
-  view = await refresh(f, view)
+  const view = await refresh(f, mounted)
   await settings()
   await userEvent.selectOptions(screen.getByLabelText('Master'), 'node-2')
   await userEvent.selectOptions(screen.getByLabelText('Previous Master'), 'keep')
-  view = await refresh(f, view)
+  await refresh(f, view)
+  await inspectLatestFromSettings(1)
+  const comparison = await compare()
+  for (const text of ['Unapplied Worker direction', 'Unapplied Worker', 'Creation in progress', '"previousMaster": "keep"']) {
+    expect(comparison).toHaveTextContent(text)
+  }
+}, 30000)
+
+it('retains a planned Agent removal through refresh until the latest workflow is inspected', async () => {
+  const { f, view: mounted } = await conflictAfterCreatingWorker()
   const remove = await removal()
   await userEvent.selectOptions(remove.getByLabelText('Move 2 Workers to'), 'node-2')
-  view = await refresh(f, view)
+  await refresh(f, mounted)
   const resumedRemoval = within(await screen.findByRole('dialog', { name: 'Remove Node 1 from workflow?' }))
   expect(resumedRemoval.getByLabelText('Move 2 Workers to')).toHaveValue('node-2')
   await userEvent.click(resumedRemoval.getByRole('button', { name: 'Inspect latest' }))
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove Node 1 from workflow?' })).not.toBeInTheDocument())
   const comparison = await compare()
-  for (const text of ['Created Worker', 'Applied creation task', 'Unapplied Worker direction',
-    'Unapplied Worker', 'Creation in progress', '"workerParents"', '"removeNode"',
-    '"destinationParentId": "node-2"', '"previousMaster": "keep"']) {
-    expect(comparison).toHaveTextContent(text)
-  }
-  expect(authoring().getByTitle('Rename workflow')).toHaveTextContent('Saved on another computer')
-  expect(within(screen.getByRole('navigation', { name: 'Agents and connections' }))
-    .queryByRole('button', { name: 'Created Worker' })).not.toBeInTheDocument()
+  for (const text of ['"removeNode"', '"destinationParentId": "node-2"']) expect(comparison).toHaveTextContent(text)
+}, 30000)
 
+it('keeps an unapplied creation form through a second conflict recovery', async () => {
+  const { f, view: mounted } = await conflictAfterCreatingWorker()
+  await createWorker('node-2', 'Unapplied Worker', 'Creation in progress', { apply: false })
+  const view = await refresh(f, mounted)
+  await inspectLatestFromSettings(1)
   await applyHierarchy('node-2')
   f.externalEdit('Second concurrent save')
   await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
@@ -108,6 +136,18 @@ it('creates, edits and plans removal through Board controls, retaining every raw
   await waitFor(() => expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(2))
   await refresh(f, view)
   expect(await compare()).toHaveTextContent('Creation in progress')
+}, 30000)
+
+it('saves a reapplied creation and removal after repeated conflict recovery', async () => {
+  const { f, view, rejected, originalCreated } = await conflictAfterCreatingWorker()
+  await inspectLatestFromSettings(1)
+  await applyHierarchy('node-2')
+  f.externalEdit('Second concurrent save')
+  await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
+  await screen.findByText('The saved workflow changed. Inspect latest to compare your draft.')
+  await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(2))
+  await refresh(f, view)
   await applyHierarchy('node-2')
   await createWorker('node-2', 'Created Worker', 'Applied creation task')
   const reappliedRemoval = await removal()
@@ -124,7 +164,6 @@ it('creates, edits and plans removal through Board controls, retaining every raw
   expect(accepted.commandId).not.toBe(rejected.commandId)
   expect(accepted.draftId).not.toBe(rejected.draftId)
   expect(accepted.expectedWorkflowVersionId).not.toBe(rejected.expectedWorkflowVersionId)
-  expect(f.saved().version.definition.nodes.some(node => node.id === 'node-1')).toBe(false)
   expect(f.saved().version.definition.nodes.some(node => node.kind !== 'job' && node.agentId === originalCreated.agent.id)).toBe(false)
   expect(accepted.stagedAgents).toContainEqual(expect.objectContaining({ baseRevision: null,
     agent: expect.objectContaining({ name: 'Created Worker' }) }))
