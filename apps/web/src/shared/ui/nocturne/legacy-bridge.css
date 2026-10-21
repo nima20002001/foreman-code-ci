@@ -1,0 +1,13 @@
+@import './nocturne.css';
+
+/* xyflow controls on the design-system tokens, both themes. */
+.react-flow__controls { border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-popover); }
+.react-flow__controls-button { color: var(--text); fill: currentColor; border-color: var(--border); background: var(--surface-raised); min-width: 32px; min-height: 32px; }
+.react-flow__controls-button:hover { background: var(--surface-hover); }
+.react-flow__controls-button:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+@media (pointer: coarse) {
+  .react-flow__controls-button { min-width: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge-path { animation: none !important; }
+}

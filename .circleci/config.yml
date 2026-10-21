@@ -1,0 +1,237 @@
+version: 2.1
+
+# Main triggers one pipeline per CI suite or integration partition on the public mirror, where open-source Linux
+# builds are free. The same suite script runs here and on GitHub Actions.
+parameters:
+  run_id:
+    type: string
+    default: ''
+  suite:
+    type: string
+    default: ''
+  slice:
+    type: string
+    default: ''
+  scope:
+    type: string
+    default: affected
+  files:
+    type: string
+    default: ''
+  default_branch:
+    type: string
+    default: main
+  base_commit:
+    type: string
+    default: ''
+  partition:
+    # JSON, or sha256:<hash> for ci-dispatch-inputs.json on this execution's checked-out ref.
+    type: string
+    default: ''
+  expected_duration_ms:
+    type: integer
+    default: 0
+  gate:
+    type: integer
+    default: 0
+  durations:
+    type: string
+    default: '{}'
+
+jobs:
+  ci:
+    # A full VM: Docker for PostgreSQL and a cgroup to delegate, like our build computers.
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+    environment:
+      CI: 'true'
+      # The machine executor has systemd; the suite starts and probes its per-user manager.
+      CI_USER_SYSTEMD: '1'
+      FOREMAN_CODE_CI_DEDICATED: '1'
+      FOREMAN_CODE_CI_CONTRACTS_CACHE: .logs/ci-contracts-cache
+      FOREMAN_CODE_CI_CLIS_PREFIX: .logs/ci-clis
+      SUITE: << pipeline.parameters.suite >>
+      SLICE: << pipeline.parameters.slice >>
+      SCOPE: << pipeline.parameters.scope >>
+      SELECTED_FILES: << pipeline.parameters.files >>
+      DEFAULT_BRANCH: << pipeline.parameters.default_branch >>
+      BASE_COMMIT: << pipeline.parameters.base_commit >>
+      CI_PARTITION: << pipeline.parameters.partition >>
+      CI_EXPECTED_DURATION_MS: << pipeline.parameters.expected_duration_ms >>
+      FOREMAN_CODE_CI_GATE: << pipeline.parameters.gate >>
+      CI_DURATIONS: << pipeline.parameters.durations >>
+      DURATIONS_OUTPUT: .logs/ci-durations/durations.json
+      TEST_RESULTS_OUTPUT: .logs/ci-durations/test-results.json
+      CI_SELECTION_OUTPUT: .logs/ci-durations/selection.json
+      CI_WATCHDOG_MESSAGE_FILE: .logs/ci-durations/watchdog-message.json
+    steps:
+      - run:
+          # Chromium's sandbox needs unprivileged user namespaces, which the image's AppArmor policy restricts.
+          name: Allow unprivileged user namespaces
+          command: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run:
+          name: Checkout tested commit
+          command: |
+            started=$(date +%s%3N)
+            git init --quiet .
+            repository_url="$CIRCLE_REPOSITORY_URL"
+            # The mirror is public; checkout does not need an SSH deploy key.
+            case "$repository_url" in
+              git@github.com:*) repository_url="https://github.com/${repository_url#git@github.com:}" ;;
+            esac
+            git remote add origin "$repository_url"
+            depth=1
+            if [ -n "$BASE_COMMIT" ]; then depth=2; fi
+            git fetch --quiet --no-tags --depth="$depth" origin "$CIRCLE_SHA1"
+            git checkout --quiet --detach FETCH_HEAD
+            echo "[ci-setup] checkout completed in $(( $(date +%s%3N) - started )) ms"
+      # The pinned Node toolchain is cached by version; hits use its bin directory directly.
+      - restore_cache:
+          keys:
+            - node-toolchain-v22.23.2-{{ arch }}
+      - run:
+          name: Node and pnpm
+          command: |
+            # Immutable caches restored by their exact key are not saved again at the end of the job.
+            # The app keeps private files only under folders other users cannot replace; the image's home is group-writable.
+            chmod go-w "$HOME"
+            mkdir -p "$HOME/.cache" && chmod go-w "$HOME/.cache"
+            bin="$HOME/.nvm/versions/node/v22.23.2/bin"
+            if [ -x "$bin/node" ]; then
+              touch "$HOME/.ci-node-restored"
+            else
+              for attempt in 1 2 3; do
+                if nvm install 22.23.2; then
+                  break
+                else
+                  status=$?
+                  if [ "$attempt" -eq 3 ]; then exit "$status"; fi
+                  echo "Node install failed; retrying attempt $((attempt + 1)) of 3." >&2
+                  sleep "$((attempt * 5))"
+                fi
+              done
+              bin="$(dirname "$(nvm which 22.23.2)")"
+            fi
+            echo "export PATH=\"$bin:\$PATH\"" >> "$BASH_ENV"
+            export PATH="$bin:$PATH"
+            corepack enable
+            node --version
+            mkdir -p .logs
+            node scripts/ci-packages.mjs key "$PWD" > .logs/ci-packages-key
+            # The harness CLIs install with the 48-hour package age rule; a weekly key refreshes them.
+            date -u +%G-W%V > .logs/ci-clis-key
+            if [ "$SUITE" != install ]; then
+              node scripts/ci-contracts.mjs key "$PWD" > .logs/ci-contracts-key
+            fi
+      - when:
+          condition:
+            matches:
+              pattern: '^(unit|unit-api|integration)$'
+              value: << pipeline.parameters.suite >>
+          steps:
+            - restore_cache:
+                keys:
+                  - clis-v1-{{ arch }}-node22.23.2-{{ checksum ".logs/ci-clis-key" }}
+      - run: scripts/ci-suite.sh start
+      # Keep the pnpm store inside node_modules so cache hits retain the package integrity index.
+      - restore_cache:
+          keys:
+            - packages-with-store-metadata-v2-{{ checksum ".logs/ci-packages-key" }}
+      - run:
+          name: Install from cached store
+          command: node scripts/ci-packages.mjs install "$PWD"
+      - when:
+          condition:
+            not:
+              equal: [install, << pipeline.parameters.suite >>]
+          steps:
+            - restore_cache:
+                keys:
+                  - contracts-build-{{ checksum ".logs/ci-contracts-key" }}
+            - run: if [ -d packages/contracts/dist ]; then touch "$HOME/.ci-contracts-restored"; fi
+            - restore_cache:
+                keys:
+                  - ci-<< pipeline.parameters.suite >>-{{ checksum "pnpm-lock.yaml" }}-
+      - run:
+          name: Suite
+          command: |
+            set -o pipefail
+            mkdir -p .logs/ci-durations
+            scripts/ci-suite.sh 2>&1 | tee .logs/ci-durations/suite.log
+      # Publish results before cache saves and any early halt.
+      - store_artifacts:
+          path: .logs/ci-durations
+          destination: durations
+      - when:
+          condition:
+            not:
+              equal: [install, << pipeline.parameters.suite >>]
+          steps:
+            - save_cache:
+                key: ci-<< pipeline.parameters.suite >>-{{ checksum "pnpm-lock.yaml" }}-{{ .Revision }}
+                when: always
+                paths:
+                  - node_modules/.vitest-cache
+                  - apps/api/node_modules/.cache
+                  - apps/web/node_modules/.cache
+                  - apps/web/node_modules/.tmp
+                  - apps/worker/node_modules/.cache
+                  - packages/contracts/node_modules/.cache
+      # Keep summaries and failing files' logs; the per-slot copies and the archive of them are successful-file noise.
+      - run:
+          name: Trim integration logs
+          when: always
+          command: |
+            find .logs/test-integration -type d -name slots -prune -exec rm -rf {} + 2>/dev/null || true
+            find .logs/test-integration -name logs.tar.gz -delete 2>/dev/null || true
+      - store_artifacts:
+          path: .logs/test-integration
+          destination: integration-logs
+      - when:
+          condition:
+            matches:
+              pattern: '^(unit|unit-api|integration)$'
+              value: << pipeline.parameters.suite >>
+          steps:
+            - save_cache:
+                key: clis-v1-{{ arch }}-node22.23.2-{{ checksum ".logs/ci-clis-key" }}
+                paths:
+                  - .logs/ci-clis
+      # Immutable keys already restored exactly need no save; a hit on all three ends the job here.
+      - run:
+          name: Skip saves of restored caches
+          command: |
+            if [ -e "$HOME/.ci-node-restored" ] && [ -e .logs/ci-packages-restored ] \
+              && { [ "$SUITE" = install ] || [ -e "$HOME/.ci-contracts-restored" ]; }; then
+              circleci-agent step halt
+            fi
+      - save_cache:
+          key: node-toolchain-v22.23.2-{{ arch }}
+          paths:
+            - ~/.nvm/versions/node/v22.23.2
+      # The suite adds its own caches under these folders; the packages cache keeps only the installed state.
+      - run: rm -rf node_modules/.vitest-cache apps/*/node_modules/.cache apps/*/node_modules/.tmp packages/*/node_modules/.cache
+      - save_cache:
+          key: packages-with-store-metadata-v2-{{ checksum ".logs/ci-packages-key" }}
+          paths:
+            - node_modules
+            - .logs/pnpm-metadata
+            - apps/api/node_modules
+            - apps/web/node_modules
+            - apps/worker/node_modules
+            - packages/contracts/node_modules
+      - when:
+          condition:
+            not:
+              equal: [install, << pipeline.parameters.suite >>]
+          steps:
+            - save_cache:
+                key: contracts-build-{{ checksum ".logs/ci-contracts-key" }}
+                paths:
+                  - packages/contracts/dist
+
+workflows:
+  ci:
+    when: << pipeline.parameters.run_id >>
+    jobs: [ci]

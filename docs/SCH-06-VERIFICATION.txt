@@ -1,0 +1,130 @@
+SCH-06 VERIFICATION RECORD
+
+> Historical implementation and verification record. OpenCode support was
+> removed on 2026-10-08. Its references below describe saved history and
+> earlier observations, not a supported creation or execution path.
+
+=========================
+Base SHA: b99c4aa7a829e0dc5d7bb83a09f05375eabed5cd
+Repository: nima20002000/graphql
+Branch: feat/nim-2701-schedules
+
+Source access and provenance
+----------------------------
+Read pinned source with the authorized GitHub connector. This environment did
+not contain a full checkout or installed workspace dependencies. All four
+modified existing files were reconstructed byte-for-byte from the pinned source
+and their original Git blob SHA-1 values were verified before the final diff.
+No remote repository, issue or configuration write was performed.
+
+Actual executed checks
+----------------------
+Node: v22.16.0
+Supplementary compiler: globally available TypeScript 5.8.3 (NOT the repo's
+pinned TypeScript runtime; used only for syntax transpilation and offline tests).
+
+1. TypeScript transpileModule, ES2022/ESNext, reportDiagnostics=true:
+Node v22.16.0; TypeScript 5.8.3; syntax transpilation ONLY
+PASS apps/api/src/mcp/operator/tools/agentChat.ts
+PASS apps/api/src/modules/conversations/agentChat.ts
+PASS apps/api/src/modules/conversations/selectedRunChat.ts
+PASS apps/api/src/routes/agentChat.ts
+PASS apps/api/src/routes/selectedRunChat.ts
+PASS combined predecessor (historical syntax check; split files have not been checked):
+  apps/api/test/sch06-agent-chat-manual.integration.test.ts
+  apps/api/test/sch06-agent-chat-schedule.integration.test.ts
+  apps/api/test/sch06-agent-chat-historical.integration.test.ts
+  apps/api/test/sch06-agent-chat-query.integration.test.ts
+PASS apps/api/test/historical-agent-chat-identity.test.ts
+PASS packages/contracts/src/selectedRunChat.ts
+PASS packages/contracts/test/selected-run-chat.test.ts
+Files: 9; syntax errors: 0. NOT semantic typechecking.
+
+2. node --check scripts/sch06-offline-check.cjs: PASS (exit 0).
+
+3. SCH06_TYPESCRIPT=/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript
+   node --test scripts/sch06-offline-check.cjs
+   Result: 24 passed, 0 failed, 0 skipped; exit 0.
+
+The offline runner transpiles and executes the actual changed selection helper
+and AgentChatService. Shared contract parsers are identity doubles; SQL,
+authority and native-provider dependencies are explicit in-memory doubles.
+This does NOT execute real Zod validation, HTTP/MCP transport or discovery,
+PostgreSQL locking/SQL, native providers, or a semantic TypeScript check.
+Do not report these 24 checks as repository Vitest/integration passes.
+
+Actual TAP test outcomes:
+ok 1 - removed Agent reads snapshot identity without touching the live workflow or native factory
+ok 2 - two Runs sharing one Agent remain separate
+ok 3 - multiple executions require explicit selection, and conversation reads stay pinned
+ok 4 - an explicitly missing session never falls back to another execution
+ok 5 - foreign conversation receipt is rejected before admission, including the legacy send entrypoint
+ok 6 - mixed interrupt key fails before command receipt or native control
+ok 7 - live revocation is consulted before historical data or native access
+ok 8 - wrong-scope grants are denied before history
+ok 9 - lost-id: explicit unavailable capability, readable transcript and blocked send
+ok 10 - lost-version: explicit unavailable capability, readable transcript and blocked send
+ok 11 - ephemeral: explicit unavailable capability, readable transcript and blocked send
+ok 12 - non-resumable: explicit unavailable capability, readable transcript and blocked send
+ok 13 - source-is-child: explicit unavailable capability, readable transcript and blocked send
+ok 14 - legacy key is reused without changing its execution identity
+ok 15 - duplicated origin and mixed persisted columns fail closed
+ok 16 - mismatched snapshot scope is not used
+ok 17 - legacy and unexecuted nodes return unavailable rather than a live chat fallback
+ok 18 - choice projection is bounded but an execution past the first 100 remains addressable
+ok 19 - native fork uses exact execution reference, isolated chat ids and no environment credentials
+ok 20 - a returned Run source is neither bound nor adopted/closed as a chat child
+ok 21 - a different attached child is rejected before any turn can use it
+ok 22 - foreign native turn receipt cannot settle the selected chat
+ok 23 - authorization does not hold a pool lease across downstream service calls
+ok 24 - revocation during lookup denies readback and is rechecked before send admission
+# tests 24
+# pass 24
+# fail 0
+# skipped 0
+# duration_ms 422.920817
+
+Pinned toolchain attempt and unrun work
+--------------------------------------
+Attempted: corepack pnpm@11.27.0 --version
+Result: FAILED while downloading the pinned pnpm archive. The captured cause:
+  Error when performing request to the pnpm-11.27.0.tgz registry archive
+  TypeError: fetch failed
+  Error: getaddrinfo EAI_AGAIN registry.npmjs.org
+No alternate package runtime, plain npm install, dependency-version change,
+release-age bypass or lockfile rewrite was used.
+
+Not run:
+- pnpm install / dependency installation (bootstrap failed beforehand).
+- All repository semantic typecheck, lint, test and build gates.
+- The added real Zod/Vitest contract and service test suites.
+- PostgreSQL integration and authenticated HTTP/MCP tests.
+- Existing chat regression suites, full integration or acceptance suites.
+- Real Codex app-server/OpenCode fork, resume, steering, interruption,
+  session-loss and chat-only App MCP/credential-isolation qualification.
+
+TEST_DATABASE_URL was unset. Neither docker nor psql was found on PATH.
+The real repository tests are supplied, not claimed to have passed.
+The integration suite uses the repository's isolated test database conventions
+and deterministic native-port fixtures, not paid live provider calls.
+
+Static/manual review
+--------------------
+Confirmed the selected storage/read lookup includes physical workspace,
+workflow, Run, node, Agent and execution identity. Confirmed the service diff
+adds no Run/result/snapshot/native-source writes, no worker credentials and no
+new workflow native environment. Frozen snapshot and FEAT-15 contract files
+are absent from the payload. Package metadata changes only add a subpath export.
+These reviews do not replace executable repository or native qualification.
+
+Integration prerequisites and limitations
+----------------------------------------
+- Confirm/register/apply the existing SCH-05 runSnapshotMigration (270205);
+  migrations.ts was not modified. No SCH-06 schema migration is introduced.
+- Legacy unpinned chat queries retain their old latest-execution policy; use
+  the new selection form for explicit historical node/execution selection.
+- key=null before lazy conversation creation; never use a partial identity as
+  the frozen SelectedRunChatKey.
+- Reads do not probe provider liveness. Unknown on-disk loss is discovered by
+  continuation through the existing native adapter, not claimed detected early.
+- Source code and tests are delivered; merge-readiness is NOT established.

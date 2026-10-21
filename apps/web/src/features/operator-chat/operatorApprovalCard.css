@@ -1,0 +1,25 @@
+.operator-approval-choice {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  flex: 1 1 13rem;
+  min-width: 0;
+}
+
+.operator-approval-scope {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.operator-approval-request {
+  max-height: 20rem;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.45;
+}

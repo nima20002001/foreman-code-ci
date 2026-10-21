@@ -1,0 +1,257 @@
+.agents-directory {
+  display: grid;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+}
+
+.agent-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 17rem);
+  gap: var(--space-4);
+}
+
+.agent-directory-card {
+  min-height: 5.5rem;
+}
+
+.agent-directory-card .n-card-header h3 {
+  font-size: 15px;
+}
+
+.agent-directory-card .n-card-header p:not(.n-eyebrow) {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.agent-directory-card-shell {
+  position: relative;
+  min-width: 0;
+  touch-action: pan-y;
+  transition: transform var(--motion-duration) var(--motion-ease-out);
+}
+
+.agent-directory-card-shell .agent-directory-card {
+  width: 100%;
+}
+
+.agent-directory-card-more {
+  position: absolute;
+  z-index: 2;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.agent-settings-heading,
+.agent-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.agent-settings-heading > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.agent-settings-heading,
+.agent-settings-name,
+.agent-settings-prompt,
+.agent-settings-limits,
+.agent-settings-advanced,
+.agent-settings-confirm,
+.agent-removal-blocked {
+  grid-column: 1 / -1;
+}
+
+.agent-settings-advanced {
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.agent-settings-advanced summary { cursor: pointer; font-weight: 600; }
+.agent-settings-advanced-fields { display: grid; gap: var(--space-2); margin-top: 0.625rem; }
+.agent-settings-advanced-fields label { display: grid; gap: var(--space-1); font-weight: 600; }
+.agent-settings-advanced-fields small,
+.agent-settings-advanced-fields p { margin: 0; line-height: 1.4; }
+.agent-settings-rules { display: grid; gap: var(--space-2); margin: 0; padding: 0.5rem; border: 1px solid var(--color-border); }
+.agent-settings-rules > div { display: grid; grid-template-columns: 1fr 1fr 0.75fr; gap: var(--space-1); }
+.agent-settings-rules button { min-height: 1.8rem; border: 1px solid var(--color-border-strong); color: var(--color-text); background: var(--color-surface); cursor: pointer; }
+
+.agent-settings-limits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0.625rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.agent-settings-limits legend {
+  padding: 0 0.25rem;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-settings-limits label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-settings-heading button,
+.agent-settings-actions button,
+.agent-settings-confirm button {
+  min-height: 2rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-strong);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-settings-heading button {
+  display: grid;
+  width: 2rem;
+  min-height: 2rem;
+  place-items: center;
+  padding: 0;
+}
+
+.agent-settings-heading .agent-settings-trash {
+  border-color: transparent;
+  color: var(--danger);
+  background: transparent;
+}
+
+.agent-settings-actions {
+  align-self: end;
+  justify-content: flex-start;
+}
+
+.agent-settings-actions button {
+  display: grid;
+  width: 2rem;
+  min-width: 2rem;
+  place-items: center;
+  padding: 0;
+  border-color: transparent;
+  color: var(--color-text-muted);
+  background: transparent;
+}
+
+.agent-settings-actions button:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+  background: var(--color-surface-subtle);
+}
+
+.agent-settings-confirm {
+  position: fixed;
+  z-index: 60;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(20rem, calc(100vw - 2rem));
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: 0.875rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-dialog);
+  transform: translate(-50%, -50%);
+}
+
+.agent-settings-confirm p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.agent-removal-blocked p {
+  margin: 0 0 0.375rem;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.agent-removal-blocked a {
+  display: block;
+  padding: 0.25rem 0;
+  color: var(--color-text-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-directory-card-shell[data-reorder-settling='true'] {
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+}
+
+.agent-directory-card-shell:hover .agent-directory-card {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-subtle);
+}
+
+.agent-directory-card-shell:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.agent-navigation {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: 0.25rem;
+}
+
+.agent-navigation .nav-submenu {
+  margin-top: 0;
+}
+
+.agent-navigation-item {
+  min-height: 1.875rem;
+  padding-block: 0.35rem;
+}
+
+.agent-navigation-state {
+  margin: 0;
+  padding: 0.25rem 0.625rem 0.25rem 1.375rem;
+  color: var(--color-text-faint);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-navigation-state-error {
+  color: var(--color-text-muted);
+}
+
+.workspace-shell-navigation-collapsed .agent-navigation {
+  width: 100%;
+}
+
+.workspace-shell-navigation-collapsed .agent-navigation-list,
+.workspace-shell-navigation-collapsed .agent-navigation-state {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .agent-directory-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

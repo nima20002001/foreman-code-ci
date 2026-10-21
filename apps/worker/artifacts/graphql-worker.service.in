@@ -1,0 +1,24 @@
+[Unit]
+Description=Foreman Code selected-main worker
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=@NODE@ @CLI@ run --state @STATE@
+Environment=HOME=@HOME@
+Environment=PATH=@PATH@
+UnsetEnvironment=NODE_OPTIONS NODE_PATH NODE_TLS_REJECT_UNAUTHORIZED
+WorkingDirectory=@STATE@
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+Delegate=cpu memory pids
+UMask=0077
+# The host controller uses installed quota and rootless-container helpers.
+# CI workloads enforce no-new-privileges in their container policy.
+NoNewPrivileges=no
+
+[Install]
+WantedBy=default.target

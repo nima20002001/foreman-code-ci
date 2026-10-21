@@ -1,0 +1,6 @@
+.chat-notice { display: flex; align-items: center; gap: var(--space-2, .5rem); min-width: 0; margin: 0 0 .25rem; padding: .2rem .25rem .2rem .6rem; border: 1px solid var(--color-border, var(--border)); border-radius: var(--radius-md); background: var(--color-surface-subtle, var(--surface-hover)); font-size: 12px; line-height: 1.4; }
+.chat-notice[data-tone='warning'] { border-color: color-mix(in srgb, var(--color-warning-text, currentColor) 40%, transparent); }
+.chat-notice[data-tone='danger'] { border-color: color-mix(in srgb, var(--color-danger, currentColor) 50%, transparent); }
+.chat-notice > p { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.chat-notice-actions { display: inline-flex; flex-wrap: wrap; gap: .25rem; }
+.chat-notice > .n-icon-button { flex: 0 0 auto; width: 24px; height: 24px; min-height: 24px; padding: 0; }

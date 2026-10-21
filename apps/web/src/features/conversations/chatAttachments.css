@@ -1,0 +1,38 @@
+/* File chips wrap above the action row, never beside Send/Stop in a fixed-width strip.
+   The Operator composer's own layout lives in operatorChat.css. */
+.agent-chat-composer-controls .attachment-control {
+  min-width: 0;
+  width: 100%;
+}
+.agent-chat-composer-controls .n-composer,
+.agent-chat-composer-controls .n-composer-context {
+  min-width: 0;
+  max-width: 100%;
+}
+.agent-chat-composer-controls .n-composer > footer {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Keep the keyboard hint accessible without crowding compact Board popovers. */
+.agent-chat-composer-controls .n-composer > footer > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.agent-chat-composer-controls .n-composer > footer .n-actions,
+.agent-chat-composer-controls .agent-chat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 6px;
+}
+.agent-chat-composer-controls .n-composer > footer .n-actions { width: 100%; justify-content: space-between; }
+.agent-chat-composer-controls .n-composer > footer .attachment-control { display: contents; }
+.agent-chat-composer-controls .n-composer > footer .attachment-content { flex: 1 0 100%; order: -1; }
+.agent-chat-composer-controls .n-composer > footer .attachment-content:empty { display: none; }
+.agent-chat-composer-controls .agent-chat-controls > button {
+  flex-shrink: 0;
+}

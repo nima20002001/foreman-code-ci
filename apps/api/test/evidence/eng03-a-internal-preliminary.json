@@ -1,0 +1,510 @@
+{
+  "title": "ENG-03 A native provider matrix",
+  "mode": "native internal preliminary",
+  "testedSource": {
+    "readyBaseSha": "f823f0e352d954c8c8081d6fe7889008f065a62d",
+    "stagedDriverPatchSha256": "6cb0252f3c48a80170aca57fa13fb49409e512b9626b084afb89b89673b4aaa9",
+    "committedDriverSha": "1be59d84790a05f4c335abc71b142bec2cb84dd8",
+    "note": "Runs preceded the commit; no driver changes followed these three runs."
+  },
+  "command": "RUN_REAL_HARNESS_TESTS=1 ENG03_A_TEST_DATABASE_URL=postgresql://<redacted>@127.0.0.1:5432/graphql_eng03_a_test corepack pnpm --filter @graphql/api exec vitest run test/real-harness.acceptance.test.ts -t E03-P0N",
+  "boundary": "Saved v2 graph and Run seeded through the internal service fixture while normal v2 public admission was closed. Public HTTP/MCP/browser qualification remains integration work.",
+  "scenarios": [
+    {
+      "id": "E03-P01",
+      "status": "pass_internal_preliminary",
+      "artifactPath": "/tmp/eng03-a-evidence/E03-P01-08117807652a44b5904df53e6ba4ad47.json",
+      "runId": "run-08117807652a44b5904df53e6ba4ad47",
+      "workflowVersionId": "wv-08117807652a44b5904df53e6ba4ad47",
+      "binaries": {
+        "codex": {
+          "path": "/home/user/.local/bin/codex",
+          "version": "codex-cli 0.156.1"
+        },
+        "opencode": {
+          "path": "/home/user/.local/bin/opencode",
+          "version": "1.18.31"
+        }
+      },
+      "models": {
+        "codex": "gpt-5.6-luna",
+        "opencode": "opencode-go/gpt-5.6-luna"
+      },
+      "executions": [
+        {
+          "id": "execution-a8260785-d052-4146-9a3c-f731e086d968",
+          "nodeId": "node-08117807652a44b5904df53e6ba4ad47-0",
+          "agentId": "agent-08117807652a44b5904df53e6ba4ad47-0",
+          "nativeSessionId": "01a0cf42-dbbb-7bb1-81b5-c2f9606fa755",
+          "state": "completed"
+        },
+        {
+          "id": "execution-2133b165-39e0-4f78-a866-d85a7bd39499",
+          "nodeId": "node-08117807652a44b5904df53e6ba4ad47-1",
+          "agentId": "agent-08117807652a44b5904df53e6ba4ad47-1",
+          "nativeSessionId": "01a0cf43-0727-7562-bdab-276b1d22192d",
+          "state": "completed"
+        },
+        {
+          "id": "execution-5ddbbfdb-4001-4f87-a2a9-769f9e6f6c92",
+          "nodeId": "node-08117807652a44b5904df53e6ba4ad47-2",
+          "agentId": "agent-08117807652a44b5904df53e6ba4ad47-2",
+          "nativeSessionId": "ses_f30bcd24bffedMvZUJrgPBmziE",
+          "state": "completed"
+        },
+        {
+          "id": "execution-a4e7fa09-2e4c-4220-b3f6-ce0f1921c1b9",
+          "nodeId": "node-08117807652a44b5904df53e6ba4ad47-3",
+          "agentId": "agent-08117807652a44b5904df53e6ba4ad47-3",
+          "nativeSessionId": "01a0cf44-6e8f-71a0-8867-102ae9b3dba0",
+          "state": "completed"
+        }
+      ],
+      "nativeIntervals": [
+        {
+          "executionId": "execution-2133b165-39e0-4f78-a866-d85a7bd39499",
+          "nativeSessionId": "01a0cf43-0727-7562-bdab-276b1d22192d",
+          "providerVersion": "codex-cli 0.156.1",
+          "start": {
+            "type": "turn.started",
+            "occurredAt": "2026-09-23T17:14:32.023Z",
+            "sequence": 0
+          },
+          "finish": {
+            "type": "turn.completed",
+            "occurredAt": "2026-09-23T17:15:12.735Z",
+            "sequence": 514
+          }
+        },
+        {
+          "executionId": "execution-5ddbbfdb-4001-4f87-a2a9-769f9e6f6c92",
+          "nativeSessionId": "ses_f30bcd24bffedMvZUJrgPBmziE",
+          "providerVersion": "1.18.31",
+          "start": {
+            "type": "message.updated",
+            "occurredAt": "2026-09-23T17:14:42.160Z",
+            "sequence": 4
+          },
+          "finish": {
+            "type": "session.idle",
+            "occurredAt": "2026-09-23T17:15:58.400Z",
+            "sequence": 501
+          }
+        }
+      ],
+      "overlapMs": 30575,
+      "reviewerNativeStart": "2026-09-23T17:16:03.876Z",
+      "reviewerAfterBothNativeFinishes": true,
+      "reviewerAcceptedInput": {
+        "runInput": {},
+        "predecessors": [
+          {
+            "senderNodeId": "node-08117807652a44b5904df53e6ba4ad47-1",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 4\n3 9\n4 16\n5 25\n6 36\n7 49\n8 64\n9 81\n10 3\n11 24\n12 47\n13 72\n14 2\n15 31\n16 62\n17 95\n18 33\n19 70\n20 12\n21 53\n22 96\n23 44\n24 91\n25 43\n26 94\n27 50\n28 8\n29 65\n30 27\n31 88\n32 54\n33 22\n34 89\n35 61\n36 35\n37 11\n38 86\n39 66\n40 48\n41 32\n42 18\n43 6\n44 93\n45 85\n46 79\n47 75\n48 73\n49 73\n50 75\n51 79\n52 85\n53 93\n54 6\n55 18\n56 32\n57 48\n58 66\n59 86\n60 11\n61 35\n62 61\n63 89\n64 22\n65 54\n66 88\n67 27\n68 65\n69 8\n70 50\n71 94\n72 43\n73 91\n74 44\n75 96\n76 53\n77 12\n78 70\n79 33\n80 95\n81 62\n82 31\n83 2\n84 72\n85 47\n86 24\n87 3\n88 81\n89 64\n90 49\n91 36\n92 25\n93 16\n94 9\n95 4\n96 1\n97 0\n98 1\n99 4\n100 9\n101 16\n102 25\n103 36\n104 49\n105 64\n106 81\n107 3\n108 24\n109 47\n110 72\n111 2\n112 31\n113 62\n114 95\n115 33\n116 70\n117 12\n118 53\n119 96\n120 44\nA-081178"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-08117807652a44b5904df53e6ba4ad47-2",
+            "senderExecutionId": "execution-2133b165-39e0-4f78-a866-d85a7bd39499"
+          },
+          {
+            "senderNodeId": "node-08117807652a44b5904df53e6ba4ad47-2",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 8\n3 27\n4 64\n5 24\n6 14\n7 40\n8 7\n9 22\n10 91\n11 18\n12 11\n13 76\n14 17\n15 42\n16 56\n17 65\n18 75\n19 92\n20 21\n21 70\n22 43\n23 47\n24 88\n25 71\n26 2\n27 89\n28 35\n29 48\n30 33\n31 97\n32 44\n33 82\n34 15\n35 51\n36 95\n37 52\n38 29\n39 32\n40 67\n41 39\n42 55\n43 20\n44 41\n45 23\n46 73\n47 96\n48 98\n49 85\n50 63\n51 38\n52 16\n53 3\n54 5\n55 28\n56 78\n57 60\n58 81\n59 46\n60 62\n61 34\n62 69\n63 72\n64 49\n65 6\n66 50\n67 86\n68 19\n69 57\n70 4\n71 68\n72 53\n73 66\n74 12\n75 99\n76 30\n77 13\n78 54\n79 58\n80 31\n81 80\n82 9\n83 26\n84 36\n85 45\n86 59\n87 84\n88 25\n89 90\n90 83\n91 10\n92 79\n93 94\n94 61\n95 87\n96 77\n97 37\n98 74\n99 93\n100 100\n101 0\n102 1\n103 8\n104 27\n105 64\n106 24\n107 14\n108 40\n109 7\n110 22\n111 91\n112 18\n113 11\n114 76\n115 17\n116 42\n117 56\n118 65\n119 75\n120 92\nB-081178"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-08117807652a44b5904df53e6ba4ad47-3",
+            "senderExecutionId": "execution-5ddbbfdb-4001-4f87-a2a9-769f9e6f6c92"
+          }
+        ],
+        "executionSemanticsVersion": 2
+      },
+      "inputBindings": [
+        {
+          "relationshipId": "edge-08117807652a44b5904df53e6ba4ad47-2",
+          "sender": {
+            "agentId": "agent-08117807652a44b5904df53e6ba4ad47-1",
+            "attempt": 1,
+            "executionId": "execution-2133b165-39e0-4f78-a866-d85a7bd39499",
+            "workflowNodeId": "node-08117807652a44b5904df53e6ba4ad47-1",
+            "agentConfigurationVersionId": "cfg-08117807652a44b5904df53e6ba4ad47-1"
+          },
+          "recipient": {
+            "agentId": "agent-08117807652a44b5904df53e6ba4ad47-3",
+            "attempt": 1,
+            "executionId": "execution-a4e7fa09-2e4c-4220-b3f6-ce0f1921c1b9",
+            "workflowNodeId": "node-08117807652a44b5904df53e6ba4ad47-3",
+            "agentConfigurationVersionId": "cfg-08117807652a44b5904df53e6ba4ad47-3"
+          },
+          "inputOrdinal": 0,
+          "acceptedResultDigest": "sha256:dd63c03ae760f667747da2867ee3668162c6e16c8dbefe7cab14824bb66d1643",
+          "recipientInputDigest": "sha256:df66777d09da3d01a148ea1c95d53a7c70caa7707fe16e470f4ae08744befc0c"
+        },
+        {
+          "relationshipId": "edge-08117807652a44b5904df53e6ba4ad47-3",
+          "sender": {
+            "agentId": "agent-08117807652a44b5904df53e6ba4ad47-2",
+            "attempt": 1,
+            "executionId": "execution-5ddbbfdb-4001-4f87-a2a9-769f9e6f6c92",
+            "workflowNodeId": "node-08117807652a44b5904df53e6ba4ad47-2",
+            "agentConfigurationVersionId": "cfg-08117807652a44b5904df53e6ba4ad47-2"
+          },
+          "recipient": {
+            "agentId": "agent-08117807652a44b5904df53e6ba4ad47-3",
+            "attempt": 1,
+            "executionId": "execution-a4e7fa09-2e4c-4220-b3f6-ce0f1921c1b9",
+            "workflowNodeId": "node-08117807652a44b5904df53e6ba4ad47-3",
+            "agentConfigurationVersionId": "cfg-08117807652a44b5904df53e6ba4ad47-3"
+          },
+          "inputOrdinal": 1,
+          "acceptedResultDigest": "sha256:37ed34794f2e67e82fa6d4724adf8a9b53cd2520a3723991483077f6e1bc25c5",
+          "recipientInputDigest": "sha256:df66777d09da3d01a148ea1c95d53a7c70caa7707fe16e470f4ae08744befc0c"
+        }
+      ],
+      "outcome": "succeeded",
+      "finalText": "A:A-081178|B:B-081178",
+      "distinctIdentities": true,
+      "exactPersistedJoin": true,
+      "cleanup": true,
+      "activeCredentialCount": 0
+    },
+    {
+      "id": "E03-P02",
+      "status": "pass_internal_preliminary",
+      "artifactPath": "/tmp/eng03-a-evidence/E03-P02-55976eab597f47a9a9bb6aeb23db7668.json",
+      "runId": "run-55976eab597f47a9a9bb6aeb23db7668",
+      "workflowVersionId": "wv-55976eab597f47a9a9bb6aeb23db7668",
+      "binaries": {
+        "codex": {
+          "path": "/home/user/.local/bin/codex",
+          "version": "codex-cli 0.156.1"
+        },
+        "opencode": {
+          "path": "/home/user/.local/bin/opencode",
+          "version": "1.18.31"
+        }
+      },
+      "models": {
+        "codex": "gpt-5.6-luna",
+        "opencode": "opencode-go/gpt-5.6-luna"
+      },
+      "executions": [
+        {
+          "id": "execution-c95a82aa-2d31-4788-b818-8b1323167a67",
+          "nodeId": "node-55976eab597f47a9a9bb6aeb23db7668-0",
+          "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-0",
+          "nativeSessionId": "01a0cf45-0bec-7b41-85c0-9b8d98c16ecd",
+          "state": "completed"
+        },
+        {
+          "id": "execution-4b5bb1dc-bbf1-4606-8e77-197b492d3e50",
+          "nodeId": "node-55976eab597f47a9a9bb6aeb23db7668-2",
+          "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-2",
+          "nativeSessionId": "01a0cf45-3df7-70d2-b3e6-087fc9396adf",
+          "state": "completed"
+        },
+        {
+          "id": "execution-624d9923-dfd2-4283-86e4-b306ed6e0a73",
+          "nodeId": "node-55976eab597f47a9a9bb6aeb23db7668-3",
+          "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-3",
+          "nativeSessionId": "01a0cf46-dd94-76a0-8a82-80f9172a0044",
+          "state": "completed"
+        },
+        {
+          "id": "execution-c46a8616-6756-43e8-b59b-789f9551e759",
+          "nodeId": "node-55976eab597f47a9a9bb6aeb23db7668-1",
+          "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-1",
+          "nativeSessionId": "01a0cf45-3e6e-7312-822a-d8767ba6487d",
+          "state": "completed"
+        }
+      ],
+      "nativeIntervals": [
+        {
+          "executionId": "execution-c46a8616-6756-43e8-b59b-789f9551e759",
+          "nativeSessionId": "01a0cf45-3e6e-7312-822a-d8767ba6487d",
+          "providerVersion": "codex-cli 0.156.1",
+          "start": {
+            "type": "turn.started",
+            "occurredAt": "2026-09-23T17:16:57.112Z",
+            "sequence": 1
+          },
+          "finish": {
+            "type": "turn.completed",
+            "occurredAt": "2026-09-23T17:17:30.288Z",
+            "sequence": 516
+          }
+        },
+        {
+          "executionId": "execution-4b5bb1dc-bbf1-4606-8e77-197b492d3e50",
+          "nativeSessionId": "01a0cf45-3df7-70d2-b3e6-087fc9396adf",
+          "providerVersion": "codex-cli 0.156.1",
+          "start": {
+            "type": "turn.started",
+            "occurredAt": "2026-09-23T17:16:57.061Z",
+            "sequence": 0
+          },
+          "finish": {
+            "type": "turn.completed",
+            "occurredAt": "2026-09-23T17:18:06.821Z",
+            "sequence": 521
+          }
+        }
+      ],
+      "overlapMs": 33176,
+      "reviewerNativeStart": "2026-09-23T17:18:43.416Z",
+      "reviewerAfterBothNativeFinishes": true,
+      "reviewerAcceptedInput": {
+        "runInput": {},
+        "predecessors": [
+          {
+            "senderNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-1",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 4\n3 9\n4 16\n5 25\n6 36\n7 49\n8 64\n9 81\n10 3\n11 24\n12 47\n13 72\n14 2\n15 31\n16 62\n17 95\n18 33\n19 70\n20 12\n21 53\n22 96\n23 44\n24 91\n25 43\n26 94\n27 50\n28 8\n29 65\n30 27\n31 88\n32 54\n33 22\n34 89\n35 61\n36 35\n37 11\n38 86\n39 66\n40 48\n41 32\n42 18\n43 6\n44 93\n45 85\n46 79\n47 75\n48 73\n49 73\n50 75\n51 79\n52 85\n53 93\n54 6\n55 18\n56 32\n57 48\n58 66\n59 86\n60 11\n61 35\n62 61\n63 89\n64 22\n65 54\n66 88\n67 27\n68 65\n69 8\n70 50\n71 94\n72 43\n73 91\n74 44\n75 96\n76 53\n77 12\n78 70\n79 33\n80 95\n81 62\n82 31\n83 2\n84 72\n85 47\n86 24\n87 3\n88 81\n89 64\n90 49\n91 36\n92 25\n93 16\n94 9\n95 4\n96 1\n97 0\n98 1\n99 4\n100 9\n101 16\n102 25\n103 36\n104 49\n105 64\n106 81\n107 3\n108 24\n109 47\n110 72\n111 2\n112 31\n113 62\n114 95\n115 33\n116 70\n117 12\n118 53\n119 96\n120 44\nA-55976e"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-55976eab597f47a9a9bb6aeb23db7668-2",
+            "senderExecutionId": "execution-c46a8616-6756-43e8-b59b-789f9551e759"
+          },
+          {
+            "senderNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-2",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 8\n3 27\n4 64\n5 24\n6 14\n7 40\n8 7\n9 22\n10 91\n11 18\n12 11\n13 76\n14 17\n15 42\n16 56\n17 65\n18 75\n19 92\n20 21\n21 70\n22 43\n23 47\n24 88\n25 71\n26 2\n27 89\n28 35\n29 48\n30 33\n31 97\n32 44\n33 82\n34 15\n35 51\n36 95\n37 52\n38 29\n39 32\n40 67\n41 39\n42 55\n43 20\n44 41\n45 23\n46 73\n47 96\n48 98\n49 85\n50 63\n51 38\n52 16\n53 3\n54 5\n55 28\n56 78\n57 60\n58 81\n59 46\n60 62\n61 34\n62 69\n63 72\n64 49\n65 6\n66 50\n67 86\n68 19\n69 57\n70 4\n71 68\n72 53\n73 66\n74 12\n75 99\n76 30\n77 13\n78 54\n79 58\n80 31\n81 80\n82 9\n83 26\n84 36\n85 45\n86 59\n87 84\n88 25\n89 90\n90 83\n91 10\n92 79\n93 94\n94 61\n95 87\n96 77\n97 37\n98 74\n99 93\n100 100\n101 0\n102 1\n103 8\n104 27\n105 64\n106 24\n107 14\n108 40\n109 7\n110 22\n111 91\n112 18\n113 11\n114 76\n115 17\n116 42\n117 56\n118 65\n119 75\n120 92\nB-55976e"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-55976eab597f47a9a9bb6aeb23db7668-3",
+            "senderExecutionId": "execution-4b5bb1dc-bbf1-4606-8e77-197b492d3e50"
+          }
+        ],
+        "executionSemanticsVersion": 2
+      },
+      "inputBindings": [
+        {
+          "relationshipId": "edge-55976eab597f47a9a9bb6aeb23db7668-2",
+          "sender": {
+            "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-1",
+            "attempt": 1,
+            "executionId": "execution-c46a8616-6756-43e8-b59b-789f9551e759",
+            "workflowNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-1",
+            "agentConfigurationVersionId": "cfg-55976eab597f47a9a9bb6aeb23db7668-1"
+          },
+          "recipient": {
+            "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-3",
+            "attempt": 1,
+            "executionId": "execution-624d9923-dfd2-4283-86e4-b306ed6e0a73",
+            "workflowNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-3",
+            "agentConfigurationVersionId": "cfg-55976eab597f47a9a9bb6aeb23db7668-3"
+          },
+          "inputOrdinal": 0,
+          "acceptedResultDigest": "sha256:ad8490c1278ba1ad5cca2a096ac0d59fe38723ad1a77285dfb78c4d1814e785d",
+          "recipientInputDigest": "sha256:31fac748926c81740ccd97806bc9ffdaffe0e16db09417546dbb5c468b296a52"
+        },
+        {
+          "relationshipId": "edge-55976eab597f47a9a9bb6aeb23db7668-3",
+          "sender": {
+            "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-2",
+            "attempt": 1,
+            "executionId": "execution-4b5bb1dc-bbf1-4606-8e77-197b492d3e50",
+            "workflowNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-2",
+            "agentConfigurationVersionId": "cfg-55976eab597f47a9a9bb6aeb23db7668-2"
+          },
+          "recipient": {
+            "agentId": "agent-55976eab597f47a9a9bb6aeb23db7668-3",
+            "attempt": 1,
+            "executionId": "execution-624d9923-dfd2-4283-86e4-b306ed6e0a73",
+            "workflowNodeId": "node-55976eab597f47a9a9bb6aeb23db7668-3",
+            "agentConfigurationVersionId": "cfg-55976eab597f47a9a9bb6aeb23db7668-3"
+          },
+          "inputOrdinal": 1,
+          "acceptedResultDigest": "sha256:0926dd825f75d1c4d64b2303831a59d9c96d4389ba10d29be3c73570ddae7a43",
+          "recipientInputDigest": "sha256:31fac748926c81740ccd97806bc9ffdaffe0e16db09417546dbb5c468b296a52"
+        }
+      ],
+      "outcome": "succeeded",
+      "finalText": "A:A-55976e|B:B-55976e",
+      "distinctIdentities": true,
+      "exactPersistedJoin": true,
+      "cleanup": true,
+      "activeCredentialCount": 0
+    },
+    {
+      "id": "E03-P03",
+      "status": "pass_internal_preliminary",
+      "artifactPath": "/tmp/eng03-a-evidence/E03-P03-e795c5de27944395a089e8729ef5ef6a.json",
+      "runId": "run-e795c5de27944395a089e8729ef5ef6a",
+      "workflowVersionId": "wv-e795c5de27944395a089e8729ef5ef6a",
+      "binaries": {
+        "codex": {
+          "path": "/home/user/.local/bin/codex",
+          "version": "codex-cli 0.156.1"
+        },
+        "opencode": {
+          "path": "/home/user/.local/bin/opencode",
+          "version": "1.18.31"
+        }
+      },
+      "models": {
+        "codex": "gpt-5.6-luna",
+        "opencode": "opencode-go/gpt-5.6-luna"
+      },
+      "executions": [
+        {
+          "id": "execution-5348b946-c35a-4dce-ae63-3b2034455b6e",
+          "nodeId": "node-e795c5de27944395a089e8729ef5ef6a-0",
+          "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-0",
+          "nativeSessionId": "01a0cf47-6c59-7623-9adf-4e0a5f01b0cd",
+          "state": "completed"
+        },
+        {
+          "id": "execution-7ea7d565-bb87-40e4-8a45-1d8b307f4b1b",
+          "nodeId": "node-e795c5de27944395a089e8729ef5ef6a-1",
+          "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-1",
+          "nativeSessionId": "ses_f30b843b8ffe85Seq5m7dwCJAn",
+          "state": "completed"
+        },
+        {
+          "id": "execution-df3b8629-006f-4a54-8c6a-93502c0f4561",
+          "nodeId": "node-e795c5de27944395a089e8729ef5ef6a-2",
+          "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-2",
+          "nativeSessionId": "ses_f30b83dd6ffeiYPXNwygZLD0mK",
+          "state": "completed"
+        },
+        {
+          "id": "execution-df91aa8e-86ea-48f4-b48c-eb083ef0ac8b",
+          "nodeId": "node-e795c5de27944395a089e8729ef5ef6a-3",
+          "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-3",
+          "nativeSessionId": "01a0cf48-c80c-76c0-8fe7-e915da69a6a0",
+          "state": "completed"
+        }
+      ],
+      "nativeIntervals": [
+        {
+          "executionId": "execution-7ea7d565-bb87-40e4-8a45-1d8b307f4b1b",
+          "nativeSessionId": "ses_f30b843b8ffe85Seq5m7dwCJAn",
+          "providerVersion": "1.18.31",
+          "start": {
+            "type": "message.updated",
+            "occurredAt": "2026-09-23T17:19:42.436Z",
+            "sequence": 4
+          },
+          "finish": {
+            "type": "session.idle",
+            "occurredAt": "2026-09-23T17:20:37.573Z",
+            "sequence": 502
+          }
+        },
+        {
+          "executionId": "execution-df3b8629-006f-4a54-8c6a-93502c0f4561",
+          "nativeSessionId": "ses_f30b83dd6ffeiYPXNwygZLD0mK",
+          "providerVersion": "1.18.31",
+          "start": {
+            "type": "message.updated",
+            "occurredAt": "2026-09-23T17:19:42.520Z",
+            "sequence": 4
+          },
+          "finish": {
+            "type": "session.idle",
+            "occurredAt": "2026-09-23T17:20:42.353Z",
+            "sequence": 502
+          }
+        }
+      ],
+      "overlapMs": 55053,
+      "reviewerNativeStart": "2026-09-23T17:20:49.036Z",
+      "reviewerAfterBothNativeFinishes": true,
+      "reviewerAcceptedInput": {
+        "runInput": {},
+        "predecessors": [
+          {
+            "senderNodeId": "node-e795c5de27944395a089e8729ef5ef6a-1",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 4\n3 9\n4 16\n5 25\n6 36\n7 49\n8 64\n9 81\n10 3\n11 24\n12 47\n13 72\n14 2\n15 31\n16 62\n17 95\n18 33\n19 70\n20 12\n21 53\n22 96\n23 44\n24 91\n25 43\n26 94\n27 50\n28 8\n29 65\n30 27\n31 88\n32 54\n33 22\n34 89\n35 61\n36 35\n37 11\n38 86\n39 66\n40 48\n41 32\n42 18\n43 6\n44 93\n45 85\n46 79\n47 75\n48 73\n49 73\n50 75\n51 79\n52 85\n53 93\n54 6\n55 18\n56 32\n57 48\n58 66\n59 86\n60 11\n61 35\n62 61\n63 89\n64 22\n65 54\n66 88\n67 27\n68 65\n69 8\n70 50\n71 94\n72 43\n73 91\n74 44\n75 96\n76 53\n77 12\n78 70\n79 33\n80 95\n81 62\n82 31\n83 2\n84 72\n85 47\n86 24\n87 3\n88 81\n89 64\n90 49\n91 36\n92 25\n93 16\n94 9\n95 4\n96 1\n97 0\n98 1\n99 4\n100 9\n101 16\n102 25\n103 36\n104 49\n105 64\n106 81\n107 3\n108 24\n109 47\n110 72\n111 2\n112 31\n113 62\n114 95\n115 33\n116 70\n117 12\n118 53\n119 96\n120 44\nA-e795c5"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-e795c5de27944395a089e8729ef5ef6a-2",
+            "senderExecutionId": "execution-7ea7d565-bb87-40e4-8a45-1d8b307f4b1b"
+          },
+          {
+            "senderNodeId": "node-e795c5de27944395a089e8729ef5ef6a-2",
+            "acceptedResult": {
+              "output": {
+                "text": "1 1\n2 8\n3 27\n4 64\n5 24\n6 14\n7 40\n8 7\n9 22\n10 91\n11 18\n12 11\n13 76\n14 17\n15 42\n16 56\n17 65\n18 75\n19 92\n20 21\n21 70\n22 43\n23 47\n24 88\n25 71\n26 2\n27 89\n28 35\n29 48\n30 33\n31 97\n32 44\n33 82\n34 15\n35 51\n36 95\n37 52\n38 29\n39 32\n40 67\n41 39\n42 55\n43 20\n44 41\n45 23\n46 73\n47 96\n48 98\n49 85\n50 63\n51 38\n52 16\n53 3\n54 5\n55 28\n56 78\n57 60\n58 81\n59 46\n60 62\n61 34\n62 69\n63 72\n64 49\n65 6\n66 50\n67 86\n68 19\n69 57\n70 4\n71 68\n72 53\n73 66\n74 12\n75 99\n76 30\n77 13\n78 54\n79 58\n80 31\n81 80\n82 9\n83 26\n84 36\n85 45\n86 59\n87 84\n88 25\n89 90\n90 83\n91 10\n92 79\n93 94\n94 61\n95 87\n96 77\n97 37\n98 74\n99 93\n100 100\n101 0\n102 1\n103 8\n104 27\n105 64\n106 24\n107 14\n108 40\n109 7\n110 22\n111 91\n112 18\n113 11\n114 76\n115 17\n116 42\n117 56\n118 65\n119 75\n120 92\nB-e795c5"
+              },
+              "outcome": "succeeded"
+            },
+            "relationshipId": "edge-e795c5de27944395a089e8729ef5ef6a-3",
+            "senderExecutionId": "execution-df3b8629-006f-4a54-8c6a-93502c0f4561"
+          }
+        ],
+        "executionSemanticsVersion": 2
+      },
+      "inputBindings": [
+        {
+          "relationshipId": "edge-e795c5de27944395a089e8729ef5ef6a-2",
+          "sender": {
+            "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-1",
+            "attempt": 1,
+            "executionId": "execution-7ea7d565-bb87-40e4-8a45-1d8b307f4b1b",
+            "workflowNodeId": "node-e795c5de27944395a089e8729ef5ef6a-1",
+            "agentConfigurationVersionId": "cfg-e795c5de27944395a089e8729ef5ef6a-1"
+          },
+          "recipient": {
+            "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-3",
+            "attempt": 1,
+            "executionId": "execution-df91aa8e-86ea-48f4-b48c-eb083ef0ac8b",
+            "workflowNodeId": "node-e795c5de27944395a089e8729ef5ef6a-3",
+            "agentConfigurationVersionId": "cfg-e795c5de27944395a089e8729ef5ef6a-3"
+          },
+          "inputOrdinal": 0,
+          "acceptedResultDigest": "sha256:151895e4362d5b5af77b38fc4fd774f5c24ce19d18bdef11dcea0173eabf9831",
+          "recipientInputDigest": "sha256:25de2bf38f86ae3ed7aabf5687c181fc4ddc5c7162279e785c8bfb235201c8d7"
+        },
+        {
+          "relationshipId": "edge-e795c5de27944395a089e8729ef5ef6a-3",
+          "sender": {
+            "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-2",
+            "attempt": 1,
+            "executionId": "execution-df3b8629-006f-4a54-8c6a-93502c0f4561",
+            "workflowNodeId": "node-e795c5de27944395a089e8729ef5ef6a-2",
+            "agentConfigurationVersionId": "cfg-e795c5de27944395a089e8729ef5ef6a-2"
+          },
+          "recipient": {
+            "agentId": "agent-e795c5de27944395a089e8729ef5ef6a-3",
+            "attempt": 1,
+            "executionId": "execution-df91aa8e-86ea-48f4-b48c-eb083ef0ac8b",
+            "workflowNodeId": "node-e795c5de27944395a089e8729ef5ef6a-3",
+            "agentConfigurationVersionId": "cfg-e795c5de27944395a089e8729ef5ef6a-3"
+          },
+          "inputOrdinal": 1,
+          "acceptedResultDigest": "sha256:595f5e5fc7c99e1b8faa34c2d370ee14cbe09cab85c602ddaeb81f07f843f895",
+          "recipientInputDigest": "sha256:25de2bf38f86ae3ed7aabf5687c181fc4ddc5c7162279e785c8bfb235201c8d7"
+        }
+      ],
+      "outcome": "succeeded",
+      "finalText": "A:A-e795c5|B:B-e795c5",
+      "distinctIdentities": true,
+      "exactPersistedJoin": true,
+      "cleanup": true,
+      "activeCredentialCount": 0
+    }
+  ],
+  "priorNegativeEvidence": [
+    {
+      "artifactPath": "/tmp/eng03-a-evidence/E03-P01-614ee1cb98da4180b5ef3adf7e9ceced.json",
+      "reason": "driver initially wired legacy credential service instead of production v2 subclass; corrected in committed driver"
+    },
+    {
+      "artifactPath": "/tmp/eng03-a-evidence/E03-P01-60520afbd23340ef82bab8295863ddc6.json",
+      "reason": "short branch task completed before peer native start; longer bounded native tasks used for passing matrix"
+    }
+  ]
+}

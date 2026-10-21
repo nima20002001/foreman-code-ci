@@ -1,0 +1,32 @@
+# Native provider account services
+
+Account credentials and native history belong to the owning Main or Worker installation. Central PostgreSQL stores slot metadata, scoped defaults, accepted bindings, authentication receipts and ordered observations. A saved binding never follows a later default. Removing a slot tombstones selection while retaining its original native cleanup owner and history.
+
+HTTP and Operator MCP use the same target-scoped services. Account grants apply to every delegation link. The HTTP authentication layer authenticates account requests; the account service checks their canonical target and live read/manage grants. There is no global settings-grant substitute for an account grant.
+
+## Discovery and HTTP target encoding
+
+`GET /api/provider-accounts/targets` and `provider_account_targets` expose canonical targets, connection generations, provider actions and live caller eligibility. `GET /api/provider-accounts/profiles` and `provider_account_profiles` return qualified opaque profile choices; callers never enter a native path. Per-slot manage/reauthentication limits are available at `GET /api/provider-accounts/:accountId/eligibility` and `provider_account_eligibility`.
+
+GET query parameters encode `target` as a single percent-encoded JSON object. Use `new URLSearchParams({ target: JSON.stringify(target), provider: 'codex', includeRemoved: 'false', limit: '50' })`. `includeRemoved` accepts exactly `true` or `false`; JSON bodies and MCP inputs retain their typed boolean/object values. Omitting target selects Main. This encoding applies to page, get, models, profiles, eligibility and authentication-list GETs. Unknown fields and malformed encodings are rejected.
+
+Page responses always identify their target. Page/get/list perform a selected-slot observation outside transactions, then recheck live authority, binding and monotonic generation/sequence before persisting. The observation table is independent of label/default CAS revisions. A failed native observation reports unavailable readiness with no current-principal claim. Models retain native reasoning efforts, variants, service tiers, release/default metadata and the full native `options` record where supported. Discovery sends no model prompt and does not qualify a model or execution policy.
+
+## Authentication rediscovery and human handoff
+
+New provider authentication operations are valid for one hour. HTTP and Operator
+MCP use the same lifetime. Command retries and status reads retain the original
+operation and expiry; they do not start another login or extend its deadline.
+Previously saved operations retain their expiry.
+
+`GET /api/provider-accounts/:accountId/authentication` and `provider_account_auth_list` enumerate persisted original operations by bounded cursor. `currentOperation` identifies the pending/uncertain owner independently of the history cursor. Reloading, closing a dialog or losing a prepare response does not start another login. Status and cancellation address that operation with its original generation; an outer Worker reconnect generation is validated separately.
+
+`POST /api/provider-accounts/authentication/handoff` accepts the authentication read input and is intentionally local-human-only. It returns an ephemeral `local-browser` instruction only when the qualified installed CLI supports that handoff. Bearer callers, including Operators, cannot receive it. Replies use `Cache-Control: no-store, private`, `Pragma: no-cache`, and `Referrer-Policy: no-referrer`. Handoff content never enters operation persistence, account DTOs, events or MCP. Remote sign-in uses the browser on the Worker; Main does not forward native challenges. There is no callback-paste, device-code redemption or token-entry API.
+
+## Production isolation evidence
+
+Production reads a private `provider-account-qualifications.json` record beneath its managed harness root; a Worker reads the same filename beneath its protected installation state root. Its schema is `AccountIsolationQualificationsSchema`. Each entry binds provider storage-isolation evidence, a persisted monotonic qualification generation, expiration, exact target, a qualified host override/installation fingerprint, supported native actions, and either managed-slot isolation or an explicitly selected existing profile. Existing-profile entries also carry opaque public choices and private owner-local paths. No HTTP/MCP operation writes this record or declares a host isolated.
+
+The record must be produced and installed by the explicit provider/OS qualification gate. Its positive integer `generation` is persisted with the qualification and increases when qualified installation or isolation evidence changes. Main authentication and observations retain that generation across process restarts; an in-memory inventory revision is not an authentication generation. Workers validate their current authenticated connection generation separately from original operation receipts. A package pin, directory, OS name or executable found through PATH cannot produce isolation evidence. Production refreshes the actual selected installation; Worker inspection additionally checks its protected installed launcher/SDK declaration and current pairing. Absent, expired or changed evidence leaves actions unavailable. Restart the Worker after installing first-time evidence so its qualified extension can be advertised. This source wiring does not itself establish successful keyring/file isolation or human sign-in.
+
+The versioned `provider-accounts-v1` channel carries discovery, profile references, non-secret slot provisioning, observations, models, and original prepare/observe/cancel receipts. The owning Worker resolves credentials locally and retains an immutable slot record before native allocation. Main persists command reservations before effects, and slot provisioning runs after that transaction. A lost provisioning response reuses the original slot; an incomplete local allocation is unavailable rather than adopting another directory. Native authentication completion rechecks the original persisted Main authority over the same authenticated channel. Runtime recovery additionally rechecks the retained binding with Main, so a tombstone created while the Worker was offline still blocks allocation. Original cleanup remains independent of that selection check. Reinstall, stale authority, connection replacement and same-path reuse cannot adopt a previous slot.

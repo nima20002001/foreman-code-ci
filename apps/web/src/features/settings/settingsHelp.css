@@ -1,0 +1,9 @@
+.settings-field-help {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-1);
+}
+
+.settings-single-column > .settings-field-help { max-width: 680px; }

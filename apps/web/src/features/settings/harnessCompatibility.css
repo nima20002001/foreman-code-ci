@@ -1,0 +1,16 @@
+.harness-compatibility { display: grid; gap: var(--space-2); min-width: 0; padding-top: 16px; border-top: 1px solid var(--n-border); font-size: 12px; }
+.harness-qualification { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.harness-qualification > span:nth-child(2) { font-weight: 600; }
+.harness-compatibility-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.harness-compatibility-summary > strong { font-size: 13px; }
+.harness-compatibility-summary > span { color: var(--n-muted); }
+.harness-compatibility-summary .harness-compatibility-state { color: var(--n-text); font-weight: 600; margin-inline-end: auto; }
+.harness-compatibility > p { margin: 0; line-height: 1.6; }
+.harness-compatibility-details { color: var(--n-muted); }
+.harness-compatibility-details summary { width: fit-content; cursor: pointer; color: var(--n-text); }
+.harness-compatibility-details summary:focus-visible { outline: 2px solid var(--n-focus); outline-offset: 3px; }
+.harness-compatibility-details[open] { display: grid; gap: var(--space-2); }
+.harness-compatibility-details dl { display: grid; gap: var(--space-1); max-width: 36rem; margin: 4px 0 0; }
+.harness-compatibility-details dl > div { display: flex; justify-content: space-between; gap: var(--space-3); }
+.harness-compatibility-details dd, .harness-compatibility-details p { margin: 0; }
+.harness-compatibility-details a { width: fit-content; }

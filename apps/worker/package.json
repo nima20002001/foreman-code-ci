@@ -1,0 +1,23 @@
+{
+  "name": "@foreman-code/worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node ../../scripts/ci-remote.mjs unit -- node ../../scripts/heavy-job.mjs -- node --test test/*.test.mjs",
+    "build:artifact": "node ../../scripts/build-worker-artifact.mjs",
+    "lint": "node ../../scripts/ci-remote.mjs lint -- node ../../scripts/heavy-job.mjs -- eslint . --max-warnings 0 --cache --cache-strategy content --cache-location node_modules/.cache/eslint/"
+  },
+  "dependencies": {
+    "@foreman-code/contracts": "workspace:*",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "esbuild": "0.27.7",
+    "eslint": "10.10.0",
+    "globals": "17.12.0",
+    "msgpackr": "1.12.1",
+    "yaml": "2.9.0"
+  }
+}

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+unset NODE_OPTIONS NODE_PATH
+case "${0##*/}" in
+  pnpm) set -- pnpm "$@" ;;
+esac
+if test -f /opt/graphql-ci/verification-policy.mjs; then
+  exec /usr/local/bin/node /opt/graphql-ci/verification-policy.mjs "$@"
+fi
+export COREPACK_HOME=/opt/graphql-ci/corepack-cache
+export COREPACK_ENABLE_NETWORK=0
+export COREPACK_DEFAULT_TO_LATEST=0
+export COREPACK_ENABLE_AUTO_PIN=0
+exec /usr/local/bin/node /usr/local/lib/node_modules/corepack/dist/corepack.js "$@"

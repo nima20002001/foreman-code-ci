@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "runtime": "node",
+  "version": "v22.23.3",
+  "platform": "linux",
+  "arch": "x64",
+  "archive": {
+    "file": "node-v22.23.3-linux-x64.tar.xz",
+    "url": "https://nodejs.org/download/release/v22.23.3/node-v22.23.3-linux-x64.tar.xz",
+    "sha256": "df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de",
+    "bytes": 31001304
+  },
+  "nodeExecutable": {
+    "archivePath": "node-v22.23.3-linux-x64/bin/node",
+    "sha256": "fde6a4bf8d0562f7751d1a2d6cb9b417c4cfe107bbcb0aa3e9a24e125e348f48",
+    "bytes": 124827920
+  },
+  "trustedRelease": {
+    "signedChecksumsUrl": "https://nodejs.org/download/release/v22.23.3/SHASUMS256.txt.asc",
+    "primarySignerFingerprint": "5BE8A3F6C8A5C01D106C0AD820B1A390B168D356",
+    "keyringRepository": "https://github.com/nodejs/release-keys",
+    "keyringCommit": "481637f813e912c4aa3622d7964ab426c97b8e8d",
+    "keyringPath": "gpg/pubring.kbx",
+    "keyringSha256": "610b8d249da3d5733f5a128def2dd0294dbbf5b5713e6ca2529db8db419dee00",
+    "sourceVerification": "gpgv succeeded; archive and extracted regular-file ELF checksums matched on the build PC"
+  },
+  "supportedMinimum": {
+    "kernel": "4.18",
+    "glibc": "2.28",
+    "libstdcxx": "6.0.25",
+    "glibcxx": "3.4.25",
+    "source": "https://github.com/nodejs/node/blob/v22.23.3/BUILDING.md"
+  },
+  "observedTarget": {
+    "os": "ubuntu",
+    "osRelease": "24.04",
+    "arch": "x64",
+    "kernel": "7.0.0-34-generic",
+    "glibc": "2.39",
+    "libstdcxx": "6.0.33",
+    "glibcxx": "3.4.33",
+    "provenance": "root-only existing SSH read-only preflight"
+  },
+  "qualification": "expected future runtime; laptop execution/install readback required"
+}

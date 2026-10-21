@@ -1,0 +1,22 @@
+.codex-plugins { display: grid; gap: var(--space-3); min-width: 0; container-type: inline-size; }
+.codex-plugins > p { margin: 0; }
+.codex-plugins-controls, .codex-plugins-tabs, .codex-plugins-pages { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.codex-plugins-controls { justify-content: space-between; }
+.codex-plugin-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.codex-plugin-grid--available { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.codex-plugin-grid > li { min-width: 0; }
+.codex-plugin-card { display: grid; align-items: center; gap: var(--space-2); width: 100%; min-height: 78px; padding: 11px; border: 1px solid color-mix(in srgb,currentColor 12%,transparent); border-radius: var(--radius-md); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.codex-plugin-card--available { min-height: 44px; padding: 8px 10px; }
+.codex-plugin-card:hover { background: color-mix(in srgb,currentColor 5%,transparent); }
+.codex-plugin-card:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.codex-plugin-identity { min-width: 0; display: grid; gap: var(--space-0-5); }
+.codex-plugin-identity strong, .codex-plugin-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codex-plugin-identity small { color: var(--n-muted); font-size: 11px; }
+.codex-plugin-state { color: var(--n-muted); font-size: 11px; }
+.codex-plugins-pages { justify-content: flex-end; }
+.codex-plugin-detail, .codex-plugin-includes { display: grid; gap: var(--space-3); }
+.codex-plugin-includes { gap: var(--space-2); }
+.codex-plugin-includes > div { display: grid; grid-template-columns: minmax(95px,1fr) minmax(0,2fr); gap: var(--space-4); font-size: 13px; }
+.codex-plugin-includes span { overflow-wrap: anywhere; }
+@container (max-width: 760px) { .codex-plugin-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@container (max-width: 480px) { .codex-plugin-grid { grid-template-columns: minmax(0,1fr); } }

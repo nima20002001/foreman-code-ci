@@ -1,0 +1,34 @@
+name: graphql-local-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Main also runs CI: the production database must win CPU and disk over disposable CI databases.
+    cpu_shares: 10240
+    blkio_config:
+      weight: 1000
+    environment:
+      POSTGRES_DB: graphql_production
+      POSTGRES_USER: graphql_production
+      POSTGRES_PASSWORD: ${GRAPHQL_PRODUCTION_DB_PASSWORD:?Use the local production installer}
+    ports:
+      - "127.0.0.1:55440:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graphql_production -d graphql_production"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  # External storage survives even an explicit production Compose down --volumes.
+  postgres:
+    external: true
+    name: graphql-production-postgres

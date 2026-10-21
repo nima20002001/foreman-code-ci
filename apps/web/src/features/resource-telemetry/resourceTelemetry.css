@@ -1,0 +1,14 @@
+.rt-stack { display: grid; gap: .5rem; min-width: 0; }
+.rt-card { min-width: 0; font-size: .8125rem; }
+.rt-computer { margin: .125rem 0; overflow-wrap: anywhere; }
+.rt-computer code, .rt-identity code, .rt-identity dd { font-family: var(--n-mono); color: var(--n-muted); overflow-wrap: anywhere; }
+.rt-note { margin: .375rem 0 0; color: var(--n-muted); overflow-wrap: anywhere; }
+.rt-badges { display: flex; flex-wrap: wrap; gap: .375rem; }
+.rt-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin-top: .5rem; }
+.rt-metric { min-width: 0; }
+.rt-meta { display: flex; flex-wrap: wrap; gap: .25rem .5rem; margin-top: .25rem; color: var(--n-muted); }
+.rt-meta span { overflow-wrap: anywhere; }
+.rt-identity { margin-top: .375rem; color: var(--n-muted); }
+.rt-identity dl { display: grid; grid-template-columns: max-content 1fr; gap: .125rem .5rem; margin: .25rem 0 0; }
+.rt-identity dd { margin: 0; }
+.rt-last-known { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--n-border); }

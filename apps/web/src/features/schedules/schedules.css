@@ -1,0 +1,48 @@
+/* Scoped to this feature. Shared Dialog supplies focus, backdrop, theme, and modal behavior. */
+.n-dialog.schedule-dialog {
+  box-sizing: border-box;
+  width: min(380px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+}
+.schedule-dialog .n-dialog-inner { display: flex; flex-direction: column; min-width: 0; max-height: calc(100dvh - 24px); }
+.schedule-dialog .n-dialog-header,
+.schedule-dialog .n-dialog-footer { flex-shrink: 0; padding: 12px; }
+.schedule-dialog .n-dialog-body { min-width: 0; min-height: 0; overflow: auto; padding: 12px; }
+.schedule-dialog .n-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; }
+.schedule-form, .schedule-fields, .schedule-panel { display: grid; gap: 12px; min-width: 0; }
+.schedule-fields, .schedule-days { border: 0; padding: 0; margin: 0; min-width: 0; }
+.schedule-fields:disabled { opacity: 0.7; }
+.schedule-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.schedule-tabs button, .schedule-day-grid button {
+  min-width: 0; min-height: 36px; padding: 4px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text-muted); font: var(--type-control);
+}
+.schedule-tabs button[aria-selected='true'], .schedule-day-grid button[aria-pressed='true'] {
+  background: var(--surface-selected); border-color: var(--border-strong); color: var(--text-strong);
+}
+.schedule-tabs button:focus-visible, .schedule-day-grid button:focus-visible,
+.schedule-policy:focus-visible, .schedule-clock-disabled:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.schedule-days legend { margin-bottom: 6px; font: var(--type-control); }
+.schedule-day-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.schedule-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; min-width: 0; }
+.schedule-form .n-field, .schedule-form .n-input-wrap, .schedule-form .n-select-wrap { min-width: 0; }
+.schedule-form .n-input { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+.schedule-form .n-field-error { overflow-wrap: anywhere; }
+.schedule-note, .schedule-next, .schedule-feedback p { margin: 0; font: var(--type-body); }
+.schedule-next { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+.schedule-policy { font: var(--type-caption); color: var(--text-faint); }
+.schedule-last-attempt { display: grid; gap: 4px; min-width: 0; border-top: 1px solid var(--border); padding-top: 8px; }
+.schedule-last-attempt h3 { margin: 0; font: var(--type-control); color: var(--text-strong); }
+.schedule-last-attempt p { margin: 0; font: var(--type-body); color: var(--text-muted); overflow-wrap: anywhere; }
+.schedule-last-attempt a { font: var(--type-control); color: var(--text-strong); text-decoration: underline; }
+.schedule-last-attempt a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.schedule-feedback { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--danger); }
+.schedule-clock-disabled { display: inline-flex; border-radius: var(--radius-sm); }
+.schedule-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 360px) {
+  /* Native date widgets have a nontrivial intrinsic width; do not squeeze two onto one row. */
+  .schedule-once { grid-template-columns: minmax(0, 1fr); }
+}

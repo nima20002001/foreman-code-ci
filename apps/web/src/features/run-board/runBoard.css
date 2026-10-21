@@ -1,0 +1,55 @@
+.run-board-slot,
+.run-board-current,
+.run-board { min-width: 0; width: 100%; }
+.run-board-current[hidden] { display: none !important; }
+.run-board { position: relative; overflow: hidden; color: var(--text); }
+.run-board > p,
+.run-board-message { margin: 0; padding: 1rem; font: var(--type-caption); }
+.run-board-message { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.run-board-message button {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .4rem .65rem;
+  background: var(--surface-raised); color: var(--text); font: inherit; cursor: pointer;
+}
+.run-board-label {
+  position: absolute; top: .5rem; right: .75rem; z-index: 5; pointer-events: none;
+  color: var(--text-muted); font: var(--type-caption);
+}
+.run-board-canvas { width: 100%; height: clamp(18rem, 65dvh, 48rem); min-width: 0; }
+.run-board-node-visual,
+.run-board-agent.n-agent { width: 100%; height: 100%; }
+.run-board-agent .n-agent-core { padding: .75rem .4rem; justify-content: center; overflow: hidden; }
+.run-board-agent .n-agent-name { max-width: 90%; }
+.run-board-agent .n-agent-harness:empty { display: none; }
+.run-board-handle { visibility: hidden; pointer-events: none; }
+.run-board .react-flow__node { cursor: default; }
+.run-board .react-flow__node:focus-visible,
+.run-board-inspect:focus-visible,
+.run-board-message button:focus-visible,
+.run-board .react-flow__controls-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.run-board .react-flow__controls-button { width: 2rem; height: 2rem; }
+.run-board .react-flow__edge:focus-visible .n-signal-edge-base { stroke: var(--focus); stroke-width: 3; }
+@media (prefers-reduced-motion: reduce) {
+  .run-board .n-agent-core { transition: none; }
+}
+
+.run-board-inspect {
+  pointer-events: auto;
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.run-board-inspecting { overflow: auto; }
+.run-board-inspecting > .run-execution-inspector {
+  flex: 0 0 auto;
+  max-height: 60dvh;
+  overflow: auto;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+}

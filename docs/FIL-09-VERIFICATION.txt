@@ -1,0 +1,239 @@
+FIL-09 partial component verification
+
+> Historical implementation and verification record. OpenCode support was
+> removed on 2026-10-08. Its references below describe saved history and
+> earlier observations, not a supported creation or execution path.
+
+Base: 4c7bb220d4d545ba076657d75bae99a36511121f
+Environment: Node v22.16.0; available TypeScript 5.8.3.
+Command executed:
+  NODE_PATH=$(npm root -g) node /mnt/data/fil09/scripts/test-opencode-files.mjs
+
+This is the focused runtime runner, not the pinned repository Vitest/typecheck run.
+The Vitest wrapper registers the same focused case factory.
+The authenticated real-FIL-05 MCP test and real OpenCode smoke were NOT run.
+
+TAP version 13
+# Subtest: materializes pinned execution-host copies and registers only a scoped file credential
+ok 1 - materializes pinned execution-host copies and registers only a scoped file credential
+  ---
+  duration_ms: 55.25475
+  type: 'test'
+  ...
+# Subtest: reads bounded exact pinned ranges, including final expiry revalidation
+ok 2 - reads bounded exact pinned ranges, including final expiry revalidation
+  ---
+  duration_ms: 22.184301
+  type: 'test'
+  ...
+# Subtest: passes image file:// parts with encoded names, never binary text
+ok 3 - passes image file:// parts with encoded names, never binary text
+  ---
+  duration_ms: 15.164694
+  type: 'test'
+  ...
+# Subtest: does not render PDFs, Markdown, SVG or HTML as native image parts
+ok 4 - does not render PDFs, Markdown, SVG or HTML as native image parts
+  ---
+  duration_ms: 12.527917
+  type: 'test'
+  ...
+# Subtest: replayed preparation preserves edits, issues no token and repeats no native MCP setup
+ok 5 - replayed preparation preserves edits, issues no token and repeats no native MCP setup
+  ---
+  duration_ms: 16.151244
+  type: 'test'
+  ...
+# Subtest: conflicts on changed attachment pins under the same turn
+ok 6 - conflicts on changed attachment pins under the same turn
+  ---
+  duration_ms: 9.704759
+  type: 'test'
+  ...
+# Subtest: rejects API-host paths before issuing any file session
+ok 7 - rejects API-host paths before issuing any file session
+  ---
+  duration_ms: 0.720682
+  type: 'test'
+  ...
+# Subtest: requires source isolation before native setup or token issuance
+ok 8 - requires source isolation before native setup or token issuance
+  ---
+  duration_ms: 1.352974
+  type: 'test'
+  ...
+# Subtest: never enables the workflow App MCP to obtain file tools
+ok 9 - never enables the workflow App MCP to obtain file tools
+  ---
+  duration_ms: 3.550088
+  type: 'test'
+  ...
+# Subtest: refuses non-file endpoints, bearer URLs and cleartext remote credentials
+ok 10 - refuses non-file endpoints, bearer URLs and cleartext remote credentials
+  ---
+  duration_ms: 1.273267
+  type: 'test'
+  ...
+# Subtest: bounds attachment count without native side effects
+ok 11 - bounds attachment count without native side effects
+  ---
+  duration_ms: 0.760081
+  type: 'test'
+  ...
+# Subtest: rejects corrupt, oversized and incomplete pinned bytes and revokes setup credentials
+ok 12 - rejects corrupt, oversized and incomplete pinned bytes and revokes setup credentials
+  ---
+  duration_ms: 12.842645
+  type: 'test'
+  ...
+# Subtest: rejects expiry on the final delivery read rather than exposing the copy
+ok 13 - rejects expiry on the final delivery read rather than exposing the copy
+  ---
+  duration_ms: 6.287704
+  type: 'test'
+  ...
+# Subtest: read mode preserves accepted restrictions and does not create mutable artifacts
+ok 14 - read mode preserves accepted restrictions and does not create mutable artifacts
+  ---
+  duration_ms: 7.988227
+  type: 'test'
+  ...
+# Subtest: rejects a hidden mutation elevation in a read-mode admission
+ok 15 - rejects a hidden mutation elevation in a read-mode admission
+  ---
+  duration_ms: 0.640101
+  type: 'test'
+  ...
+# Subtest: snapshots edited registered bytes at publish and leaves source pins unchanged
+ok 16 - snapshots edited registered bytes at publish and leaves source pins unchanged
+  ---
+  duration_ms: 9.866428
+  type: 'test'
+  ...
+# Subtest: publish lost acknowledgement replays; changed registered bytes conflict
+ok 17 - publish lost acknowledgement replays; changed registered bytes conflict
+  ---
+  duration_ms: 10.907379
+  type: 'test'
+  ...
+# Subtest: restarts a failed writer lease without adopting another in-progress writer
+ok 18 - restarts a failed writer lease without adopting another in-progress writer
+  ---
+  duration_ms: 8.541808
+  type: 'test'
+  ...
+# Subtest: foreign credential, permanent destination and arbitrary paths fail before snapshots
+ok 19 - foreign credential, permanent destination and arbitrary paths fail before snapshots
+  ---
+  duration_ms: 9.96592
+  type: 'test'
+  ...
+# Subtest: on-demand copies have registered execution-host locations
+ok 20 - on-demand copies have registered execution-host locations
+  ---
+  duration_ms: 17.956762
+  type: 'test'
+  ...
+# Subtest: keeps an uncertain submission fenced and leaves its live files alone
+ok 21 - keeps an uncertain submission fenced and leaves its live files alone
+  ---
+  duration_ms: 9.867733
+  type: 'test'
+  ...
+# Subtest: does not misclassify a positive submission acknowledgement as definite rejection
+ok 22 - does not misclassify a positive submission acknowledgement as definite rejection
+  ---
+  duration_ms: 7.736847
+  type: 'test'
+  ...
+# Subtest: serializes ownership across helpers sharing one native controller
+ok 23 - serializes ownership across helpers sharing one native controller
+  ---
+  duration_ms: 7.698902
+  type: 'test'
+  ...
+# Subtest: failed revocation fences process reuse until cleanup succeeds
+ok 24 - failed revocation fences process reuse until cleanup succeeds
+  ---
+  duration_ms: 9.257339
+  type: 'test'
+  ...
+# Subtest: does not leak native configuration response secrets on a failed MCP connection
+ok 25 - does not leak native configuration response secrets on a failed MCP connection
+  ---
+  duration_ms: 6.143744
+  type: 'test'
+  ...
+# Subtest: native process replacement cannot silently publish from the previous process
+ok 26 - native process replacement cannot silently publish from the previous process
+  ---
+  duration_ms: 8.309255
+  type: 'test'
+  ...
+# Subtest: metadata prompt escapes hostile filenames and contains no startup/skill bundle
+ok 27 - metadata prompt escapes hostile filenames and contains no startup/skill bundle
+  ---
+  duration_ms: 0.160421
+  type: 'test'
+  ...
+# Subtest: native image paths must belong to the exact host and cannot contain traversal
+ok 28 - native image paths must belong to the exact host and cannot contain traversal
+  ---
+  duration_ms: 0.293879
+  type: 'test'
+  ...
+# Subtest: local runner uses registered handles, survives editor replacement, and cleans empty directories
+ok 29 - local runner uses registered handles, survives editor replacement, and cleans empty directories
+  ---
+  duration_ms: 6.691397
+  type: 'test'
+  ...
+# Subtest: contract-valid long Unicode display names do not exceed native filename byte limits
+ok 30 - contract-valid long Unicode display names do not exceed native filename byte limits
+  ---
+  duration_ms: 3.090546
+  type: 'test'
+  ...
+# Subtest: local runner rejects symlink and hardlink publication rather than reading outside paths
+ok 31 - local runner rejects symlink and hardlink publication rather than reading outside paths
+  ---
+  duration_ms: 5.919543
+  type: 'test'
+  ...
+# Subtest: source checks reject an unverified native PID and empty path inventory
+ok 32 - source checks reject an unverified native PID and empty path inventory
+  ---
+  duration_ms: 0.418198
+  type: 'test'
+  ...
+# Subtest: delivery abort performs no registration or byte publication
+ok 33 - delivery abort performs no registration or byte publication
+  ---
+  duration_ms: 0.781225
+  type: 'test'
+  ...
+1..33
+# tests 33
+# suites 0
+# pass 33
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 381.113654
+
+Additional checks:
+- Syntax/transpile validation: all 10 included TypeScript files, TypeScript 5.8.3.
+  This is NOT a repository typecheck (the repository pins TypeScript 5.9.3).
+- node --check: scripts/test-opencode-files.mjs; scripts/smoke-opencode-files.mjs.
+- node scripts/smoke-opencode-files.mjs --help: passed without starting OpenCode.
+- No opencode executable was available in PATH.
+
+Direct source protection check, executed as the non-root nobody identity in Linux:
+PASS: non-root native identity can read but cannot write immutable source or any ancestor
+PASS: chmod 0444 with a writable parent is rejected
+PASS: native-owned chmod 0400 source is rejected (native could chmod it)
+
+The direct source audit used disposable root-owned fixtures under /mnt/data/verification,
+plus a native-owned fixture and a writable-parent fixture. No production vault or
+native deployment was provisioned or verified by those checks.

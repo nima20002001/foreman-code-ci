@@ -1,0 +1,66 @@
+{
+  "provenance": "Retained Podman inspect from ACCEPTANCE candidate1 laptop qualification, 2026-10-03; only the private source prefix is replaced with /owned/qualification. Types, destinations, RO/RW, options, propagation and HostConfig.Tmpfs are unchanged. This is shape evidence, not a passed qualification.",
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/owned/qualification/tree",
+      "Destination": "/workspace",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Source": "/owned/qualification/tree/.graphql-job-inputs",
+      "Destination": "/workspace/.graphql-job-inputs",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": false,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Source": "/owned/qualification/repository",
+      "Destination": "/graphql-job-git",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": false,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Source": "/owned/qualification/job-heavy-jobs",
+      "Destination": "/graphql-job-git/graphql-heavy-jobs",
+      "Driver": "",
+      "Mode": "",
+      "Options": [
+        "nosuid",
+        "nodev",
+        "rbind"
+      ],
+      "RW": true,
+      "Propagation": "rprivate"
+    }
+  ],
+  "HostConfig": {
+    "Tmpfs": {
+      "/tmp": "rw,nosuid,nodev,noexec,size=67108864,rprivate,tmpcopyup"
+    }
+  }
+}

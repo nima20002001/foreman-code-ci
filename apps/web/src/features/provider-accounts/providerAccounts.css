@@ -1,0 +1,29 @@
+.provider-accounts-settings, .provider-account-form { display: grid; gap: var(--space-4); }
+.provider-accounts-heading, .provider-account-summary header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.provider-accounts-heading { margin-bottom: var(--space-3); }
+.provider-accounts-heading h3 { margin: 0; }
+.provider-account-summary { padding: 24px; }
+.provider-account-summary dl { display: grid; gap: var(--space-2); margin-bottom: 0; }
+.provider-account-summary dl > div { display: flex; justify-content: space-between; gap: var(--space-3); }
+.provider-account-summary dt, .provider-account-summary small { color: var(--n-muted); }
+.provider-account-summary dd { margin: 0; text-align: end; overflow-wrap: anywhere; min-width: 0; }
+.provider-account-actions { flex-wrap: wrap; }
+.provider-account-actions > p { flex-basis: 100%; }
+.provider-account-select { min-width: 0; }
+@media (max-width: 540px) { .provider-account-summary { padding: 18px; } }
+
+.provider-accounts-settings { width: 100%; min-width: 0; border-top: 1px solid var(--n-border); padding-top: var(--space-4); }
+.provider-accounts-settings > p { margin: 0; overflow-wrap: anywhere; }
+.provider-accounts-rows { display: grid; gap: var(--space-3); }
+.provider-account-card { min-width: 0; border: 1px solid var(--n-border); border-radius: var(--n-radius-lg); }
+.provider-account-summary { padding: var(--space-3); }
+.provider-account-summary dl > div { flex-wrap: wrap; }
+.provider-account-note { color: var(--n-muted); font-size: 0.8125rem; }
+.provider-account-actions { display: flex; gap: var(--space-2); padding: var(--space-3); }
+.pinned-provider-account { margin: var(--space-2) 0; overflow-wrap: anywhere; }
+.provider-account-chip { display: inline-flex; min-width: 0; pointer-events: auto; }
+.provider-account-chip > .n-button { display: inline-flex; align-items: center; gap: .3rem; min-height: 28px; height: 28px; max-width: 9rem; padding: 0 .45rem; border-radius: var(--radius-full); color: var(--color-text-muted, var(--text-muted)); font-size: 11px; }
+.provider-account-chip > .n-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-account-chip > .n-button[data-problem='true'] { color: var(--color-warning-text, var(--warning)); }
+.provider-account-popover { pointer-events: auto; margin: 0; padding: .75rem; overflow-y: auto; border: 1px solid var(--color-border-strong, var(--border-strong)); border-radius: var(--radius-lg); background: var(--color-surface-raised, var(--surface-raised)); color: var(--color-text, var(--text)); box-shadow: var(--shadow-popover); font-size: 12px; line-height: 1.45; }
+.provider-account-popover .pinned-provider-account { margin: 0; }

@@ -1,0 +1,17 @@
+.graph-edge-active-controls { overflow: visible; pointer-events: none; opacity: 0; transition: opacity 140ms ease; }
+.graph-edge-active-controls[data-visible='true'] { opacity: 1; }
+.graph-edge-active-controls[data-visible='false'] * { pointer-events: none; }
+.graph-edge-controls { display: flex; justify-content: center; gap: var(--space-1); }
+.graph-edge-controls > button { min-width: 32px; min-height: 32px; padding: 4px; pointer-events: auto; }
+.graph-edge-inspection {
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--graph-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--graph-panel, Canvas);
+  color: var(--graph-ink, CanvasText);
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.graph-edge-controls > .workflow-graph-edge-remove { position: static; opacity: 1; transform: none; }

@@ -1,0 +1,19 @@
+packages:
+  - apps/*
+  - packages/*
+
+autoInstallPeers: false
+sharedWorkspaceLockfile: true
+# Native qualification pins inode metadata; another install must not change it.
+packageImportMethod: clone-or-copy
+minimumReleaseAge: 2880
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: false
+  msw: true
+
+patchedDependencies:
+  '@langchain/langgraph@1.4.15': patches/@langchain__langgraph@1.4.15.patch

@@ -1,0 +1,7 @@
+/* Import after application base styles. Tokens first, then foundation before interaction variants.
+   These styles stay unlayered so legacy unlayered element rules do not override
+   the toolkit's more-specific component selectors. */
+@import './tokens.css';
+@import './foundation.css';
+@import './advanced.css';
+@import './canvas.css';

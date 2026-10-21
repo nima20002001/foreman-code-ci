@@ -1,0 +1,50 @@
+/* Shared overview treatment. Scope typography to these pages, not the graph. */
+.workspace-directory.resource-directory,
+.workflow-directory.resource-directory,
+.settings-page.workspace-overview,
+.settings-page.workspace-detail {
+  box-sizing: border-box;
+  width: min(100%, 64rem);
+  min-width: 0;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+  font-size: 13px;
+}
+.workspace-directory.resource-directory,
+.workflow-directory.resource-directory { display: grid; align-content: start; gap: var(--space-4); }
+.resource-directory h1,
+.workspace-overview h1,
+.workspace-detail h1 { font: var(--type-title); }
+.workspace-overview .n-page-header,
+.workspace-detail .n-page-header { margin: 0; }
+.resource-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--space-3);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.resource-card-list > li { display: flex; min-width: 0; }
+.workspace-detail-content:has(> .workflow-directory--embedded) { min-height: 0; padding: 0; border: 0; background: transparent; }
+.workspace-overview { display: grid; align-content: start; gap: var(--space-6); }
+.workspace-remove-button.n-button { color: var(--n-danger); }
+.workspace-overview > .workflow-directory { width: 100%; margin: 0; padding: var(--space-4) 0 0; border-top: 1px solid var(--n-border); }
+.workspace-overview > .workflow-directory .n-page-header { padding: 0; flex-wrap: wrap; gap: var(--space-3); }
+.workspace-overview > .workflow-directory h2 { font-size: 15px; font-weight: 500; }
+.workspace-overview > .workflow-directory .n-empty { padding: var(--space-4) var(--space-3); }
+.workspace-overview .settings-card-list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-3); }
+.workspace-overview .settings-card-open { width: 100%; min-height: 5rem; gap: var(--space-3); padding: 1rem; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.workspace-overview .settings-card-icon { width: 1rem; height: 1rem; min-width: 1rem; padding: 0; border: 0; background: none; color: var(--n-muted); }
+.workspace-overview .settings-card-copy strong { font-size: 13px; font-weight: 500; }
+.workspace-overview .settings-card-copy small { font-size: 13px; line-height: 1.5; }
+.workspace-detail > .workspace-location-form { width: min(100%, 38rem); }
+.workspace-detail .settings-back-link { font-size: 13px; min-height: 44px; }
+@media (max-width: 480px) {
+  .resource-card-list,
+  .workspace-overview .settings-card-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+.resource-directory-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.resource-load-more { padding-block: 0.5rem; }
+.resource-load-more p { font-size: 0.8rem; }

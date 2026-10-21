@@ -1,0 +1,85 @@
+/* Settings use Nocturne tokens and existing field controls. No global resets. */
+.settings-page.settings-experience { width: 100%; max-width: 1180px; margin-inline: auto; padding: clamp(18px, 3vw, 36px); }
+.settings-overview, .settings-editor-page { display: grid; gap: var(--space-6); min-width: 0; }
+.settings-experience-heading { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; }
+.settings-experience-heading h1 { margin: 0; font: var(--type-title); }
+.settings-experience-heading > p { margin: 0; color: var(--n-muted); max-width: 70ch; font-size: 13px; line-height: 1.65; }
+.settings-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--space-4); }
+.settings-choice { display: flex; flex-direction: column; width: 100%; min-width: 0; border: 1px solid var(--n-border); border-radius: var(--n-radius-lg); background: var(--n-surface); color: var(--n-text); transition: border-color var(--n-fast), background var(--n-fast); }
+.settings-choice-open { display: flex; flex-direction: column; gap: var(--space-6); flex: 1; width: 100%; min-width: 0; padding: 22px; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.settings-choice-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0 22px; padding: 12px 0 16px; border-top: 1px solid var(--n-border); font-size: 12px; }
+.settings-choice:has(.settings-choice-open:hover) { background: var(--n-raised); border-color: var(--n-border-strong); }
+.settings-choice-open:focus-visible { outline: 2px solid var(--n-focus); outline-offset: 4px; }
+.settings-choice-heading { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.settings-choice-heading > span:nth-child(2) { display: grid; gap: var(--space-1); flex: 1; min-width: 0; }
+.settings-choice-heading strong { font-size: 15px; font-weight: 600; }
+.settings-choice-icon { width: 40px; height: 40px; display: grid; place-items: center; background: var(--n-accent-subtle); color: var(--n-accent); border-radius: var(--radius-lg); flex: 0 0 40px; }
+.settings-choice-heading > svg { color: var(--n-faint); }
+.settings-choice-summary { display: grid; gap: var(--space-3); width: 100%; }
+.settings-summary-row { display: flex; gap: var(--space-3); justify-content: space-between; min-width: 0; line-height: 1.6; font-size: 12px; }
+.settings-summary-row > span { color: var(--n-faint); flex-shrink: 0; }
+.settings-summary-row > strong { min-width: 0; text-align: end; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-editor-layout { display: grid; grid-template-columns: 194px minmax(0, 1fr); align-items: start; gap: var(--space-8); min-width: 0; }
+.settings-editor-nav { display: grid; gap: var(--space-1); min-width: 0; padding: 0; }
+.settings-editor-nav > button { display: flex; gap: var(--space-2); justify-content: space-between; align-items: center; min-height: 44px; width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--n-muted); font: inherit; text-align: start; cursor: pointer; }
+.settings-editor-nav > button:hover { background: var(--n-raised); color: var(--n-text); }
+.settings-editor-nav > button[aria-current="page"] { color: var(--text); background: var(--surface-selected); border-color: var(--border-strong); font-weight: 500; }
+.settings-editor-nav > button > span { color: var(--n-faint); }
+.settings-editor-content { display: grid; gap: var(--space-6); min-width: 0; min-height: 390px; align-content: start; padding: 26px; background: var(--n-surface); border: 1px solid var(--n-border); border-radius: var(--n-radius-lg); }
+.settings-section-heading { display: grid; gap: var(--space-2); padding: 0; margin: 0; }
+.settings-section-heading h2 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin: 0; }
+.settings-section-heading > p { color: var(--n-muted); font-size: 12px; line-height: 1.6; margin: 0; }
+.settings-editor-page .settings-save-actions { position: static; z-index: auto; display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.settings-editor-page .settings-save-actions > button { flex: 0 1 auto; }
+.settings-editor-page .settings-save-actions > p { margin: 0; margin-inline-end: auto; }
+.settings-editor-page .settings-footer-options { margin-inline-end: auto; }
+.settings-editor-page .settings-footer-options .n-check-field { margin: 0; }
+.settings-editor-page .settings-simple-row { padding-top: 20px; border-top: 1px solid var(--n-border); }
+.settings-editor-page .harness-workbench--page { gap: var(--space-4); }
+.settings-editor-page .harness-switch-list { border: 0; border-radius: 0; padding: 16px 0 0; border-top: 1px solid var(--n-border); background: transparent; }
+.harness-section-fields { display: grid; gap: var(--space-4); min-width: 0; }
+.settings-check-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; color: var(--n-muted); font-size: 12px; }
+.harness-section-nav { margin-bottom: 0; }
+.settings-editor-page .harness-workspace-evidence { padding-top: 0; border: 0; }
+.settings-editor-page .harness-mcp-policies, .settings-editor-page .harness-mcp-manager { padding: 0; }
+.settings-editor-page .harness-section-heading h4 { font-size: 13px; }
+.settings-single-column { display: grid; gap: var(--space-4); padding: 26px; border: 1px solid var(--n-border); border-radius: var(--n-radius-lg); background: var(--n-surface); }
+.settings-single-column > .n-field { max-width: 680px; }
+@media (max-width: 840px) {
+  .settings-editor-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .settings-editor-nav { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .settings-editor-nav > button { flex: 1 1 140px; width: auto; border-color: var(--n-border); }
+  .settings-editor-nav > button > span { display: none; }
+  .settings-editor-content { min-height: 0; padding: 20px; }
+}
+@media (max-width: 540px) {
+  .settings-page.settings-experience { padding: 16px; }
+  .settings-choice-open { padding: 18px; }
+  .settings-choice-footer { margin: 0 18px; }
+  .settings-editor-page { gap: var(--space-4); }
+  .settings-editor-content, .settings-single-column { padding: 18px; }
+  .settings-editor-page .settings-save-actions { gap: var(--space-2); }
+  .settings-editor-page .settings-footer-options { flex-basis: 100%; }
+  .settings-editor-page .settings-save-actions > p { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .settings-choice { transition: none; } }
+@media (forced-colors: active) {
+  .settings-choice, .settings-editor-content, .settings-editor-nav > button { border: 1px solid CanvasText; }
+  .settings-editor-nav > button[aria-current="page"] { border: 2px solid Highlight; }
+}
+
+.settings-inline-footer { display: flex; align-items: center; justify-content: flex-end; border-top: 1px solid var(--n-border); padding-top: 16px; }
+.settings-single-column { min-height: 0; }
+/* Narrow screens: grid tracks and form controls may shrink below their content width. */
+.settings-page.settings-experience, .settings-overview, .settings-editor-page { grid-template-columns: minmax(0, 1fr); max-width: 100%; }
+.settings-editor-content { max-width: 100%; }
+.settings-editor-content :is(.n-field, .n-input-wrap, .n-select-wrap, .n-check-field, .n-switch-field, .settings-simple-row, fieldset) { min-width: 0; max-width: 100%; }
+.settings-editor-content :is(input:not([type='checkbox'], [type='radio']), select, textarea) { max-width: 100%; }
+.settings-editor-content :is(pre, code) { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 540px) { .settings-check-row > * { min-width: 0; } }
+.settings-single-column--compact { width: 100%; max-width: 560px; min-height: 0; padding: 18px; }
+.settings-single-column--compact > .n-field { width: 100%; max-width: 360px; }
+.settings-choice-footer .operator-mcp-status { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--n-muted); }
+.settings-choice-footer small { color: var(--n-muted); }
+.settings-choice-footer .operator-mcp-error { flex-basis: 100%; color: var(--n-danger, var(--n-text)); overflow-wrap: anywhere; }
+.settings-choice-links { display: inline-flex; gap: .25rem; }

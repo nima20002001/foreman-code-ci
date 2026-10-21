@@ -1,0 +1,49 @@
+FIL-06 local verification evidence
+Base: 219dfda4c7095ad76ef09cba4dca3ef3ca513daf
+
+Delivery status: implementation provided; dependency integration and pinned-suite
+verification remain incomplete. Do not treat this as a production/CI pass.
+
+ACTUALLY EXECUTED
+- Node v22.16.0; TypeScript 5.8.3 transpileModule, ES2022/ESNext.
+- 17 TypeScript files (14 new format/fixture/test files + 3 unchanged base archive
+  files) transpiled with zero syntactic diagnostics. This is NOT a typecheck.
+- Node's real test runner, with a local adapter for Vitest describe/it/lifecycle
+  registration; test assertions remained node:assert/strict and production code
+  was otherwise unmocked.
+- Frozen contracts package replaced for this local run by its two exact numeric
+  constants (MAX_FILE_BYTES and MAX_FILE_READ_BYTES), NOT a full contracts build.
+- Installed XML implementation used locally: @xmldom/xmldom 0.9.8. This is NOT the
+  delivery requirement of 0.9.12; 0.9.8 must not be used for deployment.
+- Real Node subprocesses and Linux /proc RSS monitoring were exercised.
+- Tests: 23 passed, 0 failed, 0 skipped, 0 cancelled; three suites:
+    DOCX                         11 passed
+    Markdown                      6 passed
+    Parent process isolation      6 passed
+- Original archive source copy Git blob hashes match the pinned GitHub objects:
+    index.ts   678973ffcda03b1ccb236a9d184b80ab2f3db0e8
+    policy.ts  b249c8d0b0124b44fd3ec2ba4bc50ef7f59390bf
+    zip.ts     b2bb602a529590bc3e4d13072ffd62b4a63234cc
+  These unchanged files and the local adapters are not in the delivery ZIP.
+- Partial strict TypeScript inspection with locally available Node 24.0.4 types
+  found a ForkOptions.windowsHide mismatch; that option was removed. Remaining
+  diagnostics are missing Vitest/PDF library declarations and consequent PDF-test
+  inference errors. This inspection is NOT a passing repo typecheck.
+
+SETUP ATTEMPT
+- corepack pnpm --version, in a staging package pinned to pnpm@11.27.0.
+- Exit 1: Corepack could not retrieve pnpm-11.27.0.tgz from registry.npmjs.org;
+  getaddrinfo EAI_AGAIN. No package manager fallback or release-age bypass used.
+
+NOT EXECUTED / NOT DELIVERED AS COMPLETED
+- Seven real-PDF tests. pdf-lib and unpdf were unavailable; no fake PDF parser was
+  used, and no claim is made that those tests passed.
+- Tests with @xmldom/xmldom 0.9.12.
+- A pnpm install, dependency/lockfile generation, pinned Vitest 5.0.0 suite,
+  actual contracts build, repo TypeScript 5.9.3 typecheck or lint.
+- Production API build/start, storage-service round trip or MCP integration.
+- Source-mode tsx child startup (compiled-JS child startup WAS tested).
+- Tests on non-Linux hosts (the public helper reports unsupported there).
+- Hard OS/container memory and network isolation. RSS sampling is not a hard
+  instantaneous native-allocation ceiling and a child process is not a complete
+  hostile-code sandbox.

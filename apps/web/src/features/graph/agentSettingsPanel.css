@@ -1,0 +1,204 @@
+.agent-settings-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-height: min(34rem, calc(100dvh - 1rem));
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.agent-settings-heading {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.65rem;
+  padding: .4rem .5rem .4rem .75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.agent-settings-title,
+.agent-settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.agent-settings-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.agent-settings-panel .agent-settings-back svg { transform: rotate(180deg); }
+
+.agent-settings-thinking { grid-column: 1 / -1; }
+
+.agent-settings-general,
+.agent-settings-advanced-view {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: .7rem .75rem .65rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-settings-row {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.agent-settings-row-primary,
+.agent-settings-row-codex,
+
+.agent-settings-general .agent-settings-sandbox,
+.agent-settings-general .agent-settings-thinking { grid-column: 1 / -1; }
+
+.agent-settings-panel > .agent-settings-footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  align-items: center;
+  min-width: 0;
+  padding: .3rem .5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.agent-settings-panel .agent-settings-advanced-link {
+  gap: var(--space-0-5);
+  min-height: 1.6rem;
+  padding: .15rem .3rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  text-underline-offset: .2rem;
+}
+
+.agent-settings-panel .agent-settings-advanced-link:hover {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text));
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  text-decoration-color: currentColor;
+}
+
+.agent-settings-advanced-link svg { transition: transform 120ms ease; }
+.agent-settings-advanced-link:hover svg { transform: translateX(2px); }
+
+.agent-settings-panel .agent-settings-trash { margin-left: auto; }
+
+.agent-settings-panel .agent-settings-trash:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.agent-settings-advanced-view { gap: var(--space-3); max-height: 28rem; }
+.agent-settings-advanced-view .agent-settings-prompt { grid-column: 1 / -1; }
+.agent-settings-advanced-view .harness-configuration-fields { display: grid; gap: var(--space-3); }
+.agent-settings-advanced-only > :not(.advanced-settings):not(.settings-help) { display: none !important; }
+.agent-settings-advanced-only > .advanced-settings { margin: 0; border: 0; }
+.agent-settings-advanced-only > .advanced-settings > summary { display: none; }
+.agent-settings-advanced-only .settings-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.agent-settings-advanced-only .settings-field-grid > .n-field:has(textarea),
+.agent-settings-advanced-only .settings-field-grid > .n-field:has(select[aria-label='Permission handling']),
+.agent-settings-advanced-only .settings-field-grid > fieldset,
+.agent-settings-advanced-only .settings-field-grid > p { grid-column: 1 / -1; }
+.agent-settings-advanced-only .agent-settings-section-label {
+  display: block;
+  margin: .2rem 0 -.15rem;
+  padding: 0 0 .3rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.agent-settings-advanced-only .settings-field-grid > .agent-settings-section-label:first-child { margin-top: 0; }
+.agent-settings-advanced-only .settings-field-grid > p:not(.agent-settings-section-label) { display: none; }
+.agent-settings-advanced-only .advanced-settings > .settings-help,
+.agent-settings-advanced-only .advanced-settings > small { display: none; }
+.agent-settings-advanced-only .n-field-hint,
+.agent-settings-advanced-only fieldset > small,
+.agent-settings-advanced-only fieldset > p { display: none; }
+.agent-settings-advanced-only .permission-rules > div { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+.agent-settings-panel .settings-help {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.agent-settings-advanced-view > .settings-help,
+.agent-settings-advanced-only > .settings-help { display: none; }
+
+@media (max-width: 600px) {
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-settings-advanced-link svg { transition: none; }
+}
+
+.agent-graphql-tools {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.agent-graphql-tools legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.agent-graphql-tools-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.agent-graphql-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.agent-graphql-tool[data-changed] {
+  border-color: var(--color-accent, var(--color-border-strong));
+}
+
+.agent-graphql-tool-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+
+.agent-graphql-tool-name span {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs, .75rem);
+}
+
+.node-placement-field { min-width: 0; }
+.node-placement-field dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 4px 12px; font-size: 12px; }
+.node-placement-field dt { color: var(--text-muted); }
+.node-placement-field dd { margin: 0; overflow-wrap: anywhere; }
+.node-placement-field p { font-size: 12px; color: var(--text-muted); }

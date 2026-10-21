@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Foreman Code Companion</title>
+<style nonce="{{CSP_NONCE}}">
+:root { color-scheme: dark; --bg: #0f1115; --panel: #171a21; --raised: #1e222b; --line: #2b303b; --text: #eceef3; --muted: #9aa1b0; --accent: #7aa2ff; --ok: #5bd18b; --warn: #e8b64c; --bad: #ff7b7b; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+main { width: min(36rem, 100%); margin: 0 auto; padding: 1.25rem 1rem 2.5rem; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; margin-bottom: 1rem; }
+h1 { margin: 0; font-size: 1.25rem; }
+h2 { margin: 0; font-size: 1rem; }
+p { margin: .35rem 0 0; color: var(--muted); }
+.badge { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .65rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: .8125rem; }
+.badge::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); }
+.badge[data-tone="ok"]::before { background: var(--ok); }
+.badge[data-tone="warn"]::before { background: var(--warn); }
+.badge[data-tone="bad"]::before { background: var(--bad); }
+ol { display: grid; gap: .75rem; margin: 0; padding: 0; list-style: none; }
+li { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); }
+li[aria-current="step"] { border-color: var(--accent); }
+li[data-done="true"] h2::after { content: " ✓"; color: var(--ok); }
+.step-title { display: flex; gap: .6rem; align-items: baseline; }
+.num { color: var(--muted); font-variant-numeric: tabular-nums; }
+label { display: block; margin-top: .6rem; color: var(--text); font-size: .875rem; font-weight: 600; }
+textarea, input { width: 100%; margin-top: .3rem; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: .375rem; background: var(--raised); color: var(--text); font: .8125rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+textarea { min-height: 5rem; resize: vertical; overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .65rem; }
+button { min-height: 2.25rem; padding: .4rem .9rem; border: 1px solid var(--line); border-radius: .375rem; background: var(--raised); color: var(--text); font: inherit; font-size: .875rem; cursor: pointer; }
+button.primary { border-color: var(--accent); background: var(--accent); color: #0b1020; font-weight: 600; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg { min-height: 1.25rem; margin-top: .5rem; font-size: .875rem; }
+.msg[data-tone="bad"] { color: var(--bad); }
+.msg[data-tone="ok"] { color: var(--ok); }
+details { margin-top: 1rem; color: var(--muted); font-size: .8125rem; }
+summary { cursor: pointer; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; margin: .5rem 0 0; }
+dt { color: var(--muted); }
+dd { margin: 0; color: var(--text); overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-top: 1rem; }
+footer p { margin: 0; font-size: .8125rem; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Foreman Code Companion</h1>
+    <span id="state" class="badge" data-tone="warn" role="status">Checking…</span>
+  </header>
+  <p id="notice" class="msg" role="status" aria-live="polite" hidden></p>
+
+  <ol>
+    <li id="step1" aria-current="step">
+      <div class="step-title"><span class="num">1</span><h2>Copy this computer's request</h2></div>
+      <p>This public code lets the main app recognise this computer. It contains no secret.</p>
+      <div class="row"><button id="make" class="primary" type="button">Get request code</button></div>
+      <div id="requestBox" hidden>
+        <label for="request">Request code</label>
+        <textarea id="request" readonly spellcheck="false" autocomplete="off"></textarea>
+        <div class="row"><button id="copy" type="button">Copy code</button></div>
+      </div>
+      <div id="m1" class="msg" role="status" aria-live="polite"></div>
+    </li>
+    <li id="step2">
+      <div class="step-title"><span class="num">2</span><h2>Approve it in the main app</h2></div>
+      <p>Open the main app, choose <strong>Add computer</strong>, paste the request code and approve. The app then shows a private pairing code.</p>
+    </li>
+    <li id="step3">
+      <div class="step-title"><span class="num">3</span><h2>Enter the private pairing code</h2></div>
+      <form id="pairForm" autocomplete="off">
+        <label for="code">Private pairing code</label>
+        <input id="code" name="pairing" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="m3">
+        <div class="row">
+          <button id="pair" class="primary" type="submit">Pair this computer</button>
+          <button id="show" type="button" aria-pressed="false">Show code</button>
+        </div>
+      </form>
+      <div id="m3" class="msg" role="status" aria-live="polite"></div>
+      <div class="row"><button id="retry" type="button" hidden>Retry</button></div>
+    </li>
+    <li id="step4" hidden>
+      <div class="step-title"><span class="num">4</span><h2>Run in background (optional)</h2></div>
+      <p>Pairing does not start the worker. You can review and install this app's own user service so it keeps running. It needs no sudo and does not change login or system services.</p>
+      <div class="row"><button id="plan" type="button">Review background service</button></div>
+      <div id="planBox" hidden>
+        <p id="planSummary"></p>
+        <details>
+          <summary>Exact service plan</summary>
+          <dl id="planFacts"></dl>
+          <label for="unit">Service file</label>
+          <textarea id="unit" readonly spellcheck="false"></textarea>
+        </details>
+        <div class="row"><button id="enable" class="primary" type="button">Confirm and start background service</button></div>
+      </div>
+      <div id="m4" class="msg" role="status" aria-live="polite"></div>
+      <div class="row"><button id="retry4" type="button" hidden>Retry</button></div>
+    </li>
+  </ol>
+
+  <details id="details">
+    <summary>Technical details</summary>
+    <dl id="facts"></dl>
+  </details>
+  <p id="next" role="status" aria-live="polite"></p>
+
+  <footer>
+    <p>Closing ends this setup page only. The installed background worker is not stopped.</p>
+    <button id="close" type="button">Close setup</button>
+  </footer>
+</main>
+
+<script nonce="{{CSP_NONCE}}">
+(() => {
+  'use strict';
+  // The per-launch session lives only in memory; the fragment is removed at once and nothing is stored.
+  const session = new URLSearchParams(location.hash.slice(1)).get('session') || '';
+  history.replaceState(null, '', location.pathname + location.search);
+  const $ = (id) => document.getElementById(id);
+  const state = $('state'), code = $('code'), request = $('request');
+  let busy = false, closed = false, paired = false, plan = null, blocked = false;
+  const errors = { preview_read_only: 'This is a read-only preview. Open the installed companion to pair or start the service.',
+    companion_installation_changed: 'The installation changed while this page was open. Reopen the companion from the installed launcher.',
+    installation_state_mismatch: 'This installation uses a different state folder. Reopen its approved launcher.',
+    installation_state_unbound: 'This installation needs its app and state folders reviewed before updating. See the installation guide.',
+    install_busy: 'An installation or service change is in progress. Wait for it to finish and review the plan again.',
+    target_runtime_mismatch: 'This computer does not match the supported OS or Node version for this release. Use a supported computer.', service_plan_changed: 'The installed service changed since you reviewed it. Review the plan again.', pairing_required: 'Pair this computer before starting the background service.',
+    service_confirmation_required: 'Confirm the reviewed plan to continue.', installation_invalid: 'The installation is not complete or is not in the expected location. Reinstall from the approved package.',
+    private_directory_required: 'A required folder is not private to this user. Fix its permissions and retry.', companion_command_failed: 'The companion could not complete that. Retry, or reopen it from the installed launcher.',
+    session_expired: 'This setup page expired. Reopen it from the installed launcher.', session_rejected: 'This setup page is no longer valid. Reopen it from the installed launcher.',
+    setup_code_invalid: 'The pairing code is not valid. Copy the full current code from the main and paste it again.',
+    setup_code_identity_mismatch: 'This code belongs to another computer. Get this companion\'s request code and approve it on the main to obtain a matching code.',
+    setup_code_expired: 'The pairing code expired. Ask for a new approval on the main.',
+    setup_code_cancelled: 'Pairing was cancelled. Retry with the original pending code; no new identity is needed.',
+    already_paired: 'This computer is already paired.', pairing_in_progress: 'Pairing is already in progress.', enrollment_code_invalid: 'That is not a valid private pairing code.',
+    wrong_main_proof: 'The pairing code did not come from the expected main. Create a new one.', pairing_main_unreachable: 'The main could not be reached. Check the network and retry.',
+    pairing_outcome_unknown: 'The pairing result is unknown. Check status, then retry with the same code.', pairing_http_rejected: 'The main rejected the pairing code. It may have expired; create a new one.' };
+
+  const say = (id, text, tone) => { const el = $(id); el.textContent = text; if (tone) el.dataset.tone = tone; else delete el.dataset.tone; };
+  const badge = (text, tone) => { state.textContent = text; state.dataset.tone = tone; };
+  const lock = (value) => { busy = value; for (const id of ['make', 'pair', 'copy', 'retry', 'plan', 'enable', 'retry4']) $(id).disabled = value || closed || blocked; };
+
+  async function call(path, body) {
+    let response;
+    try {
+      response = await fetch(path, { method: 'POST', credentials: 'same-origin', cache: 'no-store', referrerPolicy: 'no-referrer',
+        headers: { 'Content-Type': 'application/json', 'X-Graphql-Companion-Session': session }, body: JSON.stringify(body) });
+    } catch { throw new Error('The companion is not reachable. Reopen it from the installed launcher.'); }
+    let data = null;
+    try { data = await response.json(); } catch { /* non-JSON reply */ }
+    if (!response.ok) {
+      const text = data && typeof data.error === 'string' ? errors[data.error] : '';
+      throw new Error(text || `Request failed (${response.status}). Retry, or reopen the companion if it persists.`);
+    }
+    return data;
+  }
+
+  const readable = { unpaired: 'Not paired', paired: 'Paired' };
+  const connection = { connected: 'connected', connecting: 'connecting', backoff: 'reconnecting', blocked: 'blocked', offline: 'offline', stopped: 'stopped' };
+  function showFacts(report) {
+    const rows = [['Version', report.versions && report.versions.app], ['Computer ID', report.identity && report.identity.installationId],
+      ['Main ID', report.identity && report.identity.selectedMainId], ['Main fingerprint', report.identity && report.identity.selectedMainFingerprint],
+      ['Mismatched', report.compatibility && Array.isArray(report.compatibility.mismatches) ? report.compatibility.mismatches.join(', ') : ''],
+      ['Required arch / libc', report.compatibility && report.compatibility.required ? `${report.compatibility.required.arch || '?'} / ${report.compatibility.required.libc || '?'}` : ''],
+      ['Actual arch / libc', report.compatibility && report.compatibility.actual ? `${report.compatibility.actual.arch || '?'} / ${report.compatibility.actual.libc || '?'}` : '']];
+    const facts = $('facts'); facts.replaceChildren();
+    for (const [name, value] of rows) {
+      if (typeof value !== 'string' || !value) continue;
+      const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = value; facts.append(dt, dd);
+    }
+  }
+  async function refresh() {
+    try {
+      const report = await call('/api/status', {});
+      paired = report.pairing === 'paired';
+      const link = connection[report.connection] || 'offline';
+      const compat = report.compatibility || {};
+      const unsupported = compat.supported !== true;
+      blocked = report.readOnly === true || unsupported || report.installationChanged === true;
+      lock(busy); $('show').disabled = blocked; $('code').disabled = blocked;
+      const label = (value) => value ? `${value.os || '?'} ${value.osRelease || '?'}, Node ${value.node || '?'}` : '?';
+      let compatibilityNotice = '';
+      if (report.installationChanged === true) compatibilityNotice = errors.companion_installation_changed;
+      else if (unsupported) compatibilityNotice = `Unsupported on this computer. Required: ${label(compat.required)}. Actual: ${label(compat.actual)}.`;
+      const notes = [report.readOnly === true ? 'Read-only preview. Pairing and service actions are disabled.' : '',
+        compatibilityNotice].filter(Boolean);
+      $('notice').hidden = !notes.length; $('notice').textContent = notes.join(' '); $('notice').dataset.tone = unsupported ? 'bad' : 'warn';
+      if (unsupported && !paired) badge('Unsupported', 'bad');
+      else if (paired) badge(`Paired · ${link}`, report.connection === 'connected' ? 'ok' : 'warn');
+      else badge('Not paired', 'warn');
+      $('step1').dataset.done = String(paired); $('step3').dataset.done = String(paired);
+      $('step1').toggleAttribute('aria-current', !paired); $('step3').toggleAttribute('aria-current', false);
+      showFacts(report);
+      const service = report.service || {};
+      $('step4').hidden = !paired; $('step4').dataset.done = String(paired && service.active === true);
+      $('enable').textContent = service.active ? 'Confirm background service configuration' : 'Confirm and start background service';
+      let nextStep = '';
+      if (paired && service.active) {
+        nextStep = 'The background service is running. Pairing and the service do not by themselves confirm that workflows or harnesses are ready. You can close this page; the worker keeps running.';
+      } else if (paired && service.userManagerAvailable) {
+        nextStep = 'Paired. The background service is not running. Use "Run in background" above if you want it to keep running.';
+      } else if (paired) {
+        nextStep = 'Paired, but no user service manager was found, so the background service cannot be started from here.';
+      }
+      $('next').textContent = nextStep;
+      if (Array.isArray(report.errors) && report.errors.length) say('m3', `Diagnostics: ${report.errors.join(', ')}`, 'bad');
+      return report;
+    } catch (error) { badge('Unavailable', 'bad'); say('m1', error.message, 'bad'); return null; }
+  }
+
+  $('make').addEventListener('click', async () => {
+    if (busy) return;
+    lock(true); say('m1', 'Creating request code…');
+    try {
+      const data = await call('/api/identity-request', {});
+      if (!data || typeof data.code !== 'string' || !data.code.startsWith('GQLWR1.')) throw new Error('The companion returned an unexpected reply. Retry.');
+      request.value = data.code; $('requestBox').hidden = false; say('m1', 'Request code ready. Copy it into the main app.', 'ok');
+      $('make').textContent = 'Refresh request code';
+    } catch (error) { say('m1', error.message, 'bad'); }
+    finally { lock(false); }
+  });
+
+  $('copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(request.value); say('m1', 'Copied.', 'ok'); }
+    catch { request.focus(); request.select(); say('m1', 'Copy was blocked. The code is selected; press Ctrl+C.', 'bad'); }
+  });
+
+  $('show').addEventListener('click', () => {
+    const reveal = code.type === 'password';
+    code.type = reveal ? 'text' : 'password';
+    $('show').textContent = reveal ? 'Hide code' : 'Show code'; $('show').setAttribute('aria-pressed', String(reveal));
+  });
+
+  async function pair(event) {
+    event.preventDefault();
+    if (busy) return;
+    const value = code.value.trim();
+    if (!value.startsWith('GQLWE1.')) { say('m3', 'Paste the private pairing code from the main app. It starts with GQLWE1.', 'bad'); code.focus(); return; }
+    lock(true); $('retry').hidden = true; say('m3', 'Pairing…'); badge('Pairing…', 'warn');
+    try {
+      await call('/api/pair', { enrollmentCode: value });
+      code.value = ''; code.type = 'password'; $('show').textContent = 'Show code'; $('show').setAttribute('aria-pressed', 'false');
+      say('m3', 'Confirming with the main app…');
+      if (await refresh() && paired) say('m3', 'Paired. The main app confirmed this computer.', 'ok');
+      else say('m3', 'The pairing reply arrived but this computer is not shown as paired yet. Retry the status check.', 'bad'), $('retry').hidden = false;
+    } catch (error) { say('m3', error.message, 'bad'); badge('Not paired', 'warn'); $('retry').hidden = false; }
+    finally { lock(false); }
+  }
+  $('pairForm').addEventListener('submit', pair);
+  $('retry').addEventListener('click', async () => { if (!busy) { lock(true); say('m3', 'Checking…'); await refresh(); say('m3', paired ? 'Paired.' : 'Still not paired. Submit the pairing code again if it has not expired.', paired ? 'ok' : 'bad'); lock(false); } });
+
+  function showPlan(value) {
+    const text = (key) => typeof value[key] === 'string' ? value[key] : '';
+    const commands = (list) => Array.isArray(list) ? list.map((parts) => Array.isArray(parts) ? parts.join(' ') : '').join('\n') : '';
+    const rows = [['User', text('approvedUser')], ['Release', text('artifactManifestSha256')], ['Service file path', text('unitPath')], ['Start commands', commands(value.enableCommands)],
+      ['Rollback commands', commands(value.rollbackCommands)], ['Rollback note', text('rollbackPrerequisite')], ['Login linger', text('lingerAction') === 'none' ? 'unchanged' : text('lingerAction')], ['Plan ID', text('planSha256')]];
+    const facts = $('planFacts'); facts.replaceChildren();
+    for (const [name, item] of rows) {
+      if (!item) continue;
+      const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = name; dd.textContent = item; dd.style.whiteSpace = 'pre-wrap'; facts.append(dt, dd);
+    }
+    $('unit').value = text('unitText');
+    $('planSummary').textContent = 'Installs this app\'s own user service file and starts it for your account only. Nothing runs until you confirm.';
+    $('planBox').hidden = false;
+  }
+  $('plan').addEventListener('click', async () => {
+    if (busy) return;
+    lock(true); $('retry4').hidden = true; plan = null; $('planBox').hidden = true; say('m4', 'Reading the service plan…');
+    try {
+      const value = await call('/api/service-plan', {});
+      if (!value || typeof value.planSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.planSha256) || typeof value.unitText !== 'string') throw new Error('The companion returned an unexpected plan. Retry.');
+      plan = value; showPlan(value); say('m4', 'Review the plan, then confirm to start the background service.');
+    } catch (error) { say('m4', error.message, 'bad'); $('retry4').hidden = false; }
+    finally { lock(false); }
+  });
+  $('retry4').addEventListener('click', () => $('plan').click());
+
+  $('enable').addEventListener('click', async () => {
+    if (busy || !plan || !paired) return;
+    lock(true); $('retry4').hidden = true; say('m4', 'Starting the background service…');
+    try {
+      const result = await call('/api/service-enable', { confirm: true, planSha256: plan.planSha256 });
+      if (!result || result.enabled !== true) throw new Error('The service start was not confirmed. Check status and retry.');
+      plan = null; $('planBox').hidden = true;
+      say('m4', 'Checking the background service…');
+      const report = await refresh();
+      if (!report) {
+        say('m4', 'The start command completed, but status could not be read. Check status and review the plan again.', 'bad');
+      } else if (report.service?.active !== true || blocked) {
+        say('m4', 'The start command completed, but a running background service was not confirmed. Check diagnostics and review the plan again.', 'bad');
+      } else {
+        say('m4', 'The background service is running for your account. Check the status badge for its connection.', 'ok');
+      }
+      if (!report || report.service?.active !== true || blocked) {
+        $('retry4').hidden = false;
+        $('retry4').textContent = 'Review plan again';
+      }
+    } catch (error) { say('m4', error.message, 'bad'); $('retry4').hidden = false; $('retry4').textContent = 'Review plan again'; }
+    finally { lock(false); }
+  });
+
+  $('close').addEventListener('click', async () => {
+    if (busy) return;
+    lock(true);
+    try { await call('/api/close', {}); closed = true; badge('Setup closed', 'warn'); say('m3', 'Setup page closed. The installed worker was not changed. You can close this tab.'); $('close').disabled = true; $('pairForm').inert = true; $('make').disabled = true; }
+    catch (error) { say('m3', error.message, 'bad'); }
+    finally { lock(false); }
+  });
+
+  if (!session) { badge('Unavailable', 'bad'); say('m1', 'This page was opened without a setup session. Open it from the installed launcher.', 'bad'); lock(true); $('close').disabled = true; $('pairForm').inert = true; }
+  else void refresh();
+})();
+</script>
+</body>
+</html>

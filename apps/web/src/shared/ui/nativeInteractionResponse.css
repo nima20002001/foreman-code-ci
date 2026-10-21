@@ -1,0 +1,7 @@
+.native-interaction-response { display: grid; gap: var(--space-3); min-width: 0; }
+.native-interaction-response fieldset { display: grid; gap: var(--space-2); min-width: 0; }
+.native-interaction-response label { display: grid; gap: var(--space-1); min-width: 0; }
+.native-interaction-response label:has(input[type="checkbox"]) { display: block; }
+.native-interaction-response input:not([type="checkbox"]),
+.native-interaction-response select, .native-interaction-response textarea { width: 100%; max-width: 100%; }
+.native-interaction-response small { display: block; color: var(--color-text-muted); }

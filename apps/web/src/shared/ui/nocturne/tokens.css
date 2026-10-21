@@ -1,0 +1,121 @@
+/* graphql design system tokens ("Aurora" palette, 2026-10-10). Originally from the Claude Design artifact
+   https://claude.ai/artifact/RE7u9oLHtJVKxy7SdmuV91 (project/tokens.json).
+   Dark is the default theme; light applies under :root[data-theme='light']. */
+:root {
+  color-scheme: dark;
+  /* "Aurora" palette: blue-black depth, a violet accent and vivid signals instead of flat grey. */
+  --canvas: #0c0f17;
+  --canvas-glow: radial-gradient(1100px 620px at 78% -12%, #7c6cff1f, transparent 62%),
+    radial-gradient(900px 520px at -8% 108%, #22d3c51a, transparent 60%);
+  --sidebar: #10141f;
+  --surface: #141a26;
+  --surface-raised: #1a2131;
+  --surface-hover: #222b3f;
+  --surface-selected: #2a2f55;
+  --border: #283147;
+  --border-strong: #56638a;
+  --text: #e5e9f4;
+  --text-strong: #f7f8fd;
+  --text-muted: #a5aec6;
+  --text-faint: #8d97b2;
+  --accent: #8f7dff;
+  --accent-hover: #a899ff;
+  --accent-subtle: #8f7dff26;
+  --on-accent: #0b0920;
+  --focus: #b8adff;
+  --success: #45e0a0;
+  --success-subtle: #12352b;
+  --warning: #ffc261;
+  --warning-subtle: #3a2c14;
+  --danger: #ff7b8a;
+  --danger-subtle: #3d1d27;
+  --danger-border: #9b4256;
+  --info: #5fc9ff;
+  --info-subtle: #13304a;
+  /* Computer load, from plenty of capacity to near its limits. */
+  --load-calm: var(--success);
+  --load-busy: #f0d35a;
+  --load-heavy: #ff9f5a;
+  --load-saturated: #ff8a98;
+  --load-offline: var(--text-faint);
+  --scrim: #05070dc4;
+  --harness-codex: #6aa5ff;
+  --harness-claude: #ff9a6c;
+  --harness-neutral: #a3adc6;
+  --on-harness: #0b1020;
+  --signal-task: #3ee6bd;
+  --signal-return: #ffb55c;
+  --shadow-popover: 0 8px 24px #00000066;
+  --shadow-dialog: 0 20px 60px #00000080, 0 0 0 1px #0000004d;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+  --font-sans: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  --type-display: 600 24px/32px var(--font-sans);
+  --type-title: 600 18px/26px var(--font-sans);
+  --type-heading: 600 15px/22px var(--font-sans);
+  --type-body: 400 13px/20px var(--font-sans);
+  --type-body-strong: 500 13px/20px var(--font-sans);
+  --type-control: 500 12px/18px var(--font-sans);
+  --type-caption: 400 11px/16px var(--font-sans);
+  --type-eyebrow: 600 11px/16px var(--font-sans);
+  --type-mono: 400 12px/18px var(--font-mono);
+  --type-display-tracking: -0.01em;
+  --type-eyebrow-tracking: 0.08em;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --canvas: #f5f5fb;
+  --canvas-glow: radial-gradient(1100px 620px at 78% -12%, #6b57ff14, transparent 62%),
+    radial-gradient(900px 520px at -8% 108%, #0fb5a612, transparent 60%);
+  --sidebar: #eeeef8;
+  --surface: #fbfbff;
+  --surface-raised: #ffffff;
+  --surface-hover: #ececf8;
+  --surface-selected: #e6e2ff;
+  --border: #d9d9ea;
+  --border-strong: #8a8aa8;
+  --text: #1c1b2e;
+  --text-strong: #0e0d1c;
+  --text-muted: #4f4f6b;
+  --text-faint: #5e5e7a;
+  --accent: #5a45e0;
+  --accent-hover: #4a35cf;
+  --accent-subtle: #5a45e01f;
+  --on-accent: #ffffff;
+  --focus: #4a35cf;
+  --success: #0f7a4e;
+  --success-subtle: #e2f5ec;
+  --warning: #8a5a00;
+  --warning-subtle: #fbf0d8;
+  --danger: #b4233a;
+  --danger-subtle: #fbe7ea;
+  --danger-border: #e0a2ad;
+  --info: #0b63b5;
+  --info-subtle: #e3f0fc;
+  --load-calm: var(--success);
+  --load-busy: #8f6f00;
+  --load-heavy: #b45309;
+  --load-saturated: #c53b52;
+  --load-offline: var(--text-faint);
+  --scrim: #1c1b2e66;
+  --harness-codex: #2f66d6;
+  --harness-claude: #c4531f;
+  --harness-neutral: #5f6680;
+  --on-harness: #ffffff;
+  --signal-task: #0b8f74;
+  --signal-return: #8a5a14;
+  --shadow-popover: 0 8px 24px #0000001f;
+  --shadow-dialog: 0 20px 60px #00000029, 0 0 0 1px #0000000f;
+}

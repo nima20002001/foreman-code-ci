@@ -1,0 +1,5 @@
+[data-file-dragging="true"] {
+  outline: 2px solid var(--n-border-strong, currentColor);
+  outline-offset: -2px;
+  background-color: var(--n-raised);
+}

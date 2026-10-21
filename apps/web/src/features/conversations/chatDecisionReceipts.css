@@ -1,0 +1,10 @@
+.chat-decision-receipts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font: var(--type-caption);
+}
+.chat-decision-state { display: inline-flex; align-items: center; gap: var(--space-1); }
+.chat-decision-state:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

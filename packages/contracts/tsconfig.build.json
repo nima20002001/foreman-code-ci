@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "declaration": true,
+    "allowJs": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.mjs"],
+  "exclude": ["tests", "dist", "src/**/*.test.ts", "src/**/*.spec.ts"]
+}

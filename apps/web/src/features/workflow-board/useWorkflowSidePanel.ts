@@ -1,0 +1,149 @@
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useLocation, useNavigate } from '@tanstack/react-router'
+import { boardSidePanelFromSearch, runInspectionKey, type BoardSidePanel, type RepeatGraphScopeV3 } from '@foreman-code/contracts/wave25'
+import type { WorkflowExecutionChatTarget } from '@foreman-code/contracts'
+import type { RunsSelectorSearchSchema } from '../runs-selector/search'
+import { useSidePanelPresentation } from './sidePanelPresentation'
+
+/** Navigation belongs to the URL. Drafts and scroll stay in their existing local owners. */
+export function useWorkflowSidePanel(workspaceId: string, workflowId: string, run?: RepeatGraphScopeV3,
+  beforeBrowserHide?: () => void) {
+  const location = useLocation(), navigate = useNavigate()
+  const search = location.search
+  const pathname = location.pathname
+  const scope = JSON.stringify([workspaceId, workflowId])
+  const opener = useRef<HTMLElement | null>(null)
+  const { boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId } = search
+  const panel = useMemo(() => boardSidePanelFromSearch({ boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId }),
+    [boardPanel, boardNodeId, boardExecutionId, boardWaitingActivationId, boardAgentTab, browserSessionId, browserTabId])
+  const browserKey = JSON.stringify([workspaceId, workflowId, run?.runId ?? search.selectedRunId ?? search.runId,
+    boardNodeId, boardExecutionId])
+  const visible = panel.kind === 'browser' && search.boardMemory !== true
+  const browser = useRef({ key: browserKey, visible, released: false, release: beforeBrowserHide })
+  if (browser.current.key !== browserKey || browser.current.visible !== visible) {
+    browser.current = { key: browserKey, visible, released: false, release: beforeBrowserHide }
+  } else browser.current.release = beforeBrowserHide
+  const browserVisit = browser.current
+  const releaseBrowser = useCallback(() => {
+    const visit = browser.current
+    if (!visit.visible || visit.released) return
+    visit.released = true; visit.release?.()
+  }, [])
+  useEffect(() => () => {
+    if (browserVisit.visible && !browserVisit.released) {
+      browserVisit.released = true; browserVisit.release?.()
+    }
+  }, [browserVisit])
+  const runId = run?.runId
+  const workflowVersionId = run?.workflowVersionId
+  const executionSemanticsVersion = run?.executionSemanticsVersion
+  const keepRun = useCallback((previous: ReturnType<typeof RunsSelectorSearchSchema.parse>) => ({ ...previous, workflowId,
+    ...(runId && workflowVersionId && executionSemanticsVersion && !previous.runId && !previous.selectedRunId
+      ? { runId, workflowVersionId, executionSemanticsVersion } : {}) }),
+  [workflowId, runId, workflowVersionId, executionSemanticsVersion])
+  const selectPanel = useCallback((next: BoardSidePanel) => {
+    if (panel.kind === 'browser' && search.boardMemory !== true
+      && (next.kind !== 'browser' || next.nodeId !== panel.nodeId || next.executionId !== panel.executionId)) releaseBrowser()
+    if (panel.kind === 'none' && next.kind !== 'none') {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    void navigate({ to: pathname, hash: true,
+      search: previous => {
+        if (previous.workflowId && previous.workflowId !== workflowId) return previous
+        const selected = keepRun(previous)
+        if (next.kind === 'operator' && previous.boardPanel !== 'operator') {
+          useSidePanelPresentation.getState().rememberOperator(scope, {
+            kind: boardSidePanelFromSearch(previous).kind,
+            runId: selected.selectedRunId ?? selected.runId ?? null,
+            workflowVersionId: selected.workflowVersionId ?? null,
+          })
+        }
+        // The rail owns inspection after a legacy deep link has been opened.
+        // Clearing those aliases also makes Back to Board stay closed.
+        delete selected.runNodeId; delete selected.runRelationshipId; delete selected.runExchangeKey
+        if (next.kind === 'none') delete selected.boardPanel
+        else selected.boardPanel = next.kind
+        if (next.kind === 'agent' || next.kind === 'browser') {
+          if (next.kind === 'agent' || next.nodeId !== undefined) {
+            selected.boardNodeId = next.nodeId
+            selected.boardExecutionId = next.executionId
+            selected.boardWaitingActivationId = next.waitingActivationId
+            selected.browserSessionId = next.kind === 'browser' ? next.sessionId : undefined
+            selected.browserTabId = next.kind === 'browser' ? next.tabId : undefined
+          }
+          if (next.kind === 'agent') selected.boardAgentTab = next.tab
+        }
+        return selected
+      } })
+  }, [navigate, pathname, workflowId, keepRun, scope, panel, search.boardMemory, releaseBrowser])
+  const closeOperator = useCallback(() => {
+    const previous = useSidePanelPresentation.getState().beforeOperator[scope]
+    const current = keepRun(search)
+    const sameRun = previous?.runId === (current.selectedRunId ?? current.runId ?? null)
+      && previous?.workflowVersionId === (current.workflowVersionId ?? null)
+    const nodeDestination = previous?.kind === 'agent' || previous?.kind === 'browser'
+    if (!previous || nodeDestination && !sameRun) {
+      selectPanel({ kind: 'none' })
+      return
+    }
+    selectPanel(boardSidePanelFromSearch({ ...current,
+      boardPanel: previous.kind === 'none' ? undefined : previous.kind,
+    }))
+  }, [scope, selectPanel, keepRun, search])
+  const selectView = useCallback((view: 'graph' | 'overview') => {
+    void navigate({ to: pathname, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardView: view }) })
+  }, [navigate, pathname, workflowId, keepRun])
+  const setMemoryOpen = useCallback((open: boolean) => {
+    if (open && panel.kind === 'browser' && search.boardMemory !== true) releaseBrowser()
+    void navigate({ to: pathname, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...keepRun(previous), boardMemory: open ? true : undefined }) })
+  }, [navigate, pathname, workflowId, keepRun, panel.kind, search.boardMemory, releaseBrowser])
+  const selectTeam = useCallback((nodeId?: string) => {
+    void navigate({ to: pathname, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous
+        : ({ ...keepRun(previous), boardView: 'overview', boardTeamId: nodeId }) })
+  }, [navigate, pathname, workflowId, keepRun])
+  const selectExecution = useCallback((target: { runId: string; workflowVersionId: string; nodeId: string; executionId: string }, tab: 'chat' | 'details' = 'details') => {
+    releaseBrowser()
+    void navigate({ to: '/workspaces/$workspaceId', params: { workspaceId }, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...previous, workflowId,
+        selectedRunId: undefined, runId: target.runId, workflowVersionId: target.workflowVersionId, executionSemanticsVersion: 3,
+        boardView: tab === 'details' ? 'graph' : previous.boardView, boardPanel: 'agent', boardAgentTab: tab,
+        boardNodeId: target.nodeId, boardExecutionId: target.executionId,
+        boardWaitingActivationId: undefined,
+        runNodeId: target.nodeId, runRelationshipId: undefined, runExchangeKey: runInspectionKey({ executionId: target.executionId }),
+      }) })
+  }, [navigate, workspaceId, workflowId, releaseBrowser])
+  const selectChatTarget = useCallback((target: WorkflowExecutionChatTarget, versionId: string) => {
+    if (target.agent.workspaceId !== workspaceId || target.agent.workflowId !== workflowId) return
+    if (target.kind === 'workflow_execution') {
+      if (target.execution.workflowVersionId !== versionId) return
+      selectExecution({ ...target.execution, nodeId: target.agent.workflowNodeId }, 'chat')
+      return
+    }
+    releaseBrowser()
+    void navigate({ to: '/workspaces/$workspaceId', params: { workspaceId }, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...previous, workflowId,
+        selectedRunId: undefined, runId: target.runId, workflowVersionId: versionId, executionSemanticsVersion: 3,
+        boardPanel: 'agent', boardAgentTab: 'chat', boardNodeId: target.agent.workflowNodeId,
+        boardExecutionId: undefined, boardWaitingActivationId: target.waitingActivationId,
+        runNodeId: undefined, runRelationshipId: undefined, runExchangeKey: undefined,
+      }) })
+  }, [navigate, workspaceId, workflowId, selectExecution, releaseBrowser])
+  const selectChatRun = useCallback((target: { runId: string; workflowVersionId: string }) => {
+    releaseBrowser()
+    void navigate({ to: '/workspaces/$workspaceId', params: { workspaceId }, hash: true,
+      search: previous => previous.workflowId && previous.workflowId !== workflowId ? previous : ({ ...previous, workflowId,
+        selectedRunId: undefined, runId: target.runId, workflowVersionId: target.workflowVersionId, executionSemanticsVersion: 3,
+        boardExecutionId: undefined, boardWaitingActivationId: undefined,
+        runNodeId: undefined, runRelationshipId: undefined, runExchangeKey: undefined,
+      }) })
+  }, [navigate, workspaceId, workflowId, releaseBrowser])
+  const agentSelection: Extract<BoardSidePanel, { kind: 'agent' }> | undefined = search.boardNodeId
+    ? { kind: 'agent', nodeId: search.boardNodeId, tab: search.boardAgentTab ?? 'chat',
+      ...(search.boardExecutionId ? { executionId: search.boardExecutionId } : {}),
+      ...(search.boardWaitingActivationId ? { waitingActivationId: search.boardWaitingActivationId } : {}) } : undefined
+  return { scope, opener, panel, selectPanel, closeOperator, agentSelection, releaseBrowser, view: search.boardView ?? 'graph', selectView,
+    memoryOpen: search.boardMemory === true, setMemoryOpen, teamNodeId: search.boardTeamId, selectTeam, selectExecution, selectChatTarget, selectChatRun }
+}

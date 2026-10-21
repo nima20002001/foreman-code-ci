@@ -1,0 +1,16 @@
+.workspace-shell > .shell-main { flex-direction: column; }
+.app-navigation-trail { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 0; padding: 10px 24px; border-bottom: 1px solid var(--n-border); background: var(--n-bg); }
+.app-navigation-back { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--n-radius-sm); background: transparent; color: var(--n-muted); cursor: pointer; }
+.app-navigation-back:hover:not(:disabled) { background: var(--n-raised); color: var(--n-text); }
+.app-navigation-back:disabled { opacity: .35; cursor: default; }
+.app-navigation-trail nav { min-width: 0; }
+.app-navigation-trail ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; padding: 0; list-style: none; font: 400 12px/1.5 var(--n-font); }
+.app-navigation-trail li { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; color: var(--n-muted); }
+.app-navigation-trail li > svg { flex: 0 0 auto; }
+.app-navigation-trail a, .app-navigation-trail [aria-current] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-navigation-trail a { color: inherit; text-decoration: none; }
+.app-navigation-trail a:hover { color: var(--n-text); text-decoration: underline; }
+.app-navigation-trail [aria-current] { color: var(--n-text); }
+.app-navigation-trail :is(a, button):focus-visible { outline: 2px solid var(--n-accent); outline-offset: 3px; }
+@media (max-width: 640px) { .app-navigation-trail { padding-inline: 12px; } }
+.app-navigation-trail .is-pending { display: inline-block; min-width: 6rem; border-radius: 4px; color: transparent; background: var(--n-border); }

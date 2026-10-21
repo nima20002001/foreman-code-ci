@@ -1,0 +1,69 @@
+SCH-05 VERIFICATION — 2026-09-28
+Base: 772d3b2c18e7c5ac7f6c4df943e29f8e0531cf0b
+Repository: nima20002000/graphql
+Branch requested: feat/nim-2701-schedules
+
+ACTUALLY RUN
+- All seven modified-file preimages were reconstructed from pinned GitHub reads
+  and verified against their Git blob SHA-1 before editing; verified again at
+  packaging. This checks exact bytes, not a full repository checkout.
+- Offline checker executed against an overlay of those preimages, changed files
+  and the unchanged base DomainError source (also blob-hash verified).
+- Runtime: Node v22.16.0; available TypeScript 5.8.3, not the repository's resolved
+  pinned dependency installation.
+- Syntactic transpilation of all 16 changed TypeScript files: PASS. This does NOT
+  resolve imports or establish semantic type correctness.
+- 10 real emitted pure-helper test groups: PASS, including 200 distinct preserved
+  microsecond cursor round trips and saved-layout-vs-version-layout regression.
+- Forbidden-file/path and NUL-byte checks: PASS. No frozen contracts, migrations.ts,
+  scheduler, legacy trigger or UI payloads.
+- ZIP entry CRC/content-hash checks are performed during packaging.
+
+OFFLINE CHECK OUTPUT
+PASS syntactic transpilation: 16 changed TypeScript files (TypeScript 5.8.3; not semantic typechecking)
+PASS helper: exact node/configuration pins, explicit layout and edge handles
+PASS helper: latest saved layout/name, not stale geometry in immutable executable version
+PASS helper: no mutable aliases after current Board edits/removal
+PASS helper: Run A keeps Y while a projected new version for B lacks Y
+PASS helper: layout defaults/label fallback are captured once
+PASS helper: version/configuration pin mismatches fail closed
+PASS helper: cursor preserves 200 distinct microsecond boundaries
+PASS helper: cursors bind both workspace and workflow
+PASS helper: malformed, oversized and noncanonical cursors fail
+PASS helper: invalid dates, lost precision and NUL IDs fail
+PASS 10 pure-helper groups. NO Zod/schema, SQL, HTTP/MCP, native or full typecheck claim.
+
+REPRODUCER
+node apps/api/test/sch05-offline-check.mjs
+Or supply an installed compiler with SCH05_TYPESCRIPT_PATH=/absolute/path/to/typescript.js.
+The checker uses the real projection/cursor source but deliberately does not load
+Zod/contracts, Postgres, native adapters or HTTP/MCP. It does not substitute for
+any repository gate.
+
+NOT RUN / NOT CLAIMED
+- corepack pnpm install --frozen-lockfile (repository pins pnpm 11.27.0).
+  No full checkout/dependency tree was present; registry.npmjs.org DNS lookup
+  failed from the container. No dependencies or lockfiles were changed.
+- corepack pnpm typecheck, lint, test, build.
+- The new Vitest tests and existing Start regression suites.
+- corepack pnpm db:up, test:integration, test:acceptance, db:down.
+  PostgreSQL/psql/Docker and a configured disposable TEST_DATABASE_URL were not
+  available. No SQL migration or authenticated HTTP/MCP integration test was run.
+- A full git apply/check against a cloned working tree (no full checkout).
+- End-to-end scheduled admission, paid/native model execution, deployment or
+  remote GitHub writes.
+
+INTEGRATION / COVERAGE LIMITATIONS
+- Migration 270205 must be imported/registered by the integrator as documented.
+- Scheduled trigger-job admission remains unsupported at this exact base; only
+  its common internal insertion/capture seam is supplied here.
+- Frozen capability enums cannot enumerate the new names; actual tools/list is
+  wired and runtimeLimits explains the enum gap.
+- Older non-V3 summaries without provable actual trigger provenance are omitted;
+  exact snapshot reads still return unavailable/legacy_run. V3 pre-capture Runs
+  at this manual-only base are included as manual. This is not full legacy
+  dropdown coverage. No current graph or eligibility-based scheduled label is
+  invented.
+- Missing saved geometry uses captured, documented Board defaults.
+- Further full-suite integration issues may exist; the unrun gates must be
+  completed before treating this as merge-ready.

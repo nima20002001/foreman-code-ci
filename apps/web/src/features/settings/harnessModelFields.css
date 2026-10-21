@@ -1,0 +1,10 @@
+.harness-model-settings { display: grid; gap: var(--space-2); min-width: 0; container-type: inline-size; }
+.harness-model-fields { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--space-3); align-items: start; min-width: 0; max-width: 512px; }
+.harness-model-fields .n-input { overflow: hidden; text-overflow: ellipsis; }
+.harness-model-toggles { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); min-width: 0; }
+.harness-model-toggle { display: grid; gap: var(--space-1); min-width: 0; max-width: 320px; }
+.harness-model-toggles .n-switch-field { justify-content: flex-start; gap: var(--space-2); width: fit-content; font-size: 12px; }
+.harness-model-secondary { min-width: 0; max-width: 320px; }
+@container (max-width: 380px) {
+  .harness-model-fields { grid-template-columns: minmax(0, 1fr); max-width: 320px; }
+}

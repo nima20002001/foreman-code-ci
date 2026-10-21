@@ -1,0 +1,51 @@
+FROM docker.io/library/node@sha256:17b7fd60fd812617654c64b95f9b2dde94f103313073b672bc40fdad6dccbaa2 AS toolchain
+RUN test "$(node --version)" = v22.23.3 \
+ && test "$(corepack --version)" = 0.36.0 \
+ && git --version && flock --version
+# The unit suite needs a disposable PostgreSQL 17 server (the verification policy starts one per test run)
+# and ss from iproute2, which local human-client attribution uses.
+RUN install -d /usr/share/postgresql-common/pgdg /etc/postgresql-common/createcluster.d \
+ && echo 'create_main_cluster = false' > /etc/postgresql-common/createcluster.d/no-main-cluster.conf \
+ && curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update && apt-get install -y --no-install-recommends postgresql-17 iproute2 e2fsprogs python3 \
+ && rm -rf /var/lib/apt/lists/* \
+ && /usr/lib/postgresql/17/bin/postgres --version
+
+FROM toolchain AS verification
+COPY source-lock/ /opt/graphql-ci/source-lock/
+COPY seed/ /opt/graphql-ci/seed/
+COPY tools/ /opt/graphql-ci/tools/
+COPY verification/ /opt/graphql-ci/verification/
+COPY apps/ /opt/graphql-ci/apps/
+COPY packages/ /opt/graphql-ci/packages/
+COPY seed-receipt.json /opt/graphql-ci/seed-receipt.json
+COPY seed-policy.mjs verification-policy.mjs verification-observation.mjs /opt/graphql-ci/
+RUN --network=none node /opt/graphql-ci/seed-policy.mjs /opt/graphql-ci/seed /opt/graphql-ci/seed-receipt.json \
+ && rm /usr/local/bin/corepack \
+ && rm -f /usr/local/bin/pnpm /usr/local/bin/pnpx
+COPY corepack /usr/local/bin/corepack
+RUN --network=none chmod 0755 /usr/local/bin/corepack \
+ && ln -s corepack /usr/local/bin/pnpm \
+ && test "$(corepack pnpm --version)" = 11.27.0
+WORKDIR /workspace
+ENTRYPOINT []
+CMD ["node"]
+
+FROM toolchain AS build
+WORKDIR /opt/graphql-ci/source-lock
+COPY source-lock/ ./
+RUN test "$(node --version)" = v22.23.3 \
+ && test "$(corepack --version)" = 0.36.0 \
+ && git --version && flock --version \
+ && COREPACK_HOME=/opt/graphql-ci/corepack-cache corepack install --global pnpm@11.27.0 \
+ && COREPACK_HOME=/opt/graphql-ci/corepack-cache corepack pnpm fetch --frozen-lockfile --store-dir /opt/graphql-ci/pnpm-store \
+ && chmod -R a+rX /opt/graphql-ci/corepack-cache /opt/graphql-ci/pnpm-store \
+ && rm /usr/local/bin/corepack
+COPY corepack /usr/local/bin/corepack
+RUN chmod 0755 /usr/local/bin/corepack \
+ && test "$(corepack pnpm --version)" = 11.27.0
+WORKDIR /workspace
+ENTRYPOINT []
+CMD ["node"]

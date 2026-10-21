@@ -1,0 +1,15 @@
+.run-actions { display: grid; gap: 0.75rem; min-width: 0; }
+.run-actions section, .run-actions details { min-width: 0; }
+.run-actions > section, .run-actions > details { border-block-start: 1px solid currentColor; padding-block-start: 0.75rem; }
+.run-actions h3, .run-actions h4, .run-actions h5 { margin: 0.25rem 0 0.5rem; }
+.run-actions p { margin: 0.5rem 0; overflow-wrap: anywhere; }
+.run-actions summary { cursor: pointer; padding: 0.5rem 0; overflow-wrap: anywhere; }
+.run-actions ol { margin: 0.5rem 0; padding-inline-start: 1.5rem; }
+.run-actions li { margin-block: 0.5rem; }
+.run-actions code { overflow-wrap: anywhere; }
+.run-actions pre { max-width: 100%; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-actions button { color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 0.375rem;
+  font: inherit; padding: 0.5rem 0.75rem; margin: 0.25rem 0.5rem 0.25rem 0; cursor: pointer; }
+.run-actions button:disabled { opacity: 0.55; cursor: not-allowed; }
+.run-actions :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.run-action-confirmation, .run-action-notice, .run-action-option { border-inline-start: 2px solid currentColor; padding-inline-start: 0.75rem; margin-block: 0.75rem; }

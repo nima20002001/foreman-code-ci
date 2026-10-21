@@ -1,0 +1,58 @@
+.run-subagents-overlay { position: absolute; inset: 0; pointer-events: none; }
+.run-subagents-links { position: absolute; width: 1px; height: 1px; overflow: visible; }
+.run-subagents-links line { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.run-subagents-links line[data-live="true"] { stroke: var(--info); animation: run-subagent-flow 1s linear infinite; }
+@keyframes run-subagent-flow { to { stroke-dashoffset: -14; } }
+
+/* Orb size and label width mirror SUBAGENT_ORB in layout.ts. */
+.run-subagent-orb {
+  position: absolute; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 96px; padding: 0;
+  border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; pointer-events: auto;
+}
+.run-subagent-orb-body {
+  display: grid; place-items: center; width: 40px; height: 40px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid var(--text-muted); background: var(--surface-raised); color: var(--text-muted);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35); transition: transform 120ms ease, border-color 120ms ease;
+}
+.run-subagent-orb:hover .run-subagent-orb-body { transform: scale(1.08); }
+.run-subagent-orb:focus-visible { outline: none; }
+.run-subagent-orb:focus-visible .run-subagent-orb-body, .run-subagent-orb[aria-pressed="true"] .run-subagent-orb-body {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.run-subagent-orb-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; line-height: 1.2;
+}
+.run-subagent-orb-status { font-size: 10px; line-height: 1; color: var(--text-muted); }
+.run-subagent-orb[data-inactive="true"] .run-subagent-orb-name { color: var(--text-muted); }
+.run-subagent-orb[data-uncertain="true"] .run-subagent-orb-body { border-style: dashed; }
+.run-subagent-orb[data-tone="accent"] .run-subagent-orb-body, .run-subagent-orb[data-tone="info"] .run-subagent-orb-body { border-color: var(--info); color: var(--info); }
+.run-subagent-orb[data-tone="success"] .run-subagent-orb-body { border-color: var(--success); color: var(--success); }
+.run-subagent-orb[data-tone="warning"] .run-subagent-orb-body { border-color: var(--warning); color: var(--warning); }
+.run-subagent-orb[data-tone="danger"] .run-subagent-orb-body { border-color: var(--danger); color: var(--danger); }
+.run-subagent-orb[data-live="true"] .run-subagent-orb-body { animation: run-subagent-pulse 1.6s ease-in-out infinite; }
+@keyframes run-subagent-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--info) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) {
+  .run-subagent-orb[data-live="true"] .run-subagent-orb-body, .run-subagents-links line[data-live="true"] { animation: none; }
+}
+
+.run-subagents-notice {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; max-width: min(520px, calc(100% - 24px)); padding: 6px 8px 6px 12px; background: var(--surface-raised);
+  border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-muted);
+}
+
+.run-subagent-panel.n-agent-popover { inset: auto; border-radius: var(--radius-lg); }
+.run-subagent-panel .n-agent-popover-header { flex-shrink: 0; }
+.run-subagent-panel .n-agent-popover-body { padding: 12px; }
+.run-subagent-footer { flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px; }
+.run-subagent-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.run-subagent-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--text-muted); }
+.run-subagent-summary .run-subagent-note { flex-basis: 100%; margin: 0; }
+.run-subagent-note { margin: 0; font-size: 12px; color: var(--text-muted); }
+.run-subagent-feed { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.run-subagent-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-subagent-feed .n-code pre { max-height: 260px; overflow: auto; }
+.run-subagent-steer { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.run-subagent-steer-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.run-subagent-steer-status { margin-inline-end: auto; font-size: 12px; color: var(--text-muted); }
+.run-subagent-steer-status [data-state="rejected"], .run-subagent-steer-status [role="alert"] { color: var(--danger); }

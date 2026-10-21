@@ -1,0 +1,18 @@
+.info-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-inline-start: var(--space-1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  vertical-align: middle;
+  cursor: help;
+}
+
+.info-hint:hover { background: var(--surface-hover); color: var(--text); }
+.info-hint:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

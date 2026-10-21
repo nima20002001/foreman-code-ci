@@ -1,0 +1,16 @@
+/* The detail card shared by the sidebar's icon-only computers and harnesses. */
+.sidebar-hover-card { position: fixed; inset: auto; margin: 0; z-index: 1000; overflow: auto; padding: 12px;
+  border: 1px solid var(--n-border-strong); border-radius: var(--radius-md); background: var(--n-raised); color: var(--n-text);
+  box-shadow: var(--shadow-popover); font-size: 12px; }
+.sidebar-hover-card::backdrop { background: transparent; pointer-events: none; }
+.sidebar-hover-body { display: grid; gap: 10px; }
+.sidebar-hover-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sidebar-hover-header > span:first-child { display: flex; color: var(--hover-icon-color, var(--load-color)); }
+.sidebar-hover-header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sidebar-hover-header > span:last-child { padding: 0 6px; border: 1px solid var(--n-border); border-radius: 999px; color: var(--n-muted); font-size: 11px; }
+.sidebar-hover-state { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; margin: 0; color: var(--n-muted); }
+.sidebar-hover-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--state-color, var(--load-color)); }
+.sidebar-hover-state > span { color: var(--n-faint); }
+.sidebar-hover-note { margin: 0; color: var(--n-faint); font-size: 11px; }
+@media (prefers-reduced-motion: no-preference) { .sidebar-hover-card { animation: sidebar-hover-in 120ms ease-out; } }
+@keyframes sidebar-hover-in { from { opacity: 0; } }

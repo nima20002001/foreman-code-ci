@@ -1,0 +1,43 @@
+.next-draft-section { display: grid; gap: var(--space-3); min-width: 0; margin: 0; }
+.next-draft-section h3 { margin: 0; color: var(--text-strong); font: var(--type-body-strong); }
+.next-draft-section p { margin: 0; }
+.next-draft-hint { color: var(--text-muted); font: var(--type-caption); }
+.next-draft-section code, .next-draft-section pre, .next-draft-details pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--text-muted); font: var(--type-mono); }
+.next-draft-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-2); }
+.next-draft-inline:has(> .n-field + .n-field) { grid-template-columns: 1fr 1fr; }
+.next-draft-details summary { cursor: pointer; color: var(--text-muted); font: var(--type-control); }
+.next-draft-details[open] { display: grid; gap: var(--space-2); }
+.next-draft-choice { display: grid; gap: var(--space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
+.next-draft-choice legend { margin-bottom: var(--space-2); padding: 0; color: var(--text-strong); font: var(--type-body-strong); }
+.next-draft-outcome { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; align-items: end; gap: var(--space-2); }
+.next-draft-choice > .n-button { justify-self: start; }
+.next-draft-connections { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.next-draft-connections li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-height: 32px; color: var(--text); }
+.next-draft-connections li > svg { color: var(--text-muted); }
+.next-draft-connect { display: grid; gap: var(--space-2); }
+.next-draft-canvas { position: relative; height: min(58vh, 650px); min-height: 340px; overflow: hidden; }
+.next-draft-section > .n-button, .next-draft-section > p > .n-button { justify-self: start; }
+.next-draft-connections li[data-direction='in'] > svg { transform: rotate(180deg); }
+.work-connection-limit-object { overflow: visible; pointer-events: none; }
+/* React Flow stacks each edge svg by inline z-index, below nodes; lift the edge hosting an open editor above them. */
+.react-flow__edges svg:has(.work-connection-limit-editor) { z-index: 5000 !important; }
+.work-connection-limit-control { pointer-events: auto; }
+.work-connection-limit-pill { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-raised); color: var(--text-strong); font: var(--type-control); cursor: pointer; }
+.work-connection-limit-pill:hover, .work-connection-limit-pill:focus-visible { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 2px; }
+.work-connection-limit-pill small { color: var(--text-muted); font: var(--type-caption); }
+.work-connection-limit-pill:disabled { opacity: .65; cursor: default; }
+.work-connection-limit-editor { display: grid; gap: 8px; min-width: 0; }
+.work-connection-limit-editor.is-compact { box-sizing: border-box; width: 264px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: 0 8px 24px rgb(0 0 0 / .16); }
+.work-connection-limit-editor label { color: var(--text-strong); font: var(--type-body-strong); }
+.work-connection-limit-editor input { box-sizing: border-box; width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text-strong); }
+.work-connection-limit-editor input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.work-connection-limit-editor input[aria-invalid='true'] { border-color: var(--danger); }
+.work-connection-limit-editor p { margin: 0; color: var(--text-muted); font: var(--type-caption); }
+.work-connection-limit-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.board-edge-remove { overflow: visible; opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
+.board-edge-remove[data-visible='true'],
+.react-flow__edge:focus-within .board-edge-remove { opacity: 1; pointer-events: auto; }
+.board-edge-remove .n-icon-button { width: 36px; height: 36px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full); background: var(--surface-raised); box-shadow: var(--shadow-popover); }
+/* The handoff limit shows only while its edge is hovered or the control has keyboard focus. */
+.work-connection-limit-object[data-visible='false']:not(:focus-within) { opacity: 0; }

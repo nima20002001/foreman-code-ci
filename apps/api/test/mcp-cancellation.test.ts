@@ -1,0 +1,25 @@
+import { expect, it } from 'vitest'
+import { McpRequestCancellation } from '../src/mcp/shared/cancellation.js'
+
+it('isolates cancellation by caller and typed request id, and safely reuses finished ids', () => {
+  const registry = new McpRequestCancellation()
+  const first = registry.track('caller', 7)
+  const concurrent = registry.track('caller', '7')
+  const otherCaller = registry.track('other-caller', 7)
+  expect(() => registry.track('caller', 7)).toThrow('already in flight')
+  registry.cancel('unknown-caller', 7)
+  expect(first.signal.aborted).toBe(false)
+  registry.cancel('caller', 7)
+  expect(first.signal.aborted).toBe(true)
+  expect(concurrent.signal.aborted).toBe(false)
+  expect(otherCaller.signal.aborted).toBe(false)
+  first.finish()
+  concurrent.finish()
+  const reused = registry.track('caller', 7)
+  first.finish()
+  registry.cancel('caller', 7)
+  expect(reused.signal.aborted).toBe(true)
+  expect(otherCaller.signal.aborted).toBe(false)
+  reused.finish()
+  otherCaller.finish()
+})

@@ -1,0 +1,155 @@
+/* Authoring chrome remains owned by the existing Board. Reserve its top/bottom
+ * overlays; the context note is a row above, not a competing canvas column. */
+.unified-workflow-board { flex-direction: column; }
+.pinned-run-canvas {
+  box-sizing: border-box;
+  padding-top: 72px;
+  padding-bottom: 64px;
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+.pinned-run-flow { position: relative; flex: 1; min-height: 120px; }
+.pinned-run-flow .react-flow { background: var(--canvas-glow, none), var(--color-surface); }
+.pinned-work-limit-object { overflow: visible; pointer-events: none; }
+.pinned-work-limit-control { display: grid; justify-items: center; gap: 3px; pointer-events: auto; }
+.pinned-work-limit-pill { min-width: 44px; min-height: 32px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-raised); color: var(--text-strong); font: var(--type-control); cursor: pointer; }
+.pinned-work-limit-pill:hover, .pinned-work-limit-pill:focus-visible { border-color: var(--accent); outline: 2px solid var(--focus); outline-offset: 2px; }
+.pinned-work-limit-usage { padding: 2px 6px; border-radius: 5px; background: var(--surface-raised); color: var(--text-muted); font: var(--type-caption); text-align: center; }
+.run-execution-inspector { display: grid; gap: 12px; min-width: 0; }
+.run-execution-inspector header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.run-execution-inspector label { display: grid; gap: 6px; font-weight: 500; }
+.run-execution-inspector select { min-width: 0; max-width: 100%; padding: 8px; background: var(--surface-raised, Canvas); color: inherit; border: 1px solid var(--border); border-radius: 6px; }
+.run-execution-list { display: grid; gap: 12px; padding-inline-start: 24px; }
+.run-execution-list p { font-size: 12px; margin-block: 4px; overflow-wrap: anywhere; }
+.run-exact-execution { border-top: 1px solid var(--border); padding-top: 12px; min-width: 0; }
+.run-inspection-json { max-height: 320px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.run-inspection-json:focus-visible { outline: 2px solid var(--accent, Highlight); }
+.run-exact-execution dd { margin-inline-start: 0; overflow-wrap: anywhere; }
+.board-run-context-note { flex: 0 0 auto; padding: 6px 12px; margin: 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+
+.workflow-board-run-panel .board-run-row > span:last-child { grid-column: 1 / -1; justify-self: start; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .pinned-run-canvas { padding-top: 120px; overflow: auto; }
+}
+
+/* CI server: a presentation-only Board component beside the Agents, with its jobs, tests and log in a dialog. */
+.react-flow__edge-ciTransfer { pointer-events: none; }
+.ci-server-dialog .n-dialog-body { display: grid; gap: var(--space-3); min-width: 0; }
+.ci-jobs-table td { vertical-align: top; }
+.ci-jobs-table td small { display: block; color: var(--text-muted); font: var(--type-caption); margin-top: 2px; }
+.ci-jobs-table tr[aria-selected='true'] td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ci-job-open { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
+.ci-job-open:hover { text-decoration: underline; }
+.ci-job-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.ci-server-note { margin: 0; color: var(--text-muted); font: var(--type-caption); }
+.ci-server-job { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; color: var(--text-muted); font: var(--type-caption); }
+.ci-server-job strong { color: var(--text); font: var(--type-control); }
+.ci-server-tests, .ci-server-log { display: grid; gap: var(--space-3); min-width: 0; }
+.ci-test-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ci-test-filters .n-button[aria-pressed='false'] { color: var(--text-muted); text-decoration: line-through; }
+.ci-test-files, .ci-test-files ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.ci-test-files > li { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.ci-test-files > li[data-status='failed'] { border-color: var(--danger-border); }
+.ci-test-file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.ci-test-file code { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.ci-test-file > span:last-child, .ci-test-files ul li > span:not(.ci-test-name) { color: var(--text-muted); font: var(--type-caption); }
+.ci-test-files ul { padding-inline-start: var(--space-3); }
+.ci-test-files ul li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); min-width: 0; font: var(--type-caption); }
+.ci-test-name { flex: 1 1 240px; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.ci-test-message, .ci-log { margin: 0; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-family: var(--font-mono, monospace); font-size: 12px; }
+.ci-test-message { flex-basis: 100%; color: var(--danger); }
+.ci-log { max-height: 420px; }
+.ci-log:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* The CI server: a rack tower with drive bays, LEDs and vents, so it never reads as a round Agent.
+   State is the status word; the LEDs and rim only reinforce it. */
+.ci-server-node {
+  --ci-hue: var(--text-faint);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+.ci-server-node[data-state='running'], .ci-server-node[data-state='queued'] { --ci-hue: var(--info); }
+.ci-server-node[data-state='completed'] { --ci-hue: var(--success); }
+.ci-server-node[data-state='failed'] { --ci-hue: var(--danger); }
+.ci-server-chassis {
+  --ci-frame: inset 0 0 0 3px var(--surface), inset 0 0 0 4px var(--border), 0 6px 0 -2px var(--border);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 14px 10px;
+  border: 1px solid color-mix(in srgb, var(--ci-hue) 35%, var(--border-strong));
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ci-hue) 5%, var(--surface-raised)), var(--surface));
+  box-shadow: var(--ci-frame);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.ci-server-chassis:hover { border-color: var(--ci-hue); box-shadow: var(--ci-frame), 0 0 0 3px color-mix(in srgb, var(--ci-hue) 16%, transparent); }
+.ci-server-chassis:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.ci-server-node[data-state='failed'] .ci-server-chassis { border-color: var(--danger-border); }
+.ci-server-node[data-state='unavailable'] .ci-server-chassis { opacity: .7; }
+.ci-server-node[data-state='running'] .ci-server-chassis {
+  border-color: color-mix(in srgb, var(--ci-hue) 70%, var(--border));
+  box-shadow: var(--ci-frame), 0 0 24px color-mix(in srgb, var(--ci-hue) 16%, transparent);
+}
+.ci-server-bays { display: grid; gap: 3px; width: 100%; margin-bottom: 4px; }
+.ci-server-bay { display: flex; align-items: center; gap: 8px; height: 13px; padding: 0 7px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); }
+.ci-server-led { flex: none; width: 5px; height: 5px; border-radius: var(--radius-full); background: var(--ci-hue); box-shadow: 0 0 4px var(--ci-hue); }
+.ci-server-node[data-state='idle'] .ci-server-led, .ci-server-node[data-state='unavailable'] .ci-server-led { box-shadow: none; }
+.ci-server-slot { flex: 1; height: 2px; border-radius: 1px; background: var(--border-strong); }
+.ci-server-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font: var(--type-eyebrow);
+  letter-spacing: var(--type-eyebrow-tracking);
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-server-status i { flex: none; width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; }
+.ci-server-node:not([data-state='idle']):not([data-state='unavailable']) .ci-server-status { color: var(--ci-hue); }
+.ci-server-name { display: inline-flex; align-items: center; gap: 6px; color: var(--text-strong); font: var(--type-heading); white-space: nowrap; }
+.ci-server-name svg { color: var(--ci-hue); }
+.ci-server-where { max-width: 100%; overflow: hidden; color: var(--text-muted); font: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; }
+.ci-server-meta { display: flex; gap: var(--space-4); padding-top: 4px; border-top: 1px solid var(--border); }
+.ci-server-meta > span { display: grid; min-width: 44px; justify-items: center; }
+.ci-server-meta > span + span { padding-left: var(--space-4); border-left: 1px solid var(--border); }
+.ci-server-meta small { color: var(--text-faint); font: var(--type-eyebrow); letter-spacing: var(--type-eyebrow-tracking); text-transform: uppercase; }
+.ci-server-meta b { color: var(--text); font: var(--type-control); }
+.ci-server-vents { width: 60%; height: 9px; margin-top: auto; background: repeating-linear-gradient(180deg, var(--border-strong) 0 1px, transparent 1px 4px); }
+.ci-server-node .ci-server-target.react-flow__handle {
+  inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; transform: none;
+  border: 0; background: transparent; opacity: 0; pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ci-server-node[data-state='running'] .ci-server-led, .ci-server-node[data-state='queued'] .ci-server-led { animation: ci-server-blink 1.1s steps(2, jump-none) infinite; }
+  .ci-server-node[data-state='running'] .ci-server-bay:nth-child(2) .ci-server-led { animation-delay: -.35s; }
+  .ci-server-node[data-state='running'] .ci-server-bay:nth-child(3) .ci-server-led { animation-delay: -.7s; }
+}
+@keyframes ci-server-blink { 0% { opacity: 1; } 100% { opacity: .25; } }
+/* The handoff limit shows only while its edge is hovered or the control has keyboard focus. */
+.pinned-work-limit-object[data-visible='false']:not(:focus-within) { opacity: 0; }
+.board-job-list { list-style: none; margin: 0; padding: 0; }
+.board-job-list .board-job-row { display: grid; grid-template-columns: minmax(0, 1fr) 16px 64px minmax(0, 100px) 90px; gap: var(--space-2); width: 100%; text-align: start; border-bottom: 1px solid var(--n-border); border-radius: 0; }
+.board-job-name, .board-job-computer { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-job-row time { font-size: 11px; text-align: end; white-space: nowrap; }
+.board-job-status { display: flex; align-items: center; }
+.board-job-status-success { color: var(--n-success); }
+.board-job-status-danger { color: var(--n-danger); }
+@media (max-width: 480px) {
+  .board-job-list .board-job-row { grid-template-columns: minmax(0, 1fr) 16px 42px minmax(0, 65px) 65px; gap: 4px; }
+}

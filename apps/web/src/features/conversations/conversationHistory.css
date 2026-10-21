@@ -1,0 +1,24 @@
+.conversation-message-content {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation-message-truncation {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: .8125rem;
+}
+
+[aria-label="Conversation history"] {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Preserve the compact activity-list gap when tools become stable sibling rows. */
+[aria-label="Conversation history"] > .conversation-history-interleaved + .conversation-history-interleaved {
+  margin-top: calc(var(--space-2) - var(--space-4));
+}

@@ -1,0 +1,19 @@
+{
+  "comment": "Load-sensitive suites (full Board/route mounts with real HTTP and timers). They run last, in the heavy phase, with few workers and longer timeouts, so the fast phase can use every core without flaking them.",
+  "files": [
+    "src/**/*.integration.test.tsx",
+    "src/routes/WorkspaceRouteEntry*.test.tsx",
+    "src/routes/boardNavigationFlash.test.tsx",
+    "src/routes/WorkspaceSectionRoutes.test.tsx",
+    "src/features/combined/**/*.test.tsx",
+    "src/features/workflow-board/eng0*.test.tsx",
+    "src/features/workflow-board/WorkflowBoard.{actionsPolling,recovery,inspection}.test.tsx",
+    "src/features/workflow-board/boardHistoryBudget.test.tsx",
+    "src/features/workflow-board/manualPositions.test.tsx",
+    "src/features/graph/nextDraft/nim2644*.test.tsx",
+    "src/features/conversations/agentChat/F7*.test.tsx",
+    "src/features/operator-chat/operatorChatUx.test.tsx"
+  ],
+  "workers": 4,
+  "timeoutMs": 30000
+}

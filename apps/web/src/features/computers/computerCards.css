@@ -1,0 +1,35 @@
+.computer-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: var(--space-4, 1rem);
+  list-style: none; margin: .75rem 0 1.5rem; padding: 0; }
+.computer-card-grid > li { display: flex; min-width: 0; }
+.computer-card { display: flex; flex-direction: column; gap: .9rem; flex: 1; min-width: 0; padding: 1.1rem 1.15rem .85rem;
+  border: 1px solid var(--n-border); border-radius: var(--n-radius-lg); background: var(--n-surface); color: var(--n-text); }
+.computer-card:hover, .computer-card:focus-within { border-color: var(--n-border-strong); }
+.computer-card-header { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.computer-card-header > svg { flex: 0 0 auto; color: var(--n-muted); }
+.computer-card-header h3 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: .95rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.computer-card .computer-utilization { display: flex; flex-wrap: wrap; gap: .4rem 1rem; min-width: 0; }
+.computer-card .computer-meter { width: 3.5rem; }
+.computer-card-facts { display: grid; gap: .55rem; margin: 0; font-size: .8rem; }
+.computer-card-facts > div { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); align-items: start; gap: .5rem; }
+.computer-card-facts dt { color: var(--n-muted); }
+.computer-card-facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.computer-card-chip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .2rem; min-width: 0; max-width: 100%; }
+.computer-card-facts .n-badge { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.computer-card-chip .n-button { min-height: 1.6rem; padding: 0 .45rem; font-size: .75rem; }
+.computer-card-footer { display: flex; justify-content: flex-end; gap: .4rem; margin-top: auto; padding-top: .6rem; border-top: 1px solid var(--n-border); }
+.computer-card--registration { gap: .6rem; }
+.computer-fleet-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .5rem 0 0; }
+.computer-fleet-actions small { color: var(--n-danger, var(--n-text)); }
+.computer-card-task { margin: 0; color: var(--n-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.computer-card-task[data-state='failed'] { color: var(--n-danger, var(--n-text)); }
+.computer-card-note { color: var(--n-muted); }
+.computer-card-worker { display: grid; gap: .35rem; }
+.computer-card-worker .n-button { justify-self: start; }
+.computer-card-worker-error { color: var(--n-danger, var(--n-text)); }
+.computer-name { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; cursor: text; }
+.computer-name > span { overflow: hidden; text-overflow: ellipsis; }
+.computer-name > svg { flex: 0 0 auto; color: var(--n-muted); opacity: 0; }
+.computer-name:hover > svg, .computer-name:focus-visible > svg { opacity: 1; }
+.computer-name-field { flex: 1; min-width: 0; }
+.computer-name-field > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }

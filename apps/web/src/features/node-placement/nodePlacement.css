@@ -1,0 +1,8 @@
+.node-placement-facts { min-width: 0; font-size: 12px; }
+.node-placement-facts dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 4px 12px; }
+.node-placement-facts dt { color: var(--text-muted); }
+.node-placement-facts dd { margin: 0; overflow-wrap: anywhere; }
+.node-placement-facts p { overflow-wrap: anywhere; }
+@media (max-width: 390px) {
+  .node-placement-facts dl, .node-placement-field dl { grid-template-columns: minmax(0, 1fr); }
+}

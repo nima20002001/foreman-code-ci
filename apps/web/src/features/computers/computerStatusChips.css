@@ -1,0 +1,5 @@
+.computer-status-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.computer-status-chips > li { display: inline-flex; align-items: center; gap: .15rem; min-width: 0; }
+.computer-status-chip { display: inline-flex; border-radius: var(--radius-sm); }
+.computer-status-chip:focus-visible, .computer-status-signin:focus-visible { outline: 2px solid var(--n-accent); outline-offset: 2px; }
+.computer-status-signin { padding: 0 .25rem; border: 0; background: none; color: var(--n-accent); font-size: .72rem; cursor: pointer; text-decoration: underline; }

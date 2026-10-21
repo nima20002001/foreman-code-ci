@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+unset NODE_OPTIONS NODE_PATH NODE_TLS_REJECT_UNAUTHORIZED
+if [ "$#" -ne 1 ] || [ "${#1}" -ne 64 ]; then
+  echo 'Usage: ./install APPROVED_MANIFEST_SHA256' >&2
+  exit 1
+fi
+case "$1" in *[!0-9a-f]*) echo 'Use the approved manifest checksum supplied with this download.' >&2; exit 1;; esac
+artifact=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+required='@NODE_VERSION@'
+for candidate in "$(command -v node || true)" "$HOME/.nvm/versions/node/$required/bin/node" "$HOME/.local/bin/node" /usr/bin/node; do
+  if [ -x "$candidate" ] && [ "$("$candidate" --version 2>/dev/null)" = "$required" ]; then
+    exec "$candidate" "$artifact/src/install-cli.mjs" setup --manifest-sha256 "$1"
+  fi
+done
+echo "This package requires the approved Node $required runtime. No runtime was installed or downloaded." >&2
+exit 1

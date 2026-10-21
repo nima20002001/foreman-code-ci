@@ -1,0 +1,25 @@
+name: graphql
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    # Parallel integration slots each run full migrations; stock limits exhaust the lock table.
+    # Local demo/test data is disposable, so durability is traded for speed (a host crash can corrupt it).
+    command: ["postgres", "-c", "max_connections=800", "-c", "max_locks_per_transaction=512",
+      "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    environment:
+      POSTGRES_DB: graphql
+      POSTGRES_USER: graphql
+      POSTGRES_PASSWORD: graphql
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graphql -d graphql"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - graphql-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  graphql-postgres-data:

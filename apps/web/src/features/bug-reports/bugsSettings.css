@@ -1,0 +1,19 @@
+.bug-report-filters { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.bug-report-filters > .n-field { flex: 1 1 180px; max-width: 280px; min-width: 0; }
+.bug-report-list { list-style: none; margin: 0; padding: 0; }
+.bug-report-list .settings-choice-heading :is(strong, small) { overflow-wrap: anywhere; }
+.bug-report-content { display: grid; gap: var(--space-5); margin-bottom: var(--space-5); }
+.bug-report-badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.bug-report-content section { display: grid; gap: var(--space-2); }
+.bug-report-content :is(h3, p) { margin: 0; }
+.bug-report-content p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.bug-report-close { display: grid; gap: var(--space-3); margin-top: var(--space-5); justify-items: start; }
+.bug-report-close > .n-field { width: 100%; max-width: 420px; }
+.bug-report-facts { display: grid; gap: var(--space-3); margin: 0; font-size: 12px; }
+.bug-report-facts > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-3); }
+.bug-report-facts dt { color: var(--n-muted); }
+.bug-report-facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .bug-report-filters > .n-field { max-width: none; }
+  .bug-report-facts > div { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+}

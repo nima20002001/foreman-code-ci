@@ -1,0 +1,20 @@
+.board-activities-popover {
+  inset: auto; margin: 0; max-width: calc(100vw - 24px); padding: 0; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--n-border-strong); border-radius: var(--radius-md); background: var(--n-raised);
+  color: var(--n-text); box-shadow: var(--shadow-dialog);
+}
+.board-activities-popover { animation: n-menu-in 140ms var(--n-ease); }
+.board-activities-popover-header {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--n-border); background: var(--n-raised);
+}
+.board-activities-popover-header h2 { margin: 0; font: var(--type-heading); }
+.board-activities-popover-body { padding: 8px 10px 10px; }
+.board-activities-popover .workflow-board-run-panel { gap: var(--space-2); }
+.board-activities-popover .board-activities { padding: 0; border: 0; gap: 6px; }
+.board-activities-popover .board-activities > header h3 { display: none; }
+.board-activities-popover .board-activities-list { max-height: none; overflow: visible; }
+.board-activities-popover .board-activities-list > li { grid-template-columns: 8px 64px minmax(0, 1fr); gap: 8px; padding: 5px 2px; }
+.board-activities-popover .board-run-more { font: var(--type-caption); }
+.board-activities-popover .board-run-more > summary { cursor: pointer; padding: 4px 0; color: var(--n-muted); }
+@media (prefers-reduced-motion: reduce) { .board-activities-popover { animation: none; } }

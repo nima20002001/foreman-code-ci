@@ -1,0 +1,194 @@
+.workspace-navigation {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.workspace-global-navigation {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.workspace-navigation-list {
+  margin-top: 0.25rem;
+}
+
+.nav-item-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-0-5);
+}
+
+.nav-item-row .nav-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nav-item-row .nav-item-toggle {
+  display: grid;
+  width: 1.75rem;
+  min-width: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.nav-item-row .nav-item-toggle:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-strong);
+  background: var(--color-surface-subtle);
+}
+
+.nav-item-toggle[aria-expanded='false'] .nav-item-chevron {
+  transform: rotate(-90deg);
+}
+
+.shell-navigation .workspace-navigation-add {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: 0.375rem 0.625rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.shell-navigation .workspace-navigation-add:hover:not(:disabled) {
+  border-color: var(--color-text-strong);
+  color: var(--color-text-strong);
+  background: var(--color-surface-subtle);
+}
+
+.workspace-navigation-panel {
+  display: grid;
+}
+
+.workspace-directory {
+  display: grid;
+  align-content: start;
+  gap: var(--space-6);
+  width: min(100%, 64rem);
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.workspace-directory header h1 {
+  margin: 0.25rem 0 0;
+  color: var(--color-text-strong);
+  font: var(--type-title);
+}
+
+.workspace-directory header > p:last-child {
+  margin: 0.5rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.nav-submenu-motion {
+  max-height: 80rem;
+  overflow: hidden;
+  opacity: 1;
+  transform-origin: top;
+  transition:
+    max-height var(--motion-duration-enter) var(--motion-ease),
+    opacity var(--motion-duration-fast) ease,
+    transform var(--motion-duration-enter) var(--motion-ease);
+}
+
+.nav-submenu-motion.is-exiting,
+.nav-submenu-motion[aria-hidden='true'] {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-0.25rem);
+  pointer-events: none;
+}
+
+.workspace-shell-navigation-collapsed .nav-item-toggle {
+  display: none;
+}
+
+.workspace-shell-navigation-collapsed .shell-navigation .workspace-navigation .nav-submenu {
+  padding-left: 0;
+}
+
+.workspace-shell-navigation-collapsed .workspace-navigation-add {
+  display: none;
+}
+
+.shell-navigation .workspace-navigation .nav-submenu {
+  padding-left: 0.75rem;
+}
+
+.shell-navigation .workspace-navigation .nav-submenu::before {
+  left: 0.375rem;
+}
+
+/* Collapsed rail: the pagination control shows a compact glyph; its text stays as the accessible name. */
+.workspace-shell-navigation-collapsed .workspace-navigation-list > li:not(:has(.nav-item-row, .workspace-navigation-add)) :is(button, a) {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+}
+
+.workspace-shell-navigation-collapsed .workspace-navigation-list > li:not(:has(.nav-item-row, .workspace-navigation-add)) :is(button, a)::before {
+  content: '…';
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.workspace-create-error {
+  margin: 0;
+  color: var(--danger);
+  font: var(--type-caption);
+}
+
+@media (max-width: 860px) {
+  .shell-navigation .workspace-navigation .nav-submenu {
+    padding-left: 0.9375rem;
+  }
+
+  .shell-navigation .workspace-navigation .nav-submenu::before {
+    left: 0.5625rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .shell-navigation .workspace-navigation .nav-submenu {
+    padding-left: 0.75rem;
+  }
+
+  .shell-navigation .workspace-navigation .nav-submenu::before {
+    left: 0.4375rem;
+  }
+
+  .nav-item-row {
+    gap: 0;
+  }
+
+  .nav-item-row .nav-item-toggle {
+    width: 1.5rem;
+  }
+}
+.workspace-repository { margin-top: 2rem; display: grid; gap: .75rem; max-width: 36rem; }
+.workspace-repository h2 { margin: 0; font-size: 1rem; }
+.workspace-repository p { margin: 0; color: var(--n-muted); font-size: .85rem; }
+.workspace-repository-fields { display: grid; grid-template-columns: 2fr 1fr; gap: .75rem; }
+.workspace-repository-actions { display: flex; gap: .5rem; }
+@media (max-width: 640px) { .workspace-repository-fields { grid-template-columns: 1fr; } }

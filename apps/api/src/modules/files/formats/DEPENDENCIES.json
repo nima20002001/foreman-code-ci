@@ -1,0 +1,9 @@
+{
+  "targetPackage": "@foreman-code/api",
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "pdf-lib": "1.17.1",
+    "unpdf": "1.4.0"
+  },
+  "note": "Integrator reference, not a nested npm package. Install these exact versions in apps/api using pinned Corepack pnpm and commit its generated lockfile. No runtime dependency auto-installation."
+}

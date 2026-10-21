@@ -1,0 +1,26 @@
+diff --git a/dist/pregel/loop.cjs b/dist/pregel/loop.cjs
+index 3a373bc0ad242e1e28a8a367a44fa9624c36fffc..13cf994f94ac5261bb9a1b9ac0f23615d48d4209 100644
+--- a/dist/pregel/loop.cjs
++++ b/dist/pregel/loop.cjs
+@@ -168,6 +168,8 @@ var PregelLoop = class PregelLoop {
+ 		}, (error) => {
+ 			throw error;
+ 		});
++		// Observe background failures immediately; the persistence barrier still receives the rejected promise.
++		void tracked.catch(() => { /* ignore: checkpointerPromises retains this failure for the owning invocation. */ });
+ 		this.checkpointerPromises.add(tracked);
+ 	}
+ 	/**
+diff --git a/dist/pregel/loop.js b/dist/pregel/loop.js
+index cb224b1b6b4536f02ee2354db928f0242770f154..65d5e5400ed41d1527984ea23a781d8b666fb971 100644
+--- a/dist/pregel/loop.js
++++ b/dist/pregel/loop.js
+@@ -168,6 +168,8 @@ var PregelLoop = class PregelLoop {
+ 		}, (error) => {
+ 			throw error;
+ 		});
++		// Observe background failures immediately; the persistence barrier still receives the rejected promise.
++		void tracked.catch(() => { /* ignore: checkpointerPromises retains this failure for the owning invocation. */ });
+ 		this.checkpointerPromises.add(tracked);
+ 	}
+ 	/**

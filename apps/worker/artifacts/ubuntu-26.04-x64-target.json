@@ -1,0 +1,7 @@
+{
+  "os": "ubuntu",
+  "osRelease": "26.04",
+  "arch": "x64",
+  "libc": "glibc-2.43",
+  "node": "v22.23.3"
+}

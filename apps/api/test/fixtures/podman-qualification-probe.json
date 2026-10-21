@@ -1,0 +1,51 @@
+{
+  "provenance": "Exact retained laptop qualification stdout from ACCEPTANCE candidate1 2026-10-03. HOSTNAME is listed, but its value was not captured by the old probe. Tests supply a controlled hostname value; production must read and verify the actual value against original container inspect.",
+  "containerId": "4402f498e1650a162f226686582daa6d2be05856ce88d0032369796d159cf760",
+  "probe": {
+    "toolchain": {
+      "node": "v22.23.3",
+      "corepack": "0.36.0",
+      "pnpm": "11.27.0",
+      "git": "git version 2.39.5",
+      "flock": "flock from util-linux 2.38.1"
+    },
+    "rootfsWriteError": "EROFS",
+    "gitCommon": "/graphql-job-git",
+    "gitRead": true,
+    "gitConfigWriteError": "EROFS",
+    "gitIndexWriteError": "EROFS",
+    "gitHeadWriteError": "EROFS",
+    "gitObjectWriteError": "EROFS",
+    "schedulerWrite": true,
+    "inputRead": true,
+    "inputWriteError": "EROFS",
+    "sourceWrite": true,
+    "proc": true,
+    "pidNamespace": "pid:[4026532927]",
+    "networkNamespace": "net:[4026532928]",
+    "interfaces": [
+      "lo"
+    ],
+    "memoryMax": "6442450944",
+    "swapMax": "0",
+    "pidsMax": "256",
+    "cpuRatio": 4,
+    "environment": [
+      "CI",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_CONFIG_NOSYSTEM",
+      "GIT_DIR",
+      "GIT_NO_REPLACE_OBJECTS",
+      "GIT_TERMINAL_PROMPT",
+      "GIT_WORK_TREE",
+      "GRAPHQL_JOB_INPUT_MANIFEST",
+      "HOME",
+      "HOSTNAME",
+      "LANG",
+      "PATH"
+    ],
+    "detachedChild": true,
+    "capabilities": "0000000000000000",
+    "noNewPrivileges": "1"
+  }
+}

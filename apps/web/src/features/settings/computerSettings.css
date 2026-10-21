@@ -1,0 +1,101 @@
+.computer-facts { display: grid; gap: 0; margin: .5rem 0 1rem; }
+.computer-facts > div { display: grid; grid-template-columns: minmax(9rem, 1fr) minmax(0, 2fr); gap: 1rem; padding: .45rem 0; border-bottom: 1px solid var(--n-border); }
+.computer-facts dt { color: var(--n-muted); }
+.computer-facts dd { margin: 0; overflow-wrap: anywhere; font-family: var(--n-mono); font-size: .9em; }
+/* Short status facts sit side by side; long identifiers keep the full-width rows above. */
+.computer-facts--status { grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); column-gap: 1.25rem; }
+.computer-facts--status > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: .1rem; padding: .4rem 0; border-bottom: 0; }
+.computer-facts--status dt { font-size: .85em; }
+.computer-facts--status dd { font-weight: 600; font-family: inherit; font-size: 1em; }
+.computer-inventory-item { margin: .75rem 0; padding: .75rem 1rem; background: var(--n-surface); border: 1px solid var(--n-border); border-radius: var(--n-radius); }
+.computer-inventory-item h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.computer-inventory-item h3 small { margin-left: .5rem; color: var(--n-muted); font-weight: 400; font-size: .8em; }
+.computer-instance-list { padding: 0; list-style: none; margin: .5rem 0; }
+.computer-instance-list li { padding: .6rem 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--n-border); }
+.computer-instance-list span { display: block; color: var(--n-muted); }
+.computer-worker-row { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+.computer-worker-row > span { flex: 1 1 14rem; }
+.computer-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }
+.computer-details { margin: .25rem 0 1rem; }
+.computer-details > summary { cursor: pointer; color: var(--n-muted); padding: .35rem 0; border-radius: var(--n-radius-sm); }
+.computer-details > summary:focus-visible { outline: 2px solid var(--n-focus, currentColor); outline-offset: 2px; }
+
+/* Page layout: bounded, compact, task-first. */
+.computers-page { max-width: 52rem; display: block; }
+.computers-page h2.computers-title, .computers-page .computers-title { margin: 1.75rem 0 .5rem; font-size: .8rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--n-muted); }
+.computers-page h3 { font-size: .95rem; }
+.computers-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem 1rem; }
+.computers-header > div { flex: 1 1 18rem; min-width: 0; }
+.computers-panel { margin: 1rem 0 0; padding: 1rem; background: var(--n-surface); border: 1px solid var(--n-border); border-radius: var(--n-radius); }
+.computers-panel[hidden] { display: none; }
+.computers-panel .computers-title:first-child, .computers-panel section > .computers-title:first-of-type { margin-top: 0; }
+.computer-rows { list-style: none; margin: 0; padding: 0; background: var(--n-surface); border: 1px solid var(--n-border); border-radius: var(--n-radius); }
+.computer-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; padding: .7rem 1rem; }
+.computer-row + .computer-row { border-top: 1px solid var(--n-border); }
+.computer-row-body { display: grid; gap: .15rem; flex: 1 1 14rem; min-width: 0; }
+.computer-row-body span { color: var(--n-muted); font-size: .9em; }
+.computer-row-id { font-family: var(--n-mono); font-size: .85em; overflow-wrap: anywhere; }
+.computer-row--note { color: var(--n-muted); }
+
+/* Harness checks: one scannable line per installation; unknown stays visibly unknown. */
+.computer-checks { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .5rem; }
+.computer-checks > div { display: inline-flex; gap: .35rem; align-items: baseline; padding: .15rem .6rem; border: 1px solid var(--n-border); border-radius: 999px; font-size: .85em; }
+.computer-checks dt { color: var(--n-muted); }
+.computer-checks dt::after { content: ':'; }
+.computer-checks dd { margin: 0; font-weight: 600; }
+.computer-checks > [data-state='yes'] dd { color: var(--n-success); }
+.computer-checks > [data-state='no'] dd { color: var(--n-danger); }
+.computer-checks > [data-state='unknown'] dd { color: var(--n-muted); font-weight: 400; }
+.computer-diagnostics { margin: .25rem 0 .5rem; padding-left: 1.1rem; color: var(--n-muted); overflow-wrap: anywhere; }
+.computer-facts--inline { margin: 0 0 .5rem; }
+.computer-new-override { margin: .75rem 0; }
+.computer-steps { margin: .25rem 0 .5rem; padding-left: 1.25rem; display: grid; gap: .2rem; }
+.computer-unavailable { margin: .5rem 0; padding: .6rem .8rem; border: 1px solid var(--n-warning); border-radius: var(--n-radius-sm); background: var(--n-warning-subtle); }
+.computer-unavailable p { margin: 0; }
+.computer-unavailable .computer-details { margin: .25rem 0 0; }
+.computer-pairing-result { display: grid; gap: .5rem; justify-items: start; }
+.device-setup-guide, .device-setup-status { margin: .5rem 0 1rem; padding: .6rem .8rem; border: 1px solid var(--n-border); border-radius: var(--n-radius-sm); }
+.device-setup-guide h3, .device-setup-status h3 { margin: 0 0 .35rem; }
+.device-setup-status[data-state='blocked'] { border-color: var(--n-warning); background: var(--n-warning-subtle); }
+.device-setup-status p { margin: .25rem 0; }
+.computers-page, .computers-page * { min-width: 0; }
+.settings-editor-page.computers-page { width: 100%; max-width: min(52rem, 100%); grid-template-columns: minmax(0, 1fr); overflow-wrap: anywhere; }
+.computers-page :is(pre, code, kbd, samp) { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.computers-page :is(ol, ul, dl, details, section, textarea, input, select, .n-field) { max-width: 100%; }
+.device-setup-guide, .device-setup-status { max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 540px) { .computers-page .computer-steps { padding-left: 1.1rem; } .device-setup-guide, .device-setup-status { padding: .5rem .6rem; } }
+.computers-page dd, .computers-page li, .computers-page summary + * { overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .computer-facts > div { grid-template-columns: 1fr; gap: .15rem; }
+  .computer-facts--status { grid-template-columns: 1fr 1fr; }
+  .computer-facts--status > div { display: flex; }
+  .computer-actions > * { flex: 1 1 100%; }
+  .computers-header > .n-button { width: 100%; }
+  .computer-inventory-item, .computers-panel { padding: .65rem .75rem; }
+  .computer-row { padding: .6rem .75rem; }
+}
+[aria-label="Add computer"] { display: grid; gap: var(--space-3); }
+[aria-label="Add computer"] label { display: grid; gap: var(--space-2); }
+[aria-label="Add computer"] input, [aria-label="Add computer"] textarea { width: 100%; min-width: 0; padding: .7rem; background: var(--n-surface); border: 1px solid var(--n-border); border-radius: var(--n-radius-sm); color: var(--n-text); font: inherit; }
+.computer-action-card { display: grid; gap: .5rem; justify-items: start; margin: .75rem 0; padding: .9rem 1.1rem;
+  border: 1px dashed var(--n-border-strong); border-radius: var(--n-radius-lg); background: var(--n-surface); font-size: .85rem; }
+.computer-action-card h2 { margin: 0; font-size: .9rem; font-weight: 600; }
+.computer-action-card p { margin: 0; color: var(--n-muted); }
+
+.circleci-summary { margin-top: 1.25rem; }
+.circleci-summary > .n-card { padding: 1rem; }
+.circleci-summary-header, .circleci-account > header, .circleci-org-heading {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem;
+}
+.circleci-summary-header h2 { margin: 0; font-size: 1rem; }
+.circleci-summary-header > svg { color: var(--n-muted); }
+.circleci-accounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; margin-top: 1rem; }
+.circleci-account h3 { margin: 0; }
+.circleci-account-label { margin: .35rem 0 .5rem; font-weight: 500; }
+.circleci-orgs { list-style: none; padding: 0; margin: 0; }
+.circleci-orgs > li { border-top: 1px solid var(--n-border); padding: .65rem 0; }
+.circleci-org-heading > strong { flex: 1 1 8rem; overflow-wrap: anywhere; }
+.circleci-orgs p { margin: .2rem 0 0; font-size: .85rem; }
+.circleci-summary .circleci-summary-note { color: var(--n-muted); font-size: .8rem; margin: .35rem 0 0; }
+.circleci-summary > .n-card > .circleci-summary-note { border-top: 1px solid var(--n-border); padding-top: .75rem; }
+@media (max-width: 640px) { .circleci-accounts { grid-template-columns: minmax(0, 1fr); gap: 1rem; } }
