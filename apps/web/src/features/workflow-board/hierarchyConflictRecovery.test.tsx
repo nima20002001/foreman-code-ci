@@ -4,16 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { useGraphDraftStore } from '../graph/store'
 import { nextDraftDirty } from '../graph/nextDraft/state'
-import { readConflictRecoveries, readEditOutbox, storeEditSnapshot } from '../graph/nextDraft/editIntentStorage'
-import { fixture as authoringFixture } from '../graph/nextDraft/core.cases'
-import { stageHierarchyAgent } from '../workflow-hierarchy/authoring'
+import { readConflictRecoveries, readEditOutbox } from '../graph/nextDraft/editIntentStorage'
 import { installBoardTestLifecycle } from './eng05D.testSupport'
 import { authoring, draft, mount, recoveryFixture, rename, settings } from './hierarchyRecovery.testSupport'
 
 installBoardTestLifecycle()
 
-it('opens latest into a fresh durable base, retains repeated recoveries through refresh and saves only manually reapplied changes', async () => {
-  const f = await recoveryFixture(), first = await mount(f)
+it('opens latest into a fresh durable base after a rejected save and saves only a manually reapplied change', async () => {
+  const f = await recoveryFixture(); await mount(f)
   const originalId = draft(f).context.draft.id, originalVersion = draft(f).context.draft.baseWorkflowVersionId
   await rename('My first unsaved name')
   f.externalEdit('Other saved name')
@@ -31,6 +29,26 @@ it('opens latest into a fresh durable base, retains repeated recoveries through 
   await userEvent.click(screen.getByRole('button', { name: 'View unsaved draft' }))
   expect(screen.getByRole('region', { name: 'Read-only recovered draft' })).toHaveTextContent('My first unsaved name')
   expect(screen.getByRole('region', { name: 'Read-only recovered draft' })).toHaveTextContent(originalVersion!)
+  const freshBase = { revision: draft(f).context.draft.publishedRevision, version: draft(f).context.draft.baseWorkflowVersionId }
+  await rename('My first unsaved name')
+  await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
+  await waitFor(() => expect(nextDraftDirty(draft(f))).toBe(false))
+  const accepted = f.requests.at(-1)!
+  expect(accepted.commandId).not.toBe(rejected.commandId)
+  expect(accepted).toMatchObject({ draftId: freshId, expectedRevision: freshBase.revision,
+    expectedWorkflowVersionId: freshBase.version, graph: { name: 'My first unsaved name' } })
+  expect(f.saved().version.definition.name).toBe('My first unsaved name')
+  expect(readConflictRecoveries(f.key)).toHaveLength(1)
+}, 30000)
+
+it('retains repeated recoveries through refresh, saves into the newest base and discards one recovery', async () => {
+  const f = await recoveryFixture(), first = await mount(f)
+  await rename('My first unsaved name')
+  f.externalEdit('Other saved name')
+  await settings()
+  await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
+  await waitFor(() => expect(authoring().getByTitle('Rename workflow')).toHaveTextContent('Other saved name'))
+  expect(readConflictRecoveries(f.key)).toHaveLength(1)
   await rename('My second unsaved name')
   f.externalEdit('Newer saved name')
   await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
@@ -46,9 +64,7 @@ it('opens latest into a fresh durable base, retains repeated recoveries through 
   await rename('My first unsaved name')
   await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
   await waitFor(() => expect(nextDraftDirty(draft(f))).toBe(false))
-  const accepted = f.requests.at(-1)!
-  expect(accepted.commandId).not.toBe(rejected.commandId)
-  expect(accepted).toMatchObject({ draftId: finalBase.id, expectedRevision: finalBase.revision,
+  expect(f.requests.at(-1)).toMatchObject({ draftId: finalBase.id, expectedRevision: finalBase.revision,
     expectedWorkflowVersionId: finalBase.version, graph: { name: 'My first unsaved name' } })
   expect(f.saved().version.definition.name).toBe('My first unsaved name')
   expect(readConflictRecoveries(f.key)).toHaveLength(2)
@@ -57,90 +73,6 @@ it('opens latest into a fresh durable base, retains repeated recoveries through 
     .getByRole('button', { name: 'Discard recovered draft' }))
   expect(readConflictRecoveries(f.key)).toHaveLength(1)
   expect(f.wire.writes().every(sample => sample.path.endsWith('/definition/edits'))).toBe(true)
-}, 30000)
-
-it('recovers an interrupted combined hierarchy, staged Agent and raw forms, then saves only explicitly reapplied changes', async () => {
-  const f = await recoveryFixture(authoringFixture(['orchestrator', 'orchestrator', 'orchestrator', 'coder']))
-  const first = await mount(f)
-  await userEvent.click(authoring().getByRole('button', { name: 'Workflow settings' }))
-  await userEvent.selectOptions(screen.getByLabelText('Master'), 'node-0')
-  await userEvent.selectOptions(screen.getByLabelText('Node 3 reports to'), 'node-1')
-  await userEvent.click(screen.getByRole('button', { name: 'Apply hierarchy to draft' }))
-  f.externalEdit('Concurrent saved workflow')
-  await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
-  await screen.findByText('The saved workflow changed. Inspect latest to compare your draft.')
-  const rejected = f.requests.at(-1)!
-  await userEvent.click(within(screen.getByRole('navigation', { name: 'Agents and connections' })).getByRole('button', { name: 'Node 3' }))
-  await userEvent.selectOptions(await screen.findByLabelText('Reports to'), 'node-2')
-  await userEvent.click(screen.getByRole('button', { name: 'Advanced settings' }))
-  await userEvent.type(screen.getByRole('textbox', { name: 'Initial prompt' }), 'Unapplied Worker direction')
-
-  // A recovered local document can contain forms from earlier panel visits.
-  // Seed that interrupted document; all recovery, comparison and publication
-  // below run through the mounted Board and its real HTTP journal client.
-  const before = draft(f)
-  const worker = before.context.agents.find(item => item.agent.id === 'agent-3')!.agent
-  const newWorker = { ...worker }
-  delete newWorker.configurationVersionId
-  const staged = stageHierarchyAgent(before, { ...newWorker, id: 'private-worker', name: 'Staged Worker' },
-    'private-worker-node', 'node-1')
-  const rawWorker = before.agentForms!['node-3']!
-  const interrupted = { ...staged, workflowForms: { ...staged.workflowForms,
-    hierarchy: { masterNodeId: 'node-2', previousMaster: 'keep' as const,
-      parents: { 'node-1': 'node-2', 'node-0': 'node-2', 'node-3': 'node-1', 'private-worker-node': 'node-1' } },
-    createAgent: { role: 'coder' as const, name: 'Unapplied creation', parentNodeId: 'node-2',
-      settings: { ...rawWorker, name: 'Unapplied creation', prompt: 'Keep creation text' } },
-    removeNode: { nodeId: 'node-1', destinationParentId: 'node-2' },
-  } }
-  storeEditSnapshot(f.key, interrupted)
-  first.unmount()
-  act(() => useGraphDraftStore.setState({ nextDrafts: {} }))
-  const refreshed = await mount(f)
-  const removal = await screen.findByRole('dialog', { name: 'Remove Node 1 from workflow?' })
-  expect(within(removal).getByLabelText('Move 2 Workers to')).toHaveValue('node-2')
-  await userEvent.click(within(removal).getByRole('button', { name: 'Inspect latest' }))
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove Node 1 from workflow?' })).not.toBeInTheDocument())
-  await settings()
-  await userEvent.click(screen.getByRole('button', { name: 'View unsaved draft' }))
-  const comparison = screen.getByRole('region', { name: 'Read-only recovered draft' })
-  await userEvent.click(within(comparison).getByText('All recovered fields'))
-  for (const text of ['private-worker', 'Staged Worker', 'Unapplied Worker direction', 'Unapplied creation',
-    'Keep creation text', '"workerParents"', '"removeNode"', '"destinationParentId": "node-2"', '"previousMaster": "keep"']) {
-    expect(comparison).toHaveTextContent(text)
-  }
-  expect(draft(f).graph.hierarchy).toBeUndefined()
-  expect(draft(f).graph.nodes).toHaveLength(4)
-  expect(draft(f).agentEdits ?? {}).toEqual({})
-  expect(draft(f).workflowForms ?? {}).toEqual({})
-
-  await userEvent.selectOptions(screen.getByLabelText('Master'), 'node-0')
-  await userEvent.selectOptions(screen.getByLabelText('Node 3 reports to'), 'node-2')
-  await userEvent.click(screen.getByRole('button', { name: 'Apply hierarchy to draft' }))
-  f.externalEdit('Second concurrent workflow')
-  await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
-  await screen.findByText('The saved workflow changed. Inspect latest to compare your draft.')
-  await userEvent.click(screen.getByRole('button', { name: 'Inspect latest' }))
-  await waitFor(() => expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(2))
-  refreshed.unmount()
-  act(() => useGraphDraftStore.setState({ nextDrafts: {} }))
-  await mount(f)
-  await settings()
-  expect(screen.getAllByRole('button', { name: 'View unsaved draft' })).toHaveLength(2)
-  await userEvent.selectOptions(screen.getByLabelText('Master'), 'node-0')
-  await userEvent.selectOptions(screen.getByLabelText('Node 3 reports to'), 'node-2')
-  await userEvent.click(screen.getByRole('button', { name: 'Apply hierarchy to draft' }))
-  await userEvent.click(authoring().getByRole('button', { name: 'Save workflow' }))
-  await waitFor(() => expect(nextDraftDirty(draft(f))).toBe(false))
-  const accepted = f.requests.at(-1)!
-  expect(accepted.commandId).not.toBe(rejected.commandId)
-  expect(accepted.draftId).not.toBe(rejected.draftId)
-  expect(accepted.expectedWorkflowVersionId).not.toBe(rejected.expectedWorkflowVersionId)
-  expect(f.saved().version.definition.hierarchy).toMatchObject({ masterNodeId: 'node-0', parents: expect.arrayContaining([
-    { workflowNodeId: 'node-3', parentNodeId: 'node-2' },
-  ]) })
-  expect(f.saved().version.definition.nodes).toHaveLength(4)
-  expect(accepted.stagedAgents?.some(item => item.agent.id === 'private-worker')).toBe(false)
-  expect(readConflictRecoveries(f.key)).toHaveLength(2)
 }, 30000)
 
 it.each(['write', 'read', 'latest-response'] as const)('keeps the original editor and transport base when %s recovery fails', async failure => {

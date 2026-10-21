@@ -19,7 +19,7 @@ it.each([undefined, {}])('keeps linked master memory active until delegated hier
   try {
     await expect.poll(async () => ({ entered, run: await runtime.runs.get(runtime.f.run.id),
       executions: (await runtime.runs.listRepeatExecutions(runtime.f.run.id)).map(row => row.execution) }),
-    { timeout: 60_000 }).toMatchObject({ entered: true })
+    { timeout: 15_000 }).toMatchObject({ entered: true })
     expect(await card.read()).toMatchObject({ card: { status: 'doing' },
       bindings: [expect.objectContaining({ state: 'waiting_children' })] })
     provider.release('builder')
@@ -43,4 +43,4 @@ it.each([undefined, {}])('keeps linked master memory active until delegated hier
     await drive
     await runtime.close()
   }
-}, 120_000)
+}, 60_000)
