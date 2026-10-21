@@ -1175,7 +1175,9 @@ export class HostCiService {
       // The execution outcome settles first, releasing the executor slot; logs and results follow without
       // holding an observation slot, so slow collection cannot delay tracking of other tickets.
       if (['unit', 'integration'].includes(run.suite) && ['queued', 'starting', 'running'].includes(run.state)) {
-        const saved = await this.settle(run, computer, { ...reply.run, collection: 'pending' })
+        // A canceled part produced no results to wait for: it settles now and its slot and group are released.
+        const saved = await this.settle(run, computer,
+          { ...reply.run, collection: reply.run.state === 'canceled' ? 'unsupported' : 'pending' })
         const current = await this.read(run.id, run.workspaceId)
         // A different dispatcher may abandon this execution while its read is in flight.
         if (ciExecutionRunId(current) !== ciExecutionRunId(run)) return
@@ -1219,8 +1221,11 @@ export class HostCiService {
       }
     }
     const terminal = !['queued', 'starting', 'running'].includes(reply.run.state)
-    const collected = terminal ? await collectCiResults(this.pool, this.endpoint, computer, run, reply, this.coverage)
-      : { run: reply.run, durations: reply.durations, error: undefined }
+    const canceled = reply.run.state === 'canceled'
+    const collected = terminal && !canceled
+      ? await collectCiResults(this.pool, this.endpoint, computer, run, reply, this.coverage)
+      : { run: canceled ? { ...reply.run, collection: 'unsupported' as const } : reply.run,
+        durations: canceled ? undefined : reply.durations, error: undefined }
     let observationError = logError ?? collected.error
     if (!['queued', 'starting', 'running'].includes(run.state)) {
       collected.run = { ...collected.run, state: run.state, exitCode: run.exitCode, finishedAt: run.finishedAt }
