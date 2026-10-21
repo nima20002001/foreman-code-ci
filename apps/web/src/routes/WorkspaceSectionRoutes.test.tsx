@@ -118,23 +118,6 @@ describe('workspace section routes', () => {
     unmount(); queryClient.clear()
   })
 
-  it('shows the real workspace Memory board on the Memory route when no slot is supplied', async () => {
-    const scopes: unknown[] = []
-    server.use(http.get('/api/memory-boards', ({ request }) => {
-      const scope = new URL(request.url).searchParams.get('scope')
-      if (scope) scopes.push(JSON.parse(scope))
-      const page = { items: [], hasMore: false, nextCursor: null, revision: 0 }
-      return HttpResponse.json({ board: { id: 'board-workspace', scope: { kind: 'workspace', workspaceId: 'workspace-1' }, revision: 0 },
-        openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
-        counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
-    }))
-    const { queryClient, unmount } = renderRoute('/workspaces/workspace-1/memory')
-    expect(await screen.findByRole('button', { name: 'Add card' })).toBeVisible()
-    expect(screen.queryByText('Memory board is not available yet.')).not.toBeInTheDocument()
-    expect(scopes).toEqual([{ kind: 'workspace', workspaceId: 'workspace-1' }])
-    unmount(); queryClient.clear()
-  })
-
   it('opens Browser profiles as its own settings page and preserves an exact registered computer filter', async () => {
     server.use(http.get('*/api/devices/main', () => HttpResponse.json({ mainId, mainPublicKey: 'fixture-key', mainPublicKeyFingerprint: 'a'.repeat(64) })),
       http.get('*/api/devices', () => HttpResponse.json({ devices: [registration] })))

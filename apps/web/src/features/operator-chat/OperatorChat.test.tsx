@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { OperatorChat } from './OperatorChat'
-import { findOperatorComposer, installCanonicalOperatorFixture } from './canonicalOperator.test-support'
+import { installCanonicalOperatorFixture } from './canonicalOperator.test-support'
 import { OperatorChatVisibilityProvider } from './visibility'
 import { useOperatorChatStore } from './operatorChatStore'
 import { operatorState } from './pr17-test-fixtures'
@@ -62,7 +62,7 @@ describe('OperatorChat', () => {
     expect(start).toHaveAttribute('aria-busy', 'true')
     expect(api.create).toHaveBeenCalledTimes(1)
     await act(async () => resolve({ conversation: { ...operatorState().conversation, id: 'new-chat' } }))
-    expect(await findOperatorComposer()).toBeVisible()
+    expect(await screen.findByRole('textbox', { name: 'Message' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Chat with Operator' })).not.toBeInTheDocument()
     expect(useOperatorChatStore.getState().selectedConversationId).toBe('new-chat')
     expect(api.send).not.toHaveBeenCalled()
@@ -78,7 +78,7 @@ describe('OperatorChat', () => {
     expect(retry).toBeEnabled()
     expect(useOperatorChatStore.getState().selectedConversationId).toBeUndefined()
     fireEvent.click(retry)
-    expect(await findOperatorComposer()).toBeVisible()
+    expect(await screen.findByRole('textbox', { name: 'Message' })).toBeVisible()
     expect(api.create).toHaveBeenCalledTimes(2)
     const original = api.create.mock.calls[0]![0]
     expect(original.commandId).toEqual(expect.any(String))

@@ -32,7 +32,7 @@ export function CanonicalOperatorComposer({ conversation, attachments, sessionCo
     }
     refresh()
   }, { onDenied })
-  const pin = useDeliveryDraftPin(id, target, delivery.presentation.nativeTurnId, !!draft || attachments.hasAttachments, !!delivery.state)
+  const pin = useDeliveryDraftPin(id, target, delivery.presentation.nativeTurnId, !!draft || attachments.hasAttachments)
   const parsed = parseSessionCommand(draft), mode = parsed.kind === 'plan-task' ? 'plan' : sessionControls.state?.desiredMode
   const presentation = { ...delivery.presentation, hasAttachments: attachments.hasAttachments,
     changesMode: !!mode && sessionControls.state?.appliedMode !== mode }

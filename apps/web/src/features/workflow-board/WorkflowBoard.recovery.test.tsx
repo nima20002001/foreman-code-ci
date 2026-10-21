@@ -95,11 +95,6 @@ async function start(f: Fixture, user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(readBoardStart(f.key)).toBeUndefined())
   return [...f.mock.runs.values()][0]!.run
 }
-// Starting shows the saved Run; edits continue on the draft the Board retained.
-async function returnToDraft(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: 'Return to workflow' }))
-  await screen.findByRole('region', { name: 'Workflow authoring' })
-}
 function recover(f: Fixture, runId: string, state: 'running' | 'interrupted') {
   const detail = f.mock.runs.get(runId)!, current = f.mock.currents.get(runId)!
   detail.run = WorkflowRunV3Schema.parse({ ...detail.run, executionState: state, outcome: 'pending' })
@@ -214,7 +209,6 @@ describe.each(forms)('%s Board recovery', (form) => {
   it.each(['running', 'interrupted'] as const)('Stop-and-save for a %s recovering Run preserves the exact journal and pins through reload until cleanup settles', async (state) => {
     const f = fixture(form), user = userEvent.setup(), mounted = await mount(f)
     const run = await start(f, user), scope = f.mock.currents.get(run.id)!.scope
-    await returnToDraft(user)
     recover(f, run.id, state)
     const pinned = structuredClone(f.mock.versions.get(run.workflowVersionId))
     edit(f)
@@ -268,12 +262,12 @@ describe.each(forms)('%s Board recovery', (form) => {
     expect(newest.definition.repeat).toEqual(pinned!.definition.repeat)
     expect(f.mock.runs.size).toBe(1); expect(f.mock.controls.stopCalls).toBe(1)
     expect(f.mock.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/runs'))).toHaveLength(1)
-    expect(reopened.router.state.location.search).not.toHaveProperty('runId')
+    expect(reopened.router.state.location.search).toMatchObject({ runId: run.id, workflowVersionId: run.workflowVersionId })
   }, 30000)
 
   it('canceling Stop-and-save while recovering preserves edits and sends neither Stop nor Save', async () => {
     const f = fixture(form), user = userEvent.setup(), mounted = await mount(f)
-    const run = await start(f, user); await returnToDraft(user); recover(f, run.id, 'interrupted'); edit(f)
+    const run = await start(f, user); recover(f, run.id, 'interrupted'); edit(f)
     await mounted.query.invalidateQueries({ queryKey: queryKeys.workspaceDetails(f.mock.workspaceId) })
     const before = writes(f), draft = structuredClone(useGraphDraftStore.getState().nextDrafts[f.key]!.graph)
     await user.click(saveButton())
