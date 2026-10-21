@@ -11,8 +11,8 @@ export function installCanonicalOperatorFixture() {
   const receipt = (command: ChatSendRequest): ChatDeliveryReceipt => ({ id: `receipt-${command.commandId}`, commandId: command.commandId!,
     target: command.target, requestedIntent: command.intent, appliedIntent: command.intent === 'auto' ? 'next_turn' : command.intent,
     state: 'accepted', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' })
-  const failure = (error: unknown) => HttpResponse.json({ error: { code: ApiError.is(error) ? error.code : 'NETWORK_ERROR',
-    message: error instanceof Error ? error.message : 'Unavailable' } }, { status: ApiError.is(error) && error.status >= 400 ? error.status : 503 })
+  const failure = (error: unknown) => HttpResponse.json({ code: ApiError.is(error) ? error.code : 'NETWORK_ERROR',
+    message: error instanceof Error ? error.message : 'Unavailable' }, { status: ApiError.is(error) && error.status >= 400 ? error.status : 503 })
   server.use(
     http.post(`${root}/read`, async ({ params, request }) => {
       try {
@@ -32,7 +32,7 @@ export function installCanonicalOperatorFixture() {
           if (command && state.messages.some(message => message.requestId === command.commandId)) receipts.set(command.commandId!, receipt(command))
           const found = [...receipts.values()].filter(item => input.receiptId ? item.id === input.receiptId : item.commandId === input.commandId)
           return found.length ? HttpResponse.json({ target, receipts: found })
-            : HttpResponse.json({ error: { code: 'CHAT_RECEIPT_NOT_FOUND', message: 'No retained receipt.' } }, { status: 404 })
+            : HttpResponse.json({ code: 'CHAT_RECEIPT_NOT_FOUND', message: 'No retained receipt.' }, { status: 404 })
         }
         const active = !!state.activeRequestId, claude = state.settings?.harness === 'claude'
         return HttpResponse.json({ target, state, receipts: [...receipts.values()].filter(item => item.target.kind === 'operator_conversation' && item.target.conversationId === id),
@@ -72,5 +72,3 @@ export function installCanonicalOperatorFixture() {
   )
   return { commands, receipts }
 }
-
-export { findLoadedComposer as findOperatorComposer } from '../conversations/loadedComposer.test-support'
