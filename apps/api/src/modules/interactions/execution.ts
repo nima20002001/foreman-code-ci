@@ -1298,12 +1298,7 @@ export class ApprovalExecutionCoordinator {
     for (const owned of this.ownedSessions.values()) {
       if (owned.runOwner && !owners.has(owned.execution.runId)) owners.set(owned.execution.runId, owned.runOwner)
     }
-    for (const owner of owners.values()) {
-      await this.recoverExecutionControls(owner).catch(error => {
-        // A cached owner that already lost its lock has nothing to recover; its Run is resumed under a new owner.
-        if (!(error instanceof DomainError && error.code === 'RUN_OWNERSHIP_LOST')) onError(error)
-      })
-    }
+    for (const owner of owners.values()) await this.recoverExecutionControls(owner).catch(onError)
   }
 
   private async recoverExecutionControls(owner: RunOwnership): Promise<void> {
