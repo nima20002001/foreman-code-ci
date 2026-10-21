@@ -4,12 +4,14 @@ import type { AgentChatContext, AgentChatTurn, SendAgentChatMessageRequest } fro
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import type { AgentConfigurationVersion, AgentHarness, ExecutionResult, Message, NativeSessionReference, SessionControlState, SessionMode } from '@foreman-code/contracts'
 import { AgentChatService } from '../../src/modules/conversations/agentChat.js'
+import { qualifiedAgentChatSteer } from '../../src/modules/conversations/chatSteerQualification.js'
 import { agentChatKey, type AgentConversationRow, PostgresAgentChatRepository } from '../../src/modules/conversations/agentChatRepository.js'
 import type { OperatorActivityChange } from '../../src/modules/conversations/operatorActivity.js'
 import type { PostgresOperatorConversationRepository } from '../../src/modules/conversations/operatorChatRepository.js'
 import { NativeTurnNotActiveError } from '../../src/modules/harnesses/errors.js'
 import type { NativeHarnessSessionManager, NativeHistory, NativeSteerInput, NativeTurnInput } from '../../src/modules/harnesses/port.js'
 import type { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
+import { chatWorkflowVersionRow, isCurrentVersionRead } from './chatWorkflowVersion.js'
 import { deferred } from './deferred.js'
 
 export async function eventually(check: () => boolean | Promise<boolean>) {
@@ -101,6 +103,10 @@ export class F1Store {
       return result(values[0] === this.row.id ? [{ path: this.row.record.workingDirectory, host_kind: 'main' }] : [])
     }
     if (sql.startsWith('select record, revision, current_version_id from application_settings')) return result()
+    if (isCurrentVersionRead(sql)) {
+      return result(values[0] === context.workspaceId && values[1] === context.workflowId ? [chatWorkflowVersionRow({ ...context,
+        configurationId: configuration.id })] : [])
+    }
     if (sql.startsWith("update operator_conversations set record=record || jsonb_build_object('systemPrompt'")) {
       if (this.row.id !== values[0]) return result()
       this.row.record.systemPrompt = JSON.parse(String(values[1]))
@@ -414,7 +420,9 @@ export function fixture(store = new F1Store()) {
   } as unknown as Pick<PostgresWorkflowRepository, 'getAgentConfiguration' | 'getCurrentSavedVersion' | 'getSavedVersion'>
   const service = new AgentChatService(store.pool, repository, {} as PostgresOperatorConversationRepository,
     workflows, { getForWorkspace: () => { throw new Error('No Run access in F1 tests.') },
-      getExecution: async () => { throw new Error('This fixture must not read a Run execution.') }, executionPages: () => { throw new Error('No execution access in F1 tests.') } }, () => manager, '/unused')
+      getExecution: async () => { throw new Error('This fixture must not read a Run execution.') }, executionPages: () => { throw new Error('No execution access in F1 tests.') } },
+    // Production composition qualifies Codex steering for the live owner; this fixture composes the same port.
+    Object.assign(() => manager, { qualifiedSteer: qualifiedAgentChatSteer }), '/unused')
   // Keep the service/pump/observation code real; only the already-resident native owner is injected.
   const internals = service as unknown as {
     runtimes: Map<string, { manager: NativeHarnessSessionManager; session: NativeSessionReference; configuration: AgentConfigurationVersion }>
@@ -427,6 +435,8 @@ export function fixture(store = new F1Store()) {
     execute: async (...args: unknown[]) => (args[5] as (markDispatchAttempt: () => void) => Promise<unknown>)(
       () => { dispatchAttempts.push(String(args[3])) }), drain: async () => undefined,
   }
+  // The injected resident session carries no scoped tools, so an accepted feature scope never needs rebinding.
+  service.installFeatureContextBinder(async () => undefined)
   internals.runtimes.set(store.row.id, { manager, session: manager.session, configuration })
   const request = (requestId: string, extra: Partial<SendAgentChatMessageRequest> = {}): SendAgentChatMessageRequest => ({
     requestId, content: requestId, intent: 'next_turn', expectedConversationId: store.row.id,

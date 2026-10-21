@@ -12,14 +12,15 @@ const gates: ReturnType<typeof deferred<void>>[] = []
 const operations: Promise<unknown>[] = []
 function setup() { const f = fixture(); fixtures.push(f); return f }
 function gate() { const value = deferred(); gates.push(value); return value }
-function track<T>(operation: Promise<T>) { operations.push(operation); void operation.catch(() => undefined); return operation }
+function track<T>(operation: Promise<T>) { operations.push(operation); void operation.catch(() => { /* ignore: afterEach awaits the original promise through Promise.allSettled; this observer prevents a duplicate unhandled rejection. */ }); return operation }
 afterEach(async () => {
   for (const value of gates.splice(0)) value.resolve()
   await Promise.all(fixtures.splice(0).map((f) => f.service.shutdown()))
   await Promise.allSettled(operations.splice(0))
 })
 async function enqueue(f: ReturnType<typeof fixture>, requestId: string) {
-  return f.repository.admit({ key: f.store.row.agent_key, context, request: f.request(requestId), delivery: 'queued' })
+  return f.repository.admit({ key: f.store.row.agent_key, context, request: f.request(requestId), delivery: 'queued',
+    ownerPrincipalId: f.principal.id })
 }
 function countClaims(f: ReturnType<typeof fixture>) {
   let calls = 0
