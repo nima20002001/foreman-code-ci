@@ -21,7 +21,7 @@ import { SessionControlStore } from './sessionControls/store.js'
 import { acceptedResponseControl } from './acceptedResponseControl.js'
 import { nativeNonSubmission } from './nativeNonSubmission.js'
 import { sessionStartConfiguration } from '../harnesses/sessionStart.js'
-import { agentConfigurationTransition, agentConfigurationDirectory, agentConfigurationHandoff } from './agentConfigurationTransition.js'
+import { agentConfigurationTransition, agentConfigurationDirectory } from './agentConfigurationTransition.js'
 import { pendingInteractionAfterHistory } from './pendingInteractionReadback.js'
 import { qualifyChatActivity } from './qualifiedActivity.js'
 import { reconcileKnownActivities } from './reconcileKnownActivities.js'
@@ -1151,18 +1151,8 @@ export class AgentChatService {
     const context: AgentChatContext = { workspaceId: row.workspace_id, workflowId: row.workflow_id,
       workflowNodeId: row.workflow_node_id, agentId: row.agent_id, ...(row.origin_run_id ? { runId: row.origin_run_id } : {}) }
     const input = await this.preflightInput(principal, request, { context, row: { ...row,
-      agent_configuration_version_id: configuration.id, record: await this.acceptedRecord(row, configuration, sql) },
-    configuration }, sql, channelContext)
+      agent_configuration_version_id: configuration.id }, configuration }, sql, channelContext)
     return { input, configurationVersionId: configuration.id }
-  }
-
-  /** The accepted prompt is composed before dispatch applies the saved configuration. A change that replaces
-   * the native session restarts startup delivery with the prior conversation as handoff, exactly as dispatch records it. */
-  private async acceptedRecord(row: AgentConversationRow, configuration: AgentConfigurationVersion, sql?: TransactionSql) {
-    if (configuration.id === row.agent_configuration_version_id) return row.record
-    const previous = await this.conversationConfiguration(row)
-    if (!previous || !agentConfigurationTransition(row, previous, configuration).replaceSession) return row.record
-    return { ...row.record, handoffContext: await agentConfigurationHandoff(sql ?? this.pool, row.id), startupDelivered: false }
   }
 
   private async steer(principal: ManagementPrincipal, context: AgentChatContext, key: string, input: SendAgentChatMessageRequest, resolution: Resolution, selectedRun: boolean, assertCurrent: RunChatAuthorityCheck,
