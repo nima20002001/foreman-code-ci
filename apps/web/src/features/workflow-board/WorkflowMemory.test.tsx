@@ -15,8 +15,8 @@ it('opens live workflow memory only when requested and keeps the graph mounted o
     const page = { items: [], hasMore: false, nextCursor: null, revision: 0 }
     return HttpResponse.json({ board: { id: 'workflow-memory',
       scope: { kind: 'workflow', workspaceId: 'workspace-1', workflowId: 'workflow-1' }, revision: 0 },
-      openColumns: ['todo', 'doing', 'waiting_for_user', 'blocked'].map(status => ({ ...page, status })), notes: page,
-      counts: { todo: 0, doing: 0, waiting_for_user: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
+      openColumns: ['todo', 'doing', 'blocked'].map(status => ({ ...page, status })), notes: page,
+      counts: { todo: 0, doing: 0, blocked: 0, done: 0, completed: 0, dropped: 0, notes: 0 }, sequence: 0 })
   }))
   const root = createRootRoute({ component: Outlet })
   const board = createRoute({ getParentRoute: () => root, path: '/workspaces/$workspaceId',

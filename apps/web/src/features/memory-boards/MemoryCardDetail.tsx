@@ -41,10 +41,9 @@ function CardDetailBody({ detail, client, nodes, health, canWrite, onEdit, onOpe
     <Button onClick={onBack}>Back to Memory board</Button>
     <h3>{card.title}</h3>
     {stale && <p role="status">Couldn’t refresh this card. <Button size="sm" onClick={retry}>Retry</Button></p>}
-    <p><span className="memory-status-pill" data-status={card.status}>{statusLabels[card.status]}</span>{card.status === 'done' ? ` · ${card.completionKind === 'dropped' ? 'Dropped' : 'Completed'}` : ''}</p>
+    <p>{statusLabels[card.status]}{card.status === 'done' ? ` · ${card.completionKind === 'dropped' ? 'Dropped' : 'Completed'}` : ''}</p>
     <p className="memory-preserve-lines">{card.body || 'No details added.'}</p>
-    {card.reason && <p className={card.status === 'waiting_for_user' ? 'memory-waiting-callout' : undefined}>
-      <strong>{card.status === 'waiting_for_user' ? 'What you need to do:' : 'Reason:'}</strong> {card.reason}</p>}
+    {card.reason && <p><strong>Reason:</strong> {card.reason}</p>}
     <p><strong>Owner:</strong> {card.assignee ? nodeLabel(card.assignee, nodes) : 'Unassigned'}</p>
     {card.linkedNodes.length > 0 && <div><h4>Linked nodes</h4><ul>{card.linkedNodes.map((node) =>
       <li key={`${node.workflowId}/${node.workflowNodeId}/${node.agentId}`}>{nodeLabel(node, nodes)}</li>)}</ul></div>}

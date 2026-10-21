@@ -8,8 +8,8 @@ function refineCardState(card: { status: string; completionKind: string | null; 
   if ((card.status === 'done') !== (card.completionKind !== null)) {
     context.addIssue({ code: 'custom', path: ['completionKind'], message: 'Only Done cards require a completion kind.' });
   }
-  if ((card.status === 'blocked' || card.status === 'waiting_for_user' || card.completionKind === 'dropped') && !card.reason?.trim()) {
-    context.addIssue({ code: 'custom', path: ['reason'], message: 'Blocked, waiting-for-user or dropped cards require a reason.' });
+  if ((card.status === 'blocked' || card.completionKind === 'dropped') && !card.reason?.trim()) {
+    context.addIssue({ code: 'custom', path: ['reason'], message: 'Blocked or dropped cards require a reason.' });
   }
 }
 
@@ -18,8 +18,7 @@ export const MemoryBoardScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('workflow'), workspaceId: IdSchema,
     workflowId: IdSchema }).strict(),
 ]);
-/** waiting_for_user: an Agent needs the owner to act (pay, sign in, solve a CAPTCHA); reason says what to do. */
-export const MemoryCardStatusSchema = z.enum(['todo', 'doing', 'waiting_for_user', 'blocked', 'done']);
+export const MemoryCardStatusSchema = z.enum(['todo', 'doing', 'blocked', 'done']);
 export const MemoryCardSchema = z.object({
   id: IdSchema, boardId: IdSchema,
   title: z.string().trim().min(1).max(240), body: z.string().max(8000),

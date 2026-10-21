@@ -15,7 +15,7 @@ export const memoryWriteTools = ['memory_card_create', 'memory_card_update',
   'memory_note_create', 'memory_note_update', 'memory_note_archive'] as const
 export interface Actor { kind: 'operator' | 'agent' | 'engine'; id: string; displayName: string }
 export interface Page<T> { items: T[]; nextCursor: string | null; hasMore: boolean; revision: number }
-export interface Counts { todo: number; doing: number; waiting_for_user: number; blocked: number; done: number; completed: number; dropped: number; notes: number }
+export interface Counts { todo: number; doing: number; blocked: number; done: number; completed: number; dropped: number; notes: number }
 export interface BoardRow { board: MemoryBoard; sequence: number; counts: Counts; nextNoteRank: number }
 export interface MutationReceipt {
   commandId: string; outcome: 'created' | 'existing' | 'updated' | 'unchanged'
@@ -31,7 +31,7 @@ export interface BoardChange {
 }
 export interface BoardSnapshot {
   board: MemoryBoard
-  openColumns: (Page<MemoryCard> & { status: 'todo' | 'doing' | 'waiting_for_user' | 'blocked' })[]
+  openColumns: (Page<MemoryCard> & { status: 'todo' | 'doing' | 'blocked' })[]
   notes: Page<MemoryNote>; counts: Counts; sequence: number
 }
 export interface CardDetail {
