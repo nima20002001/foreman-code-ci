@@ -180,6 +180,9 @@ it('preserves remote Claude cold recovery, ownership and non-delivery through au
     expect(SessionControlStateSchema.parse(graphRpcValue(readControls.result)).applied?.autoCompact).toBe('off')
     await call(writer.token, 'agent_chat_send', { request: failedInput })
     expect(worker!.offers).toHaveLength(4)
+  } catch (error) {
+    console.error('ORIGINAL_FAILURE', error)
+    throw error
   } finally {
     try { await chat?.shutdown() }
     finally {
