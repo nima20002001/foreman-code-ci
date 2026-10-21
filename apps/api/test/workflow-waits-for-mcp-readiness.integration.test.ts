@@ -6,7 +6,10 @@ import { postgresEnabled } from './helpers/wave25Agent3.js'
 
 describe.runIf(postgresEnabled)('workflow MCP startup readiness', () => {
   let fixture: Awaited<ReturnType<typeof faultWorkflowFixture>>
-  beforeAll(async () => { fixture = await faultWorkflowFixture({ mcpUnavailable: true }) }, 10_000)
+  beforeAll(async () => {
+    fixture = await faultWorkflowFixture({ mcpUnavailable: true })
+    await fixture.prepareEntry()
+  }, 10_000)
   afterAll(async () => { await fixture?.close() }, 10_000)
 
   // A temporarily unavailable Foreman Code MCP server must be retried before native turn entry.
