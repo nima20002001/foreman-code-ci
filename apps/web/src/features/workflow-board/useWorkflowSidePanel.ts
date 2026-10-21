@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from '@tanstack/react-router'
-import { boardSidePanelFromSearch, runInspectionKey, type BoardSidePanel, type RepeatGraphScopeV3 } from '@foreman-code/contracts/wave25'
+import { boardSidePanelFromSearch, readRunInspectionKey, runInspectionKey, type BoardSidePanel, type RepeatGraphScopeV3 } from '@foreman-code/contracts/wave25'
 import type { WorkflowExecutionChatTarget } from '@foreman-code/contracts'
 import type { RunsSelectorSearchSchema } from '../runs-selector/search'
 import { useSelectedRun } from '../runs-selector/useSelectedRun'
@@ -10,7 +10,7 @@ import { useSidePanelPresentation } from './sidePanelPresentation'
 export function useWorkflowSidePanel(workspaceId: string, workflowId: string, run?: RepeatGraphScopeV3,
   beforeBrowserHide?: () => void) {
   const location = useLocation(), navigate = useNavigate()
-  const { generation, isCurrent } = useSelectedRun({ workspaceId, workflowId })
+  const { generation, isCurrent, active, invalid, identity } = useSelectedRun({ workspaceId, workflowId })
   const search = location.search
   const pathname = location.pathname
   const scope = JSON.stringify([workspaceId, workflowId])
@@ -43,14 +43,14 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
     ...(runId && workflowVersionId && executionSemanticsVersion && !previous.runId && !previous.selectedRunId
       ? { runId, workflowVersionId, executionSemanticsVersion } : {}) }),
   [workflowId, runId, workflowVersionId, executionSemanticsVersion])
-  const selectPanel = useCallback((next: BoardSidePanel) => {
+  const selectPanel = useCallback((next: BoardSidePanel, replace = false) => {
     if (!isCurrent(generation)) return
     if (panel.kind === 'browser' && search.boardMemory !== true
       && (next.kind !== 'browser' || next.nodeId !== panel.nodeId || next.executionId !== panel.executionId)) releaseBrowser()
     if (panel.kind === 'none' && next.kind !== 'none') {
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     }
-    void navigate({ to: pathname, hash: true,
+    void navigate({ to: pathname, hash: true, replace,
       search: previous => {
         if (previous.workflowId && previous.workflowId !== workflowId) return previous
         const selected = keepRun(previous)
@@ -79,6 +79,20 @@ export function useWorkflowSidePanel(workspaceId: string, workflowId: string, ru
         return selected
       } })
   }, [navigate, pathname, workflowId, keepRun, scope, panel, search.boardMemory, releaseBrowser, generation, isCurrent])
+  // A Run link that arrives naming a node (and execution) opens that saved node in this rail, which owns the selection
+  // afterwards. Only the link the Board was opened with does this: the Run's Activities inspector writes the same
+  // fields as its own selection. It runs here, after the selection subscription above is live; a child's effect
+  // would run before it and be fenced as stale.
+  const linkedNodeId = search.runNodeId, linkedExchange = search.runExchangeKey
+  const openLinkedNode = !search.boardPanel && !!linkedNodeId && !!identity.runId && active && !invalid
+  const arrivedWithLink = useRef(openLinkedNode)
+  useEffect(() => {
+    if (!arrivedWithLink.current || !openLinkedNode) return
+    arrivedWithLink.current = false
+    const { executionId } = readRunInspectionKey(linkedExchange)
+    // Replace the link itself, so Back never returns to a link that would open the rail again.
+    selectPanel({ kind: 'agent', nodeId: linkedNodeId!, tab: 'details', ...(executionId ? { executionId } : {}) }, true)
+  }, [openLinkedNode, linkedNodeId, linkedExchange, selectPanel])
   const closeOperator = useCallback(() => {
     const previous = useSidePanelPresentation.getState().beforeOperator[scope]
     const current = keepRun(search)

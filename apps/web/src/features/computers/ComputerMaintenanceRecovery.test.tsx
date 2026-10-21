@@ -22,7 +22,7 @@ it.each(['sync-mcp', 'sync-plugins'] as const)(
       }),
     ])
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Sync MCP servers and plugins' }))
+    await user.click(screen.getByRole('button', { name: 'Sync MCP servers and plugins' }))
     await screen.findByRole('button', { name: 'Retry original maintenance request' })
     expect(requests).toHaveLength(2)
     expect(effects.size).toBe(2)
@@ -54,7 +54,7 @@ it('reuses the original maintenance command after response loss and a later perm
     }),
   ])
   const user = userEvent.setup()
-  await user.click(await screen.findByRole('button', { name: 'Sync MCP servers and plugins' }))
+  await user.click(screen.getByRole('button', { name: 'Sync MCP servers and plugins' }))
   await screen.findByRole('button', { name: 'Retry original maintenance request' })
   await user.click(screen.getByRole('button', { name: 'Retry original maintenance request' }))
   await screen.findByText('Readback denied.')

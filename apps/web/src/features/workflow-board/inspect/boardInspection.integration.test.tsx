@@ -8,7 +8,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import {
-  boardSearchForInspection, boardSearchForRun, runInspectionKey, RepeatGraphCurrentV3Schema,
+  boardSearchForInspection, boardSearchForRun, runInspectionKey,
   type RepeatGraphScopeV3, type WorkspaceBoardInspection,
 } from '@foreman-code/contracts/wave25'
 import { routeTree } from '../../../app/router'
@@ -20,7 +20,6 @@ import { inspectionBoardFixture } from './inspectionFixtures'
 import { useInspectionPresentation } from './presentation'
 import { executionPagesKey, runInspectionQueryKey } from './queries'
 import { currentRunKey } from '../currentRunQuery'
-import { queryKeys } from '../../../shared/api/query'
 import { base as childRoute, child, detail, message, tool } from '../../run-subagents/testFixtures'
 import { clearBoardStopStorage, readBoardStop, recordBoardStopReceipt, reserveBoardStop, type BoardStopJournal } from '../stopOutbox'
 
@@ -82,10 +81,11 @@ async function mount(url: string) {
   await router.load()
   const view = render(<QueryClientProvider client={cache}><RouterProvider router={router} /></QueryClientProvider>)
   await screen.findByTestId('unified-workflow-board')
-  await screen.findByRole('region', { name: 'Workflow authoring' })
+  // A selected Run replaces the retained (hidden) editor with its immutable saved Board.
+  await screen.findByRole('region', { name: 'Selected Run board' })
   return { ...view, cache, router, history }
 }
-const pinnedCanvas = () => screen.getByRole('region', { name: 'Selected Run pinned topology' })
+const pinnedCanvas = () => screen.getByRole('region', { name: 'Selected Run board' })
 const inspector = () => screen.getByRole('region', { name: 'Exact execution inputs and results' })
 const eventCalls = () => fixture.mock.calls.filter((call) => call.method === 'GET' && call.path.endsWith('/events'))
 function clickCiServer(button: HTMLElement) {
@@ -105,6 +105,26 @@ async function openDetails() {
   if (!close) await userEvent.setup().click(await screen.findByRole('button', { name: 'Activities' }))
   await screen.findByRole('region', { name: 'Exact execution inputs and results' })
 }
+const activityRoute = (scope: RepeatGraphScopeV3) =>
+  `/api/management/workspaces/${scope.workspaceId}/workflows/${scope.workflowId}/runs/${scope.runId}/snapshot`
+/** The saved Board's snapshot plus the Run's live Activity, which is where a node learns about its CI. */
+function snapshotWithCi(scope: RepeatGraphScopeV3, owner: { id: string; agentId: string }, ci: () => Record<string, unknown> | undefined,
+  executionId = 'ci-owner') {
+  return http.get(activityRoute(scope), async ({ request }) => {
+    const base = await (await fixture.mock.dispatch(request))!.json() as Record<string, unknown>
+    const current = ci()
+    if (!current) return HttpResponse.json(base)
+    const ref = { kind: 'ci', workspaceId: scope.workspaceId, workflowId: scope.workflowId, runId: scope.runId,
+      workflowVersionId: scope.workflowVersionId, executionId, attemptKey: '1', nodeId: owner.id, agentId: owner.agentId,
+      ticketId: current.id }
+    return HttpResponse.json({ ...base, activitySnapshot: { schemaVersion: 1, scope: { kind: 'workflow_run',
+      workspaceId: scope.workspaceId, workflowId: scope.workflowId, runId: scope.runId, workflowVersionId: scope.workflowVersionId },
+    revision: '1', active: [{ ref, phase: 'active', evidence: 'confirmed', outcome: null, delivery: null,
+      startedAt: current.startedAt ?? current.queuedAt, ci: current }], queued: [], latest: ref, pendingInteractions: [],
+    activities: [], page: { before: null, nextCursor: null, hasMore: false } } })
+  })
+}
+const refreshSnapshot = (cache: QueryClient) => act(async () => { await cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }) })
 async function retainStop(status?: NonNullable<BoardStopJournal['receipt']>['status'], processStopped = false) {
   const scope = fixture.runs.before.scope, journal = await reserveBoardStop(scope)
   if (status) await recordBoardStopReceipt(journal, { runId: scope.runId, status, processStopped, replayed: false })
@@ -161,8 +181,7 @@ describe('Run inspection inside the one mounted Board', () => {
           step: null, exitCode: null, queuedAt: '2026-10-01T00:00:00.000Z',
           startedAt: null, finishedAt: null } }] })))
     const { cache } = await mount(href(scope))
-    expect(await within(pinnedCanvas()).findByText(/CI build-api · running/)).toBeVisible()
-    clickCiServer(screen.getByRole('button', { name: /CI server, 1 running/ }))
+    clickCiServer(await within(pinnedCanvas()).findByRole('button', { name: /CI server, 1 running/ }))
     const dialog = await screen.findByRole('dialog', { name: 'CI server' })
     expect(within(dialog).getByRole('button', { name: /Show tests of build · build-api/ })).toBeVisible()
     responseStatus = 503
@@ -172,14 +191,12 @@ describe('Run inspection inside the one mounted Board', () => {
     for (const next of [status, 503]) {
       responseStatus = next
       await act(async () => { await cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }) })
-      await waitFor(() => expect(within(pinnedCanvas()).queryByText(/CI build-api · running/)).not.toBeInTheDocument())
+      await waitFor(() => expect(within(pinnedCanvas()).queryByRole('button', { name: /CI server, 1 running/ })).not.toBeInTheDocument())
       expect(within(dialog).queryByRole('button', { name: /Show tests of build · build-api/ })).not.toBeInTheDocument()
       expect(within(dialog).getByRole('tab', { name: 'Tests' })).toBeDisabled()
       expect(within(dialog).getByRole('tab', { name: 'Log' })).toBeDisabled()
       expect(screen.getByRole('button', { name: /CI server, CI unavailable/ })).toBeVisible()
-      expect(within(pinnedCanvas()).getByRole('heading', {
-        name: `Before repeat · Run ${scope.runId} · version ${scope.workflowVersionId}`,
-      })).toBeVisible()
+      expect(pinnedCanvas()).toHaveAttribute('data-run-id', scope.runId)
     }
   })
 
@@ -187,48 +204,42 @@ describe('Run inspection inside the one mounted Board', () => {
     const scope = fixture.runs.before.scope
     const user = userEvent.setup()
     await mount(href(scope))
-    const authoring = await screen.findByRole('region', { name: 'Workflow authoring' })
-    const pinned = await screen.findByRole('region', { name: 'Selected Run pinned topology' })
-    expect(pinned).toHaveTextContent(scope.workflowVersionId)
+    const authoring = await screen.findByRole('region', { name: 'Workflow authoring', hidden: true })
+    const pinned = await screen.findByRole('region', { name: 'Selected Run board' })
+    expect(pinned).toHaveAttribute('data-run-id', scope.runId)
     expect(await within(pinned).findByRole('button', {
-      name: `Inspect Run node ${fixture.first.name ?? fixture.first.label ?? fixture.first.id}`,
+      name: `Inspect ${fixture.first.name ?? fixture.first.label ?? fixture.first.id}`,
     })).toBeVisible()
-    expect(screen.getByLabelText('Editable workflow graph')).toHaveAttribute('aria-hidden', 'true')
+    expect(authoring).not.toBeVisible()
 
     await user.click(screen.getByRole('button', { name: /^Runs$/ }))
     await user.click(await screen.findByRole('menuitemradio', { name: 'New run' }))
 
     await waitFor(() => expect(screen.queryByRole('region', {
-      name: 'Selected Run pinned topology',
+      name: 'Selected Run board',
     })).not.toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Workflow authoring' })).toBe(authoring)
-    expect(screen.getByLabelText('Editable workflow graph')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByLabelText('Editable workflow graph')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Start saved version' })).toBeVisible()
     expect(fixture.mock.calls.filter((call) => call.method === 'POST')).toEqual([])
   })
 
-  it('shows the originating Agent CI lifecycle on the pinned canvas', async () => {
+  it('shows the originating Agent CI lifecycle on the saved Run Board', async () => {
     const scope = fixture.runs.before.scope
-    const ref = { kind: 'ci', workspaceId: scope.workspaceId, workflowId: scope.workflowId,
-      runId: scope.runId, workflowVersionId: scope.workflowVersionId, nodeId: fixture.first.id,
-      agentId: fixture.first.agentId, executionId: 'ci-owner', attemptKey: '1',
-      ticketId: '00000000-0000-4000-8000-000000000001' }
     let state: 'queued' | 'running' | 'passed' = 'queued'
-    const route = `/api/management/workspaces/${scope.workspaceId}/ci`
-    server.use(http.get(route, () => {
-      const ci = { id: ref.ticketId, groupId: '00000000-0000-4000-8000-000000000002',
-        suite: 'build', part: 'build-api', partition: null, state, computer: null, step: null, exitCode: null,
-        queuedAt: '2026-10-01T00:00:00.000Z', startedAt: null, finishedAt: null }
-      return HttpResponse.json({ runId: scope.runId, truncated: false, jobs: [{
-        ticketId: ref.ticketId, scope: 'affected', placement: null, message: null, tests: null, ci,
-        requester: { executionId: ref.executionId, agentId: ref.agentId, nodeId: ref.nodeId, nodeName: 'CI Agent' },
-      }] })
-    }))
+    const ticketId = '00000000-0000-4000-8000-000000000001'
+    const ci = () => ({ id: ticketId, groupId: '00000000-0000-4000-8000-000000000002',
+      suite: 'build', part: 'build-api', partition: null, state, computer: null, step: null, exitCode: null,
+      queuedAt: '2026-10-01T00:00:00.000Z', startedAt: null, finishedAt: null })
+    server.use(
+      http.get(`/api/management/workspaces/${scope.workspaceId}/ci`, () => HttpResponse.json({ runId: scope.runId, truncated: false, jobs: [] })),
+      snapshotWithCi(scope, fixture.first, ci),
+    )
     const { cache } = await mount(href(scope))
     expect(await within(pinnedCanvas()).findByText(/CI build-api · queued/)).toBeVisible()
     for (const next of ['running', 'passed'] as const) {
       state = next
-      await act(async () => { await cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }) })
+      await refreshSnapshot(cache)
       expect(await within(pinnedCanvas()).findByText(new RegExp(`CI build-api · ${next}`))).toBeVisible()
     }
   })
@@ -296,10 +307,10 @@ describe('Run inspection inside the one mounted Board', () => {
   it('switches before/with/after-repeat Runs without changing the draft or its owner', async () => {
     const user = userEvent.setup(), key = nextDraftKey(fixture.mock.workspaceId, fixture.after.workflowId)
     const { router } = await mount(href(fixture.runs.before.scope))
-    await waitFor(() => expect(pinnedCanvas()).toHaveTextContent('Before repeat'))
+    await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.before.run.id))
     await waitFor(() => expect(useGraphDraftStore.getState().nextDrafts[key]).toBeDefined())
     const boardElement = screen.getByTestId('unified-workflow-board')
-    const authoring = screen.getByRole('region', { name: 'Workflow authoring' })
+    const authoring = screen.getByRole('region', { name: 'Workflow authoring', hidden: true })
     const instanceId = useGraphDraftStore.getState().nextDrafts[key]!.instanceId
     act(() => useGraphDraftStore.getState().changeNextDraft(key, (graph) => ({
       ...graph, nodes: graph.nodes.map((node) => ({ ...node, initialPrompt: 'Keep this unpublished next draft' })),
@@ -307,16 +318,16 @@ describe('Run inspection inside the one mounted Board', () => {
     await openDetails()
     expect(within(inspector()).queryByRole('combobox', { name: 'Business repetition' })).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: `Open Run ${fixture.runs.repeated.run.id} · completed · succeeded` }))
-    await waitFor(() => expect(pinnedCanvas()).toHaveTextContent('With repeat'))
+    await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.repeated.run.id))
     expect(await within(inspector()).findByRole('combobox', { name: 'Business repetition' })).toBeInTheDocument()
     await user.selectOptions(within(inspector()).getByRole('combobox', { name: 'Run node' }), fixture.second.id)
     await user.click(screen.getByRole('button', { name: `Open Run ${fixture.runs.after.run.id} · completed · succeeded` }))
-    await waitFor(() => expect(pinnedCanvas()).toHaveTextContent('After repeat removed'))
+    await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.after.run.id))
     expect(router.state.location.search).not.toHaveProperty('runNodeId')
     expect(router.state.location.search).not.toHaveProperty('runExchangeKey')
     expect(within(inspector()).queryByRole('combobox', { name: 'Business repetition' })).not.toBeInTheDocument()
     expect(screen.getByTestId('unified-workflow-board')).toBe(boardElement)
-    expect(screen.getByRole('region', { name: 'Workflow authoring' })).toBe(authoring)
+    expect(screen.getByRole('region', { name: 'Workflow authoring', hidden: true })).toBe(authoring)
     expect(useGraphDraftStore.getState().nextDrafts[key]!.instanceId).toBe(instanceId)
     expect(nativeNode(useGraphDraftStore.getState().nextDrafts[key]!.graph.nodes[0]!).initialPrompt).toBe('Keep this unpublished next draft')
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
@@ -329,20 +340,14 @@ describe('Run inspection inside the one mounted Board', () => {
       return fixture.mock.dispatch(request)
     }))
     const { router, cache } = await mount(href(scope, { runNodeId: fixture.added.id }))
-    await screen.findByText('The linked node is not in this Run’s saved version.')
-    expect(within(pinnedCanvas()).queryByRole('button', { name: 'Inspect Run node Added later' })).not.toBeInTheDocument()
-    await screen.findByText('This selection is not in the Run’s saved version.')
-    // C's contextual status uses the same endpoint with limit=1. That bounded
-    // read is allowed; the unavailable node must not enable B's history query.
-    await waitFor(() => expect(requests.length).toBeGreaterThan(0))
-    expect(requests.every((query) => query.get('limit') === '1' && !query.has('workflowNodeId')
-      && !query.has('occurrenceId') && !query.has('cursor'))).toBe(true)
-    expect(cache.getQueryState(executionPagesKey(scope, { workflowNodeId: fixture.added.id })))
-      .toMatchObject({ status: 'pending', fetchStatus: 'idle', data: undefined })
-    expect(within(inspector()).queryByRole('listitem')).not.toBeInTheDocument()
-    expect(router.state.location.search.runNodeId).toBe(fixture.added.id)
-    await userEvent.setup().click(within(inspector()).getByRole('button', { name: 'Clear detail filter' }))
-    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('runNodeId'))
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    expect(await within(rail).findByText('This node is not in the saved Run.')).toBeVisible()
+    expect(within(pinnedCanvas()).queryByRole('button', { name: 'Inspect Added later' })).not.toBeInTheDocument()
+    // The unavailable node reads no history, and the link stays on the node the person named.
+    expect(requests.some((query) => query.get('workflowNodeId') === fixture.added.id)).toBe(false)
+    expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardNodeId: fixture.added.id })
+    await userEvent.setup().click(within(rail).getByRole('button', { name: 'Close inspector' }))
+    await openDetails()
     await within(inspector()).findByRole('button', { name: new RegExp(fixture.ordinaryExecutions[1]!.detail.execution.executionId) })
     expect(within(inspector()).getByRole('combobox', { name: 'Run node' }).querySelectorAll('option')).toHaveLength(2)
     expect(requests.some((query) => query.get('limit') === '25' && !query.has('workflowNodeId'))).toBe(true)
@@ -357,6 +362,7 @@ describe('Run inspection inside the one mounted Board', () => {
     fixture.mock.currents.get(scope.runId)!.state.run.cleanupPending = true
     const journal = await retainStop('accepted')
     const { cache } = await mount(href(scope, { runNodeId: fixture.first.id }))
+    await openDetails()
     const slot = await screen.findByTestId('run-details-actions-slot')
     await within(slot).findByRole('region', { name: 'Selected Run actions' })
     await waitFor(() => expect(within(slot).getByRole('button', { name: 'Verify cleanup settlement' })).toBeDisabled())
@@ -374,6 +380,7 @@ describe('Run inspection inside the one mounted Board', () => {
     const scope = fixture.runs.before.scope
     const journal = await retainStop(receipt === 'missing' ? undefined : receipt)
     const { cache } = await mount(href(scope, { runNodeId: fixture.first.id }))
+    await openDetails()
     await screen.findByRole('region', { name: 'Selected Run actions' })
     await screen.findByRole('button', { name: 'Refresh accepted Run facts' })
     await act(async () => { await cache.invalidateQueries() })
@@ -387,6 +394,7 @@ describe('Run inspection inside the one mounted Board', () => {
     current.state.run.cleanupPending = true
     const journal = await retainStop('already_terminal', true)
     const { cache } = await mount(href(scope, { runNodeId: fixture.first.id }))
+    await openDetails()
     await screen.findByRole('button', { name: 'Refresh accepted Run facts' })
     await screen.findByRole('region', { name: 'Selected Run actions' })
     // Unrelated Board queries keep polling; settlement depends on this Run's readbacks.
@@ -415,6 +423,7 @@ describe('Run inspection inside the one mounted Board', () => {
       error: { code: 'UNAVAILABLE', message: 'Private Run readback is unavailable' },
     }, { status: 503 }) : fixture.mock.dispatch(request)))
     const { cache } = await mount(href(scope, { runNodeId: fixture.first.id }))
+    await openDetails()
     await screen.findByText('Private Run details are unavailable.')
     await screen.findByRole('region', { name: 'Selected Run actions' })
     await waitFor(() => expect(cache.getQueryState(currentRunKey(scope)))
@@ -431,11 +440,21 @@ describe('Run inspection inside the one mounted Board', () => {
     const occurrenceId = expected.detail.execution.occurrence!.occurrenceId
     const url = href(fixture.runs.repeated.scope, { runNodeId: fixture.second.id,
       runExchangeKey: runInspectionKey({ occurrenceId, executionId: id }) })
+    const user = userEvent.setup()
     const mounted = await mount(url)
-    const article = await screen.findByRole('article', { name: `Execution ${id}` })
-    expect(JSON.parse(within(article).getByLabelText(`Input ${id}`).textContent!)).toEqual(expected.detail.acceptedInput.value)
+    // The link opens its exact accepted input and result in the shared rail.
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    const linked = await within(rail).findByRole('article', { name: `Execution ${id}` })
+    expect(JSON.parse(within(linked).getByLabelText(`Input ${id}`).textContent!)).toEqual(expected.detail.acceptedInput.value)
     expect(expected.detail.acceptedResult.status).toBe('accepted')
     if (expected.detail.acceptedResult.status !== 'accepted') throw new Error('Fixture must have an accepted result')
+    expect(JSON.parse(within(linked).getByLabelText(`Accepted result ${id}`).textContent!)).toEqual(expected.detail.acceptedResult.value)
+    // The Run's Activities add the repetition, bindings and saved configuration of that execution.
+    await openDetails()
+    await user.selectOptions(within(inspector()).getByRole('combobox', { name: 'Run node' }), fixture.second.id)
+    await user.click(await within(inspector()).findByRole('button', { name: new RegExp(id) }))
+    const article = await within(inspector()).findByRole('article', { name: `Execution ${id}` })
+    expect(JSON.parse(within(article).getByLabelText(`Input ${id}`).textContent!)).toEqual(expected.detail.acceptedInput.value)
     expect(JSON.parse(within(article).getByLabelText(`Accepted result ${id}`).textContent!)).toEqual(expected.detail.acceptedResult.value)
     expect(within(inspector()).getByRole('combobox', { name: 'Business repetition' })).toHaveValue(occurrenceId)
     expect(fixture.mock.calls.some((call) => call.path.endsWith('/bindings'))).toBe(false)
@@ -449,31 +468,38 @@ describe('Run inspection inside the one mounted Board', () => {
     mounted.unmount(); mounted.cache.clear()
     act(() => useInspectionPresentation.setState({ open: {} }))
     await mount(reopenedUrl)
-    const reopened = await screen.findByRole('article', { name: `Execution ${id}` })
+    const reopenedRail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    const reopened = await within(reopenedRail).findByRole('article', { name: `Execution ${id}` })
     expect(JSON.parse(within(reopened).getByLabelText(`Accepted result ${id}`).textContent!)).toEqual(expected.detail.acceptedResult.value)
+    await openDetails()
     expect(within(inspector()).getByRole('combobox', { name: 'Business repetition' })).toHaveValue(occurrenceId)
-    expect(pinnedCanvas()).toHaveTextContent(fixture.repeated.id)
+    expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.repeated.run.id)
   })
 
   it('keeps technical failure separate from accepted result and permits another real attempt', async () => {
     const attempt = fixture.repeatedExecutions[1]!.detail, id = attempt.execution.executionId
+    const user = userEvent.setup()
     await mount(href(fixture.runs.repeated.scope, { runNodeId: fixture.second.id,
       runExchangeKey: runInspectionKey({ occurrenceId: attempt.execution.occurrence!.occurrenceId, executionId: id }) }))
-    const article = await screen.findByRole('article', { name: `Execution ${id}` })
+    await openDetails()
+    await user.selectOptions(within(inspector()).getByRole('combobox', { name: 'Run node' }), fixture.second.id)
+    await user.click(await within(inspector()).findByRole('button', { name: new RegExp(id) }))
+    const article = await within(inspector()).findByRole('article', { name: `Execution ${id}` })
     expect(within(article).queryByLabelText(`Accepted result ${id}`)).not.toBeInTheDocument()
     expect(article).toHaveTextContent('No accepted result is recorded for this exact execution.')
     expect(within(article).queryByLabelText(`Reported result ${id}`)).not.toBeInTheDocument()
     fireEvent.click(within(article).getByText('Recorded execution result (not proof of acceptance)'))
     expect(await within(article).findByLabelText(`Reported result ${id}`)).toHaveTextContent('FIXTURE_INTERRUPTED')
     const acceptedId = fixture.repeatedExecutions[2]!.detail.execution.executionId
-    await userEvent.setup().click(await within(inspector()).findByRole('button', { name: new RegExp(acceptedId) }))
-    const accepted = await screen.findByRole('article', { name: `Execution ${acceptedId}` })
+    await user.click(await within(inspector()).findByRole('button', { name: new RegExp(acceptedId) }))
+    const accepted = await within(inspector()).findByRole('article', { name: `Execution ${acceptedId}` })
     expect(within(accepted).getByLabelText(`Accepted result ${acceptedId}`)).toBeInTheDocument()
-    expect(screen.queryByRole('article', { name: `Execution ${id}` })).not.toBeInTheDocument()
+    expect(within(inspector()).queryByRole('article', { name: `Execution ${id}` })).not.toBeInTheDocument()
   })
 
   it('loads activity only on expansion, pages it, and refreshes only the first page', async () => {
     await mount(href(fixture.runs.repeated.scope, { runNodeId: fixture.second.id }))
+    await openDetails()
     await screen.findByText('Run activity history')
     expect(eventCalls()).toHaveLength(0)
     const summary = screen.getByText('Run activity history'), history = summary.closest('details')!
@@ -492,15 +518,16 @@ describe('Run inspection inside the one mounted Board', () => {
       .toHaveTextContent('Historical event 0')
   })
 
-  it('shows unavailable pinned topology without falling back to the current draft', async () => {
-    server.use(http.get(`${basePath(fixture.runs.before.scope)}/version`, () => HttpResponse.json({
-      error: { code: 'NOT_FOUND', message: 'Immutable version is unavailable' },
-    }, { status: 404 })))
-    await mount(href(fixture.runs.before.scope))
-    await screen.findByText('The selected Run topology is unavailable.')
-    expect(within(pinnedCanvas()).queryByLabelText('Run graph canvas')).not.toBeInTheDocument()
+  it('shows an unavailable saved Run Board without falling back to the current draft', async () => {
+    const scope = fixture.runs.before.scope
+    server.use(http.get(`/api/management/workspaces/${scope.workspaceId}/workflows/${scope.workflowId}/runs/${scope.runId}/snapshot`,
+      () => HttpResponse.json({ snapshot: { kind: 'unavailable', reason: 'legacy_run', workspaceId: scope.workspaceId,
+        workflowId: scope.workflowId, runId: scope.runId } })))
+    await mount(href(scope))
+    await screen.findByText('Snapshot unavailable')
+    expect(screen.queryByTestId('run-board-canvas')).not.toBeInTheDocument()
     expect(within(pinnedCanvas()).queryByText('After repeat removed')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Editable workflow graph')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('region', { name: 'Workflow authoring', hidden: true })).not.toBeVisible()
   })
 
   it('ignores a late exact execution response after switching Runs', async () => {
@@ -515,8 +542,9 @@ describe('Run inspection inside the one mounted Board', () => {
       runExchangeKey: runInspectionKey({ executionId: previous.execution.executionId }) }))
     await waitFor(() => expect(started).toBe(true))
     try {
+      await openDetails()
       await userEvent.setup().click(await screen.findByRole('button', { name: `Open Run ${fixture.runs.before.run.id} · completed · succeeded` }))
-      await waitFor(() => expect(pinnedCanvas()).toHaveTextContent('Before repeat'))
+      await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.before.run.id))
     } finally { await act(async () => { release(); await pending }) }
     expect(screen.queryByLabelText(`Accepted result ${previous.execution.executionId}`)).not.toBeInTheDocument()
     expect(within(inspector()).queryByRole('combobox', { name: 'Business repetition' })).not.toBeInTheDocument()
@@ -529,10 +557,12 @@ describe('Run inspection inside the one mounted Board', () => {
     }, { status: 503 })))
     await mount(href(fixture.runs.repeated.scope, { runNodeId: fixture.second.id,
       runExchangeKey: runInspectionKey({ executionId: expected.execution.executionId }) }))
-    await screen.findByRole('article', { name: `Execution ${expected.execution.executionId}` })
-    expect(await screen.findByLabelText(`Accepted result ${expected.execution.executionId}`)).toBeInTheDocument()
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    await within(rail).findByRole('article', { name: `Execution ${expected.execution.executionId}` })
+    expect(await within(rail).findByLabelText(`Accepted result ${expected.execution.executionId}`)).toBeInTheDocument()
+    await openDetails()
     await screen.findByText('Current Run state is unavailable.')
-    expect(pinnedCanvas()).toHaveTextContent(fixture.repeated.id)
+    expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.repeated.run.id)
   })
 
   it('returns keyboard focus to the stable Details trigger when closing the Run drawer', async () => {
@@ -550,37 +580,27 @@ describe('Run inspection inside the one mounted Board', () => {
     const expected = fixture.repeatedExecutions[2]!.detail
     const { router, history } = await mount(href(fixture.runs.repeated.scope, { runNodeId: fixture.second.id,
       runExchangeKey: runInspectionKey({ executionId: expected.execution.executionId }) }))
-    await screen.findByRole('article', { name: `Execution ${expected.execution.executionId}` })
+    const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    await within(rail).findByRole('article', { name: `Execution ${expected.execution.executionId}` })
     await act(async () => { await router.navigate({ to: '/workspaces/$workspaceId', params: { workspaceId: fixture.mock.workspaceId },
       search: boardSearchForRun({}, fixture.after.workflowId, fixture.runs.after.scope) }) })
-    await waitFor(() => expect(pinnedCanvas()).toHaveTextContent('After repeat removed'))
+    await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.after.run.id))
     await act(async () => { history.back() })
-    await screen.findByRole('article', { name: `Execution ${expected.execution.executionId}` })
+    await waitFor(() => expect(pinnedCanvas()).toHaveAttribute('data-run-id', fixture.runs.repeated.run.id))
+    const restored = await screen.findByRole('complementary', { name: 'Workflow side panel' })
+    await within(restored).findByRole('article', { name: `Execution ${expected.execution.executionId}` })
     expect(router.state.location.pathname).toBe(`/workspaces/${fixture.mock.workspaceId}`)
     expect(screen.getAllByTestId('unified-workflow-board')).toHaveLength(1)
   })
 })
 
 describe('Live Run status on the Board', () => {
-  it('shows turns, CI and pending decisions on Agent nodes without a status strip', async () => {
+  it('shows an Agent node\u2019s CI on the saved Board and its CI server without a status strip', async () => {
     const { scope, version, run } = fixture.runs.after
-    const first = nativeNode(version.definition.nodes[0]!), added = nativeNode(version.definition.nodes[1]!)
-    const nameOf = (node: typeof first) => node.name ?? node.label ?? node.id
-    const execution = (node: typeof first, state: 'queued' | 'running' | 'completed') => ({
-      identity: { workflowNodeId: node.id, executionId: `exec-live-${node.id}`, agentId: node.agentId,
-        agentConfigurationVersionId: version.agentConfigurationVersionIds[node.agentId]!, attempt: 1, occurrence: null },
-      inputDigest: `sha256:${'a'.repeat(64)}`, previousExecutionId: null, state,
-      resultOutcome: state === 'completed' ? 'succeeded' : null })
-    const base = fixture.mock.currents.get(run.id)!
-    const cut = (sequence: string, executionState: 'running' | 'waiting', executions: unknown[]) => fixture.mock.currents.set(run.id,
-      RepeatGraphCurrentV3Schema.parse({ ...base, asOfSequence: sequence, state: { ...base.state, executions,
-        run: { ...base.state.run, executionState, outcome: 'pending', pendingInteractionCount: executionState === 'waiting' ? 1 : 0 } } }))
-    cut('1', 'running', [execution(first, 'running'), execution(added, 'queued')])
+    const added = nativeNode(version.definition.nodes[1]!)
+    const nameOf = (node: typeof added) => node.name ?? node.label ?? node.id
     const ticket = '00000000-0000-4000-8000-000000000011'
     let ciState: 'running' | 'passed' | undefined
-    const ref = { kind: 'ci', workspaceId: scope.workspaceId, workflowId: scope.workflowId, runId: scope.runId,
-      workflowVersionId: scope.workflowVersionId, executionId: `exec-live-${added.id}`, attemptKey: '1',
-      nodeId: added.id, agentId: added.agentId, ticketId: ticket }
     const ciActivity = () => ciState ? {
       id: ticket, groupId: '00000000-0000-4000-8000-000000000012', suite: 'build', part: 'build-api',
       partition: null, state: ciState, exitCode: ciState === 'passed' ? 0 : null, queuedAt: '2026-10-01T00:00:00.000Z',
@@ -588,76 +608,35 @@ describe('Live Run status on the Board', () => {
       computer: { hostRef: { kind: 'cloud', mainId: 'main-1', provider: 'github', slot: 1 }, label: 'GitHub Actions 2' },
       step: 'build-api',
     } : undefined
-    const snapshotRoute = `/api/management/workspaces/${scope.workspaceId}/workflows/${scope.workflowId}/runs/${scope.runId}/snapshot`
-    let decision = false
-    const interaction = { kind: 'work_direction', id: `work-direction-${run.id}`, revision: 0, workspaceId: scope.workspaceId,
-      workflowId: scope.workflowId, runId: run.id, executionId: `exec-live-${added.id}`, requestingAgentId: added.agentId,
-      harness: 'codex', providerVersion: 'workflow', nativeSessionId: 'session-live', nativeRequestId: `work-direction-${run.id}`,
-      nativeRequestType: 'workflow/work_direction', graphThreadId: run.id, request: { message: 'Accept the remaining findings?' },
-      approval: { handler: 'user' }, responseOptions: [{ optionId: 'finish', semantic: 'approve_once', label: 'Finish Run',
-        persistence: 'request', affectsOtherPendingRequests: false, interruptsCurrentTurn: false, mutatesPersistentPolicy: false }],
-      status: 'pending', deliveryState: 'not_started', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z' }
     server.use(
       http.get(`/api/management/workspaces/${scope.workspaceId}/ci`, () => {
         const ci = ciActivity()
         return HttpResponse.json({ runId: scope.runId, truncated: false, jobs: ci ? [{
           ticketId: ticket, scope: 'affected', placement: 'github', message: null, tests: null, ci,
-          requester: { executionId: ref.executionId, agentId: added.agentId, nodeId: added.id, nodeName: nameOf(added) },
+          requester: { executionId: 'ci-owner', agentId: added.agentId, nodeId: added.id, nodeName: nameOf(added) },
         }] : [] })
       }),
-      http.get('/api/management/interactions', () => HttpResponse.json({ items: decision ? [interaction] : [], nextCursor: null })),
-      http.get(snapshotRoute, () => {
-        const ci = ciActivity()
-        return HttpResponse.json({ snapshot: { workspaceId: scope.workspaceId, workflowId: scope.workflowId, runId: scope.runId,
-          workflowVersionId: scope.workflowVersionId, kind: 'available', capturedAt: '2026-10-01T00:00:00.000Z',
-          nodes: version.definition.nodes.map((node, index) => ({ id: node.id, agentId: nativeNode(node).agentId, name: nameOf(nativeNode(node)),
-            agentConfigurationVersionId: version.agentConfigurationVersionIds[nativeNode(node).agentId],
-            position: { x: index * 300, y: 0 }, size: { width: 212, height: 212 } })), edges: [] },
-        ...(ci ? { activitySnapshot: { schemaVersion: 1, scope: { kind: 'workflow_run', workspaceId: scope.workspaceId,
-          workflowId: scope.workflowId, runId: scope.runId, workflowVersionId: scope.workflowVersionId }, revision: '1',
-          active: ci.state === 'running' ? [{ ref, phase: 'active', evidence: 'confirmed', outcome: null, delivery: null,
-            startedAt: ci.startedAt, ci }] : [], queued: [], latest: ref, pendingInteractions: [], activities: [],
-          page: { before: null, nextCursor: null, hasMore: false } } } : {}) })
-      }),
+      snapshotWithCi(scope, added, ciActivity),
     )
-    const { cache, router } = await mount(href(scope))
-    const canvas = await screen.findByLabelText('Selected Run pinned topology')
-    expect(canvas).toHaveRole('region')
+    const { cache } = await mount(href(scope))
+    const canvas = pinnedCanvas()
     expect(canvas).toBeVisible()
-    const agentButton = (node: typeof first) => within(canvas).getByLabelText(`Inspect Run node ${nameOf(node)}`, { selector: 'button' })
-    const agentNode = (node: typeof first) => agentButton(node).closest<HTMLElement>('.n-agent')!
-    const expectAgentVisible = (node: typeof first) => {
-      expect(agentButton(node)).toHaveRole('button')
-      expect(agentButton(node)).toBeVisible()
-    }
-    const nodeState = (node: typeof first) => agentNode(node).getAttribute('data-state')
-    const advance = async (next: () => void) => act(async () => {
-      next()
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: currentRunKey(scope), exact: true }),
-        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'board-activity'] }),
-        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
-        cache.refetchQueries({
-          queryKey: queryKeys.interactions(scope.workspaceId, scope.workflowId, 'pending', undefined, 100),
-          exact: true,
-        }),
-      ])
-    })
-
-    // The first Agent's turn: it is visibly running, the next one is queued, not idle.
-    // Keep polling predicates cheap so DOM style calculations do not starve the HTTP polling timers.
-    await waitFor(() => expect(nodeState(first)).toBe('running'))
-    expect(nodeState(added)).toBe('queued')
-    expectAgentVisible(first)
-    expectAgentVisible(added)
+    const agentButton = (node: typeof added) => within(canvas).getByLabelText(`Inspect ${nameOf(node)}`, { selector: 'button' })
+    expect(agentButton(added)).toBeVisible()
+    expect(run.id).toBe(canvas.getAttribute('data-run-id'))
     expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
 
-    // The turn passes; the second Agent runs CI on a cloud computer. CI lives on the CI server, not in a strip on top.
+    // The Agent runs CI on a cloud computer. CI lives on the CI server, not in a strip on top.
     ciState = 'running'
-    await advance(() => cut('2', 'running', [execution(first, 'completed'), execution(added, 'running')]))
+    await act(async () => {
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }),
+        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
+      ])
+    })
     const ciServerButton = await within(canvas).findByLabelText(/^CI server, 1 running/, { selector: 'button' })
-    expect(ciServerButton).toHaveRole('button')
     expect(ciServerButton).toBeVisible()
+    expect(await within(canvas).findByText('CI build-api · running')).toBeVisible()
     expect(screen.queryByRole('list', { name: 'CI jobs' })).not.toBeInTheDocument()
     fireEvent.click(ciServerButton)
     const ciDialog = await screen.findByRole('dialog', { name: 'CI server' })
@@ -666,28 +645,16 @@ describe('Live Run status on the Board', () => {
       expect(ciRow).toHaveTextContent(text)
     }
     await userEvent.setup().click(within(ciDialog).getByRole('button', { name: 'Close CI server' }))
-    await waitFor(() => expect(nodeState(added)).toBe('waiting'))
-    expect(within(agentNode(added)).getByText('Waiting for CI build-api · running')).toBeVisible()
-    expect(nodeState(first)).toBe('completed')
-    expectAgentVisible(first)
-    expectAgentVisible(added)
     expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
 
-    // CI finished and the second Agent's node now explains the pending decision.
-    ciState = 'passed'; decision = true
-    await advance(() => cut('3', 'waiting', [execution(first, 'completed'), execution(added, 'completed')]))
-    expect(router.state.location.search).toMatchObject({ workflowId: scope.workflowId, runId: scope.runId,
-      workflowVersionId: scope.workflowVersionId, executionSemanticsVersion: 3 })
-    const decisionLabel = await waitFor(() => within(agentNode(added)).getByText('Waiting for your decision'))
-    expect(decisionLabel).toBeVisible()
-    expect(nodeState(added)).toBe('waiting')
-    expectAgentVisible(added)
-    expect(screen.queryByRole('region', { name: 'Run status', hidden: true })).not.toBeInTheDocument()
-    const inboxButton = screen.getByLabelText('Open human approval inbox, 1 pending', { selector: 'button' })
-    expect(inboxButton).toHaveRole('button')
-    expect(inboxButton).toBeVisible()
-    await userEvent.setup().click(inboxButton)
-    expect(await screen.findByRole('dialog', { name: 'Human approval inbox' })).toBeVisible()
+    ciState = 'passed'
+    await act(async () => {
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: ['runs-selector', 'snapshot'] }),
+        cache.refetchQueries({ queryKey: [...runInspectionQueryKey(scope), 'ci-jobs'] }),
+      ])
+    })
+    expect(await within(canvas).findByText('CI build-api · passed')).toBeVisible()
   }, 15_000)
 })
 
@@ -714,8 +681,6 @@ describe('CI server on the Board', () => {
     let logReads = 0
     const ci = `/api/management/workspaces/${scope.workspaceId}/ci`
     server.use(
-      http.get(`/api/management/workspaces/${scope.workspaceId}/workflows/${scope.workflowId}/runs/${scope.runId}/snapshot`,
-        () => HttpResponse.json({ error: { code: 'DATABASE_READ_TIMEOUT', message: 'Snapshot read timed out' } }, { status: 503 })),
       http.get(ci, ({ request }) => HttpResponse.json({ runId: new URL(request.url).searchParams.get('runId'), jobs, truncated: false })),
       http.get(`${ci}/${ticket}/tests`, ({ request }) => {
         const status = new URL(request.url).searchParams.get('status')
@@ -737,9 +702,6 @@ describe('CI server on the Board', () => {
     jobs = [job('running')]
     await refresh()
     expect((await serverNode(/^CI server, 1 running/)).getAttribute('data-state')).toBe('running')
-    const agentNode = within(pinnedCanvas()).getByRole('button', { name: `Inspect Run node ${name}` }).closest<HTMLElement>('.n-agent')!
-    await waitFor(() => expect(agentNode).toHaveAttribute('data-state', 'waiting'))
-    expect(agentNode).toHaveTextContent('Waiting for CI unit-api · running')
     expect(screen.queryByRole('region', { name: 'Run status' })).not.toBeInTheDocument()
 
     // The request travels as a light from the Agent to the server, and the result travels back; no lasting line.
@@ -749,7 +711,6 @@ describe('CI server on the Board', () => {
     await refresh()
     const failed = await serverNode(/^CI server, Last CI failed/)
     expect(failed.getAttribute('data-state')).toBe('failed')
-    await waitFor(() => expect(agentNode).toHaveTextContent('CI unit-api · failed'))
     await waitFor(() => expect(light()).toHaveTextContent('CI failed'))
     await waitFor(() => expect(light()).toBeNull(), { timeout: 8000 })
 
@@ -834,7 +795,7 @@ it('inspects an immutable Run node named ci-server independently of its CI tower
     server.use(...fixture.mock.handlers)
     await mount(href(fixture.runs.before.scope))
     const canvas = pinnedCanvas()
-    const owner = await within(canvas).findByRole('button', { name: `Inspect Run node ${fixture.first.name}` })
+    const owner = await within(canvas).findByRole('button', { name: `Inspect ${fixture.first.name}` })
     expect(owner.closest('.react-flow__node')).toHaveAttribute('data-id', 'ci-server')
     // jsdom mouse-down events lack the window view required by the canvas drag handlers.
     fireEvent.click(owner)
