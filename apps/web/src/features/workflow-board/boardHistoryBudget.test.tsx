@@ -44,7 +44,7 @@ async function seedLongHistory() {
 // The selected Run's one polled live read is its saved-Board snapshot (every three seconds).
 const snapshotKeys = ['runs-selector', 'snapshot'] as const
 const isSnapshotRead = (request: Request) => request.method === 'GET' && new URL(request.url).pathname.endsWith('/snapshot')
-const snapshotState = (cache: QueryClient) => cache.getQueryCache().find({ queryKey: snapshotKeys })?.state
+const snapshotState = (cache: QueryClient) => cache.getQueryCache().findAll({ queryKey: snapshotKeys })[0]?.state
 const snapshotIdle = (cache: QueryClient) => waitFor(() => expect(snapshotState(cache)).toMatchObject({ fetchStatus: 'idle' }))
 
 function totals(samples: readonly { responseBytes: number }[]) {

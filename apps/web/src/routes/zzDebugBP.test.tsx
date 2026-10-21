@@ -220,7 +220,7 @@ describe('Workspace Board route, editor and HTTP boundary', { timeout: 20_000 },
     expect(writes).toEqual([])
   })
 
-  it.only('inspects a saved Agent missing from the current workflow and reopens its generated URL', async () => {
+  it('inspects a saved Agent missing from the current workflow and reopens its generated URL', async () => {
     const reads = installNodeInspection()
     const current = getMockFixture(scope.workspaceId)!.workflows.find(item => item.id === scope.workflowId)!
     expect(current.nodes.some(node => node.id === 'node-x')).toBe(false)

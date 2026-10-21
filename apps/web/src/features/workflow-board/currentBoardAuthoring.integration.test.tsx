@@ -576,7 +576,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
   }, 15_000)
   it('keeps production capability false without issuing Start, and rejects retired saved tags before definition dispatch', async () => {
     const mock = newBoardMock(), user = userEvent.setup(), mounted = await mount(mock)
-    const { key } = await create(mock, user); stageShape(key, 'single', mock); await save(mock, user, 1)
+    const { id, key } = await create(mock, user); stageShape(key, 'single', mock); await save(mock, user, 1)
     expect(control('Start saved version')).toBeDisabled()
     expect(mock.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/runs'))).toEqual([])
     mounted.unmount(); mounted.query.clear(); act(() => useGraphDraftStore.setState({ nextDrafts: {} }))
@@ -586,7 +586,7 @@ describe('ENG-S3-ONLY actual registered Board / shared current HTTP', () => {
       const before = mock.calls.filter((call) => /\/(?:definition|drafts)(?:\/|$)/.test(call.path)).length
       // Mount without replacing the denial override with the fixture handlers.
       const query = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(query)
-      const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [`/workspaces/${mock.workspaceId}`] }) })
+      const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [`/workspaces/${mock.workspaceId}?workflowId=${id}`] }) })
       const view = render(<QueryClientProvider client={query}><RouterProvider router={router} /></QueryClientProvider>)
       await waitFor(() => expect(screen.queryByRole('region', { name: 'Workflow authoring' })).not.toBeInTheDocument())
       await waitFor(() => expect(query.getQueryState(queryKeys.workspaceDetails(mock.workspaceId))?.status).toBe('error'))
