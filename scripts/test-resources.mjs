@@ -495,14 +495,9 @@ export async function dropFixtureDatabase(sql, name) {
   const resource = { directory: process.env.FOREMAN_CODE_TEST_ROOT, token: process.env.FOREMAN_CODE_TEST_OWNER }
   const directory = assertTestPath(resource, join(resource.directory, cleanupDirectory))
   for (const file of existsSync(directory) ? readdirSync(directory) : []) {
-    try {
-      const record = JSON.parse(readFileSync(assertTestPath(resource, join(directory, file)), 'utf8'))
-      if (record.kind === 'fixture-database' && record.name === name) {
-        completeTestResourceCleanup(resource, record.id)
-      }
-    } catch (error) {
-      // ignore: a record removed by a concurrent cleanup after the listing was already settled.
-      if (error?.code !== 'ENOENT') throw error
+    const record = JSON.parse(readFileSync(assertTestPath(resource, join(directory, file)), 'utf8'))
+    if (record.kind === 'fixture-database' && record.name === name) {
+      completeTestResourceCleanup(resource, record.id)
     }
   }
 }
