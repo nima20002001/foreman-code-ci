@@ -652,6 +652,7 @@ export class WorkerConversationHost {
         const history = await resident.allocation.manager.reconcile(record.session, request.correlationId, this.lifetime.signal)
         await this.finish(resident.binding, request.correlationId, history)
       } catch (error) {
+        console.error('PUMP_DEBUG', streamStarted, request.method, error)
         const notDelivered = !streamStarted
           || error instanceof NativeDeliveryError && error.delivery === 'not_sent' && error.cleanup === 'confirmed'
           || error && typeof error === 'object'
