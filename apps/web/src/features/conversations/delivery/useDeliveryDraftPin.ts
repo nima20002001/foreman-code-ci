@@ -11,10 +11,8 @@ function read(key: string): Pin | undefined {
   catch { return undefined /* ignore: a malformed local selection never grants a target. */ }
 }
 
-/** A draft never silently follows a successor or a different observed native turn. The turn is only known once
- * the target has been read, so a draft typed while it loads is pinned after that first read, not before it. */
-export function useDeliveryDraftPin(draftKey: string, target: DeliveryTarget | undefined, nativeTurnId: string | undefined, hasDraft: boolean,
-  observed = true) {
+/** A draft never silently follows a successor or a different observed native turn. */
+export function useDeliveryDraftPin(draftKey: string, target: DeliveryTarget | undefined, nativeTurnId: string | undefined, hasDraft: boolean) {
   const key = protectedKey('draft', `delivery-pin:${draftKey}`)
   const [saved, setSaved] = useState<{ key: string; pin?: Pin }>(() => ({ key, pin: read(key) }))
   const pin = saved.key === key ? saved.pin : read(key)
@@ -25,7 +23,7 @@ export function useDeliveryDraftPin(draftKey: string, target: DeliveryTarget | u
   }
   useEffect(() => {
     if (!hasDraft && pin) update()
-    else if (hasDraft && observed && !pin && target) update({ target, nativeTurnId })
+    else if (hasDraft && !pin && target) update({ target, nativeTurnId })
   })
   const stale = !!pin && (!target || !sameDeliveryTarget(pin.target, target) || pin.nativeTurnId !== nativeTurnId)
   return { pin, stale, refresh: () => { if (target) update({ target, nativeTurnId }) } }

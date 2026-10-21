@@ -34,7 +34,6 @@ import { boardDraftContextKey } from '../workflow-board/keys'
 import { installChatSource } from '../conversations/agentChat/testSupport'
 import { configuredOperatorSetup } from '../operator-chat/operatorSetupTestFixture'
 import { operatorState } from '../operator-chat/pr17-test-fixtures'
-import { installCanonicalOperatorFixture } from '../operator-chat/canonicalOperator.test-support'
 import { summarizeOperatorConversation } from '../operator-chat/operatorChatStatus'
 import { useOperatorChatStore } from '../operator-chat/operatorChatStore'
 import { admitted, context, envelope, execution, historicalState, installSelectedHandlers,
@@ -157,9 +156,6 @@ beforeEach(() => {
   installFlowLayout(320, 480); installChatSource()
   server.use(http.get('*/api/management/workspaces/:workspaceId/runs/:runId/subagents', () =>
     HttpResponse.json({ items: [], nextCursor: null, projection: 'caught-up' })), selectedChatUnavailable,
-    // These saved Runs have no recorded current cut; their Board nodes keep the saved presentation.
-    http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/runs/:runId/graph/v1/current', () => HttpResponse.json(
-      { error: { code: 'NOT_FOUND', message: 'No current cut is recorded for this saved Run.' } }, { status: 404 })),
     http.get('*/api/management/workspaces/:workspaceId/runs/:runId/version', ({ params }) =>
       HttpResponse.json(versionReply(chatSnapshot(String(params.runId)).snapshot))),
     http.get('*/api/management/workspaces/workspace-1/runs/:runId/activities', ({ params, request }) => {
@@ -212,9 +208,9 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
     vi.stubGlobal('innerWidth', 320)
     installBoardHistory()
     await mountBoard()
-    const board = await screen.findByRole('region', { name: 'Selected Run board' })
+    const board = await screen.findByRole('region', { name: 'Selected Run pinned topology' })
     const graph = within(board)
-    const node = await graph.findByRole('button', { name: 'Inspect Y' })
+    const node = await graph.findByRole('button', { name: 'Inspect Run node Y' })
     expect(node).toBeVisible()
     expect(node).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'Activities' }))
@@ -239,47 +235,50 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
   it.each([320, 1024])('keeps the saved graph and chat selection together across A, B, A at %spx', async (width) => {
     const user = userEvent.setup()
     vi.stubGlobal('innerWidth', width)
-    installBoardHistory()
-    const targetReads: URL[] = []
-    server.use(http.get('*/api/workspaces/:workspaceId/workflows/:workflowId/execution-chat/target', ({ request }) => {
-      targetReads.push(new URL(request.url))
-      return HttpResponse.json({ kind: 'unavailable', reason: 'NO_EXECUTION' })
-    }))
+    const chatReads = installBoardHistory()
     const { router } = await mountBoard()
-    await screen.findByLabelText('Selected Run board')
+    await screen.findByLabelText('Selected Run pinned topology')
     const assertSelection = async (runId: string, name: string) => {
       // Run changes remount the canvas. Wait for its pins before retaining a query scope.
       const pinned = await waitFor(() => {
-        const region = screen.getByLabelText('Selected Run board')
+        const region = screen.getByLabelText('Selected Run pinned topology')
         expect(region).toHaveRole('region')
-        expect(region).toHaveAttribute('data-run-id', runId)
+        expect(region).toHaveTextContent(`Run ${runId} · version version-${runId.slice(4)}`)
         return region
       })
-      const expectedPins = { workflowId: scope.workflowId, selectedRunId: runId }
+      const expectedPins = {
+        workflowId: scope.workflowId,
+        runId,
+        workflowVersionId: `version-${runId.slice(4)}`,
+        executionSemanticsVersion: 3,
+      }
       expect(router.state.location.search).toMatchObject(expectedPins)
       const graph = within(pinned)
-      const node = await graph.findByLabelText(`Inspect ${name}`, { selector: 'button' })
+      const node = await graph.findByLabelText(`Inspect Run node ${name}`, { selector: 'button' })
       expect(node).toHaveRole('button')
       expect(node).toBeVisible()
       expect(node).toBeEnabled()
       expect(screen.queryByLabelText('Agent chat', { selector: 'aside, [role=complementary]' })).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Open Selected Run panel', { selector: 'button' })).not.toBeInTheDocument()
-      await user.click(node)
+      await user.click(graph.getByLabelText(`Open ${name} chat`, { selector: 'button' }))
       const chat = await screen.findByRole('complementary', { name: 'Workflow side panel' })
-      await user.click(within(chat).getByRole('button', { name: 'Chat' }))
+      expect(within(chat).getByRole('heading', { name })).toBeVisible()
       expect(router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'chat',
         boardNodeId: name === 'Y' ? 'node-y' : 'node-x' })
       expect(chat).toBeVisible()
-      await waitFor(() => expect(targetReads.at(-1)?.searchParams.get('runId')).toBe(runId))
-      expect(targetReads.at(-1)?.searchParams.get('workflowNodeId')).toBe(name === 'Y' ? 'node-y' : 'node-x')
+      expect(within(chat).getByTestId('agent-conversation')).toBeInTheDocument()
+      await waitFor(() => expect(chatReads.at(-1)?.searchParams.get('runId')).toBe(runId))
+      expect(chatReads.at(-1)?.searchParams.get('workflowNodeId')).toBe(name === 'Y' ? 'node-y' : 'node-x')
       await user.keyboard('{Escape}')
       await waitFor(() => expect(chat).not.toBeVisible())
-      await user.click(screen.getByRole('button', { name: 'Activities' }))
+      const controls = screen.getByLabelText('Workflow controls')
+      expect(controls).toHaveRole('group')
+      await user.click(within(controls).getByLabelText('Activities', { selector: 'button' }))
       const activities = await screen.findByRole('region', { name: 'Activities popover' })
       expect(await within(activities).findByText(`Saved run ${runId}`)).toBeVisible()
       await user.click(within(activities).getByLabelText('Close Activities', { selector: 'button' }))
       expect(router.state.location.search).toMatchObject(expectedPins)
-      expect(pinned).toHaveAttribute('data-run-id', runId)
+      expect(pinned).toHaveTextContent(`Run ${runId} · version version-${runId.slice(4)}`)
     }
     await assertSelection('run-a', 'Y')
     const controls = screen.getByLabelText('Board controls')
@@ -291,10 +290,10 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
     }
     await choose(user, 'run-b')
     await assertSelection('run-b', 'X in B')
-    expect(screen.queryByLabelText('Inspect Y', { selector: 'button' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Inspect Run node Y', { selector: 'button' })).not.toBeInTheDocument()
     await choose(user, 'run-a')
     await assertSelection('run-a', 'Y')
-    expect(screen.queryByLabelText('Inspect X in B', { selector: 'button' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Inspect Run node X in B', { selector: 'button' })).not.toBeInTheDocument()
   })
 
   it('keeps same-named Operator file cards bound to chats A and B while a Board is open', async () => {
@@ -342,9 +341,8 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
         locationRevision: 1, locationValidation: { status: 'ready', checkedAt: '2026-09-19T00:00:00.000Z' } })),
       http.get(snapshotRoute, ({ params }) => HttpResponse.json(reply(String(params.runId), scope))),
     )
-    installCanonicalOperatorFixture()
     await mountBoard()
-    await screen.findByRole('region', { name: 'Selected Run board' })
+    await screen.findByRole('region', { name: 'Selected Run pinned topology' })
     const card = () => screen.getByRole('group', { name: /shared.md/ })
     await waitFor(() => expect(card().querySelector('[title*="operator-file-a"]')).not.toBeNull())
     expect(screen.getByText('Message A')).toBeInTheDocument()
@@ -355,7 +353,7 @@ describe('Selected Board history', { timeout: 20_000 }, () => {
     act(() => useOperatorChatStore.getState().select('conversation-a'))
     await waitFor(() => expect(card().querySelector('[title*="operator-file-a"]')).not.toBeNull())
     expect(screen.queryByText('Message B')).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Selected Run board' })).toHaveAttribute('data-run-id', 'run-a')
+    expect(screen.getByRole('region', { name: 'Selected Run pinned topology' })).toHaveTextContent('Run run-a · version version-a')
   })
 
   it('moves graph, chat and Activities as one selection and rejects a late old-Run read', async () => {

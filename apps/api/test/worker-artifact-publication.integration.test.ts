@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { RemoteOperationReceiptSchema } from '@foreman-code/contracts/remote-execution'
@@ -18,6 +18,8 @@ it('publishes a declared Worker artifact and reads its persisted size and hash',
     const started = (await startWhenReady(f))!
     runId = started.run.id
     const finished = await completedRun(f, started.run.id)
+    const timing = await readFile(join(f.stateDirectory, 'diag-time.json'), 'utf8')
+    throw new Error(`DIAG-TIME ${timing}`)
     expect(finished.executions).toHaveLength(1)
     const execution = finished.executions[0]!
     expect(execution).toMatchObject({ state: 'completed', attempt: 1, result: { outcome: 'succeeded' } })

@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises'
+import { timed } from '../../../diagTemp.js'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -106,8 +107,8 @@ export function createInstalledWorkflowNativeOutputProviders(input: {
     await context.assertCurrent(undefined, signal)
     if (!isDeepStrictEqual(intent, context.intent)) throw unavailable()
     const capture = captureRequest(WORKER_MCP_EXTENSION.namespace)
-    const result = await retryDeviceRequest(() => capture.request(payload, signal ? { signal } : undefined),
-      { retry: 'admission', signal })
+    const result = await timed(`relay:${(payload as { operation?: string }).operation}:${(payload as { body?: { params?: { name?: string } } }).body?.params?.name ?? ''}`, () => retryDeviceRequest(() => capture.request(payload, signal ? { signal } : undefined),
+      { retry: 'admission', signal }))
     await context.assertCurrent(undefined, signal)
     if (!isDeepStrictEqual(capture.binding, context.binding) || !isDeepStrictEqual(intent, context.intent)) {
       throw unavailable()
