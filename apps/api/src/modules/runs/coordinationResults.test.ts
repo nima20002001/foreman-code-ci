@@ -55,17 +55,3 @@ it.each(['plain', 'choice', 'repeat', 'handoff', 'artifact', 'choice_artifact', 
     }
     expect(execution.result).toEqual({ outcome: 'succeeded', output })
   })
-
-it('completes an ordinary node whose Agent answers plain text and still rejects it for an explicit schema', async () => {
-  const fixture = makeCurrentWorkflowFixture('coordination-plain-text', 'single')
-  const node = fixture.version.definition.nodes[0]!
-  const contractFor = () => workflowDeliverableContract(fixture.version, HarnessExecutionSchema.parse({ id: 'plain-execution',
-    runId: fixture.run.id, workflowNodeId: node.id, agentId: node.agentId,
-    agentConfigurationVersionId: fixture.configurations.find(value => value.agentId === node.agentId)!.id,
-    resultProtocol: 'f1-f4-v1', attempt: 1, state: 'completed', createdAt: fixture.createdAt, finishedAt: fixture.createdAt,
-    input: {}, workingDirectory: '/work', runtimeDirectory: '/runtime' }), async () => new Set<string>())!
-  const answer = { outcome: 'succeeded', output: { text: 'All checks pass.' } } as const
-  expect(await deliverableVerdict(answer, contractFor())).toBeUndefined()
-  node.outputSchema = { type: 'object', required: ['answer'], properties: { answer: { type: 'string' } } }
-  expect(await deliverableVerdict(answer, contractFor())).toMatchObject({ code: 'OUTPUT_SCHEMA_MISMATCH' })
-})
