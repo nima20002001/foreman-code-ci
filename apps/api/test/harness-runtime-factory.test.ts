@@ -116,7 +116,7 @@ describe('native runtime construction', () => {
     }
   })
 
-  it.each(['agent-chat', 'diagnostics', 'qualification'] as const)('rejects scoped application authority for %s before allocation', (role) => {
+  it.each(['diagnostics', 'qualification'] as const)('rejects scoped application authority for %s before allocation', (role) => {
     const native = codexInfrastructure()
     const factories = new NativeHarnessFactories({ codexBinary: 'unused' }, native.infrastructure)
     expect(() => factories.allocate({ harness: 'codex', role, workingDirectory: '/project',
@@ -125,15 +125,15 @@ describe('native runtime construction', () => {
     expect(native.transport).not.toHaveBeenCalled()
   })
 
-  it('keeps combined file and management capabilities limited to Operator chat', async () => {
+  it('keeps combined file and management capabilities limited to conversation owners', async () => {
     const native = codexInfrastructure()
     const factories = new NativeHarnessFactories({ codexBinary: 'unused' }, native.infrastructure)
     const common = { harness: 'codex' as const, workingDirectory: '/project',
       ownerAgentId: 'agent-a', appMcpAccess: 'scoped' as const }
     const prepare = vi.fn(async () => undefined)
     const chatFiles = { prepare }
-    expect(() => factories.allocate({ ...common, chatFiles, role: 'workflow' })).toThrow('Only Operator chat')
-    expect(() => factories.allocate({ ...common, chatFiles, role: 'agent-chat' })).toThrow('no application MCP credentials')
+    expect(() => factories.allocate({ ...common, chatFiles, role: 'workflow' })).toThrow('Only conversation owners')
+    await factories.allocate({ ...common, chatFiles, role: 'agent-chat' }).manager.dispose()
     expect(native.qualify).not.toHaveBeenCalled()
     expect(native.transport).not.toHaveBeenCalled()
     const { manager } = factories.allocate({ ...common, chatFiles, role: 'operator' })

@@ -9,6 +9,7 @@ import {
 import { beginTransaction, commitTransaction, rollbackTransaction } from '../src/infrastructure/transaction.js'
 import { createPool } from '../src/infrastructure/pool.js'
 import { LOCAL_RUNNER_ID } from '../src/modules/workspaces/location.js'
+import { answerForRun } from './helpers/coordinationEnvelope.js'
 import { currentOperatorIntegration } from './helpers/currentOperatorIntegration.js'
 import { migratedDatabase } from './helpers/migratedDatabase.js'
 import { postgresEnabled } from './helpers/eng04CurrentDatabase.js'
@@ -48,9 +49,10 @@ describe.runIf(postgresEnabled)('authenticated Start lock contention', () => {
       const fixture = makeCurrentWorkflowFixture(randomUUID(), workspace === 0 ? 'single' : 'repeat')
       const runtime = await currentOperatorIntegration({ database: { ...database, pool },
         fixture, approvalNodeIds: [], insertRun: false,
-        outputFor: (nodeId) => nodeId === fixture.version.definition.repeat?.blocks[0]?.exitNodeId
-          ? { text: JSON.stringify({ routing: { outcome: 'pass' },
-            data: { latestDeliverable: { complete: true }, remainingFindings: [] } }) } : { node: nodeId } })
+        outputFor: (nodeId, request) => nodeId === fixture.version.definition.repeat?.blocks[0]?.exitNodeId
+          ? { text: JSON.stringify(answerForRun(request, { routing: { outcome: 'pass' },
+            data: { latestDeliverable: { complete: true }, remainingFindings: [] } })) }
+          : answerForRun(request, { data: { node: nodeId } }) })
       runtimes.push(runtime)
       const location = await runtime.client.callTool({ name: 'workspace_location_set', arguments: {
         workspaceId: runtime.f.scope.workspaceId, commandId: randomUUID(), expectedLocationRevision: 1,
@@ -142,10 +144,16 @@ describe.runIf(postgresEnabled)('authenticated Start lock contention', () => {
       const details = SavedRunDetailsSchema.parse(decodeMcpToolResult(settled))
       expect(details.executions).toHaveLength(2)
       expect(details.executions).toEqual(expect.arrayContaining([expect.objectContaining({
-        result: expect.objectContaining({ outcome: 'succeeded', output: { text: JSON.stringify({
-          routing: { outcome: 'pass' }, data: { latestDeliverable: { complete: true }, remainingFindings: [] },
-        }) } }),
+        result: expect.objectContaining({ outcome: 'succeeded', output: { text: expect.any(String) } }),
       })]))
+      const exitResults = details.executions.flatMap(execution => {
+        const output = execution.result?.output
+        return output && typeof output === 'object' && 'text' in output && typeof output.text === 'string'
+          ? [JSON.parse(output.text) as unknown] : []
+      })
+      expect(exitResults).toContainEqual(expect.objectContaining({
+        routing: { outcome: 'pass' }, data: { latestDeliverable: { complete: true }, remainingFindings: [] },
+      }))
       expect(starter.runtime.provider.closedSessions.size).toBe(2)
       expect(sawPending).toBe(true)
       expect(starter.runtime.provider.counts.starts).toBe(2)

@@ -43,18 +43,34 @@ it.each(['main', 'worker'] as const)('steers an active Codex turn on %s through 
 
 it.each((['codex', 'claude'] as const).flatMap(harness => [false, true].map(existing => ({ harness, existing }))))(
   'delivers attachment-only messages to Worker $harness through MCP (existing session: $existing)', async ({ harness, existing }) => {
-  const f = await remoteAgentConversation(harness)
+  let stage = 'setup'
+  let fixture: Awaited<ReturnType<typeof remoteAgentConversation>> | undefined
+  const watchdog = new Promise<never>((_, reject) => setTimeout(async () => {
+    const bounded = <T,>(work: Promise<T> | undefined) => Promise.race([work, new Promise(r => setTimeout(() => r('hung'), 1500))]).catch(e => String(e))
+    const detail = { snapshot: await bounded(fixture?.snapshot()),
+      turns: await bounded(fixture?.value('agent_chat_read', { query: fixture.context }).then(v => AgentChatStateSchema.parse(v).turns.map(t => [t.requestId.slice(0, 4), t.intent, t.delivery]))),
+      row: await bounded(fixture?.repository.get(fixture.conversation.id).then(r => r && { active: r.active_request_id, native: r.active_native_turn_id, state: r.turn_state, phase: r.active_phase, err: r.last_error })) }
+    reject(new Error(`DIAG stuck at stage ${stage}: ${JSON.stringify(detail)}`))
+  }, 22_000))
+  watchdog.catch(() => undefined)
+  await Promise.race([watchdog, (async () => {
+  const f = fixture = await remoteAgentConversation(harness)
   try {
+    stage = 'establish'
     if (existing) await f.send('Establish the session')
+    stage = 'upload'
     const text = 'The attachment is the complete follow-up request.'
     const attachment = await f.upload(Buffer.from(text))
     const requestId = randomUUID()
+    stage = 'send'
     await f.value('agent_chat_send', { request: { requestId, content: '', intent: 'next_turn',
       expectedConversationId: f.conversation.id, context: f.context, attachments: [attachment] } })
+    stage = 'wait-completed'
     await vi.waitFor(async () => {
       const state = AgentChatStateSchema.parse(await f.value('agent_chat_read', { query: f.context }))
       expect(state.turns.find(turn => turn.requestId === requestId)?.delivery).toBe('completed')
     }, { timeout: 5000 })
+    stage = 'assert'
     expect(f.receivedAttachments).toEqual([text])
     const read = AgentChatStateSchema.parse(await f.value('agent_chat_read', { query: f.context }))
     expect(read.messages.find(message => message.requestId === requestId && message.role === 'user'))
@@ -65,7 +81,8 @@ it.each((['codex', 'claude'] as const).flatMap(harness => [false, true].map(exis
             byteSize: Buffer.byteLength(text), sha256: createHash('sha256').update(text).digest('hex') },
         }] })
     expect(read.turns.find(turn => turn.requestId === requestId)?.delivery).toBe('completed')
-  } finally { await f.close() }
+  } finally { stage = 'close'; await f.close() }
+  })()])
 }, 30_000)
 
 it('delivers an admitted large Worker message within the complete serialized RPC limit', async () => {

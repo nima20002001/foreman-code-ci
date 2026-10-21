@@ -27,6 +27,8 @@ function fixture() {
     shareRunOwner: () => () => {},
     requestColdRunCleanup: vi.fn(async () => false),
     reconcileReviews: async () => {},
+    reconcileWorkflowControls: async () => {},
+    executionCapacity: () => undefined,
   }
   type Args = ConstructorParameters<typeof LangGraphWorkflowEngine>
   const engine = new LangGraphWorkflowEngine(runs as unknown as Args[0], {} as Args[1],

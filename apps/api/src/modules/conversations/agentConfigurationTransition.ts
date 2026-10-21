@@ -1,4 +1,3 @@
-import type pg from 'pg'
 import type { AgentConfigurationVersion } from '@foreman-code/contracts'
 import { commandInputHash } from '@foreman-code/contracts/command-identity-node'
 import { WorkerConversationBindingSchema } from '@foreman-code/contracts/remote-execution-rpc'
@@ -8,8 +7,6 @@ import { HANDOFF_MESSAGE_LIMIT, handoffContext } from './operatorChatRepository.
 import { harnessSessionChanged } from '../harnesses/providerAccountConfiguration.js'
 import { DomainError } from '../errors.js'
 import type { SqlQuery } from '../../infrastructure/transaction.js'
-
-type Queryable = Pick<pg.PoolClient, 'query'>
 
 export function agentConfigurationTransition(row: AgentConversationRow,
   previous: AgentConfigurationVersion, configuration: AgentConfigurationVersion) {
@@ -26,7 +23,7 @@ export function agentConfigurationTransition(row: AgentConversationRow,
     || ephemeral || profileChanged || claudeDirectoryChanged }
 }
 
-export async function agentConfigurationDirectory(sql: Queryable, row: AgentConversationRow,
+export async function agentConfigurationDirectory(sql: SqlQuery, row: AgentConversationRow,
   configuration: AgentConfigurationVersion) {
   const binding = row.record.directoryBinding
   if (!binding) return undefined

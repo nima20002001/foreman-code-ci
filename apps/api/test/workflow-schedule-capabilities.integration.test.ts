@@ -71,7 +71,7 @@ describe.skipIf(!postgresEnabled)('SCH-03 authenticated schedule capability comp
     const before = await sch11DomainState(f)
     for (const [client, principal] of [[owner, f.writer.principal], [reader, f.reader.principal]] as const) {
       const result = await client.callTool({ name: 'operator_get_capabilities', arguments: { ...f.scope, detail: 'full' } })
-      expect(result.isError).not.toBe(true)
+      expect(result.isError, JSON.stringify(result)).not.toBe(true)
       const capabilities = ScheduleOperatorCapabilitiesSchema.parse(decodeMcpToolResult(result))
       expect(capabilities.grants).toEqual(principal.grants)
       expect(capabilities.tools).toContain('workflow_schedule_get')

@@ -186,6 +186,7 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
   private async capture(frame: WorkerConversationRpcRequest, options: {
     callbacks?: WorkerConversationCallbacks; recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string
+    session?: NativeSessionReference
     current?: WorkerConversationManagerOptions['current']
   } = {}, signal?: AbortSignal) {
     await this.reconnect(signal, { reattachSession: frame.method !== 'conversation.release-runtime' })
@@ -193,6 +194,7 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
   private captureConnected(frame: WorkerConversationRpcRequest, options: {
     callbacks?: WorkerConversationCallbacks; recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string
+    session?: NativeSessionReference
     current?: WorkerConversationManagerOptions['current']
   } = {}): ReturnType<MainWorkerConversationBridge['capture']> {
     const channel = this.options.channel
@@ -207,6 +209,7 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
         ...(this.options.claudeAuthority ? { claudeAuthority: this.options.claudeAuthority } : {}), ...options.callbacks },
       ...(options.recoveredSubmission ? { recoveredSubmission: options.recoveredSubmission } : {}),
       ...(options.recoveredTurnId ? { recoveredTurnId: options.recoveredTurnId } : {}),
+      ...(options.session ? { session: options.session } : {}),
       current: async signal => {
         this.lifetime.signal.throwIfAborted()
         await (options.current ?? this.options.current)(frame, signal)
@@ -480,8 +483,8 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
   }
 
   private async *stream(frame: WorkerConversationRpcRequest, input: NativeTurnInput,
-    initial: NativeInitialTurnInput | undefined, signal?: AbortSignal) {
-    const lease = await this.capture(frame, { callbacks: {
+    initial: NativeInitialTurnInput | undefined, signal?: AbortSignal, openSession?: NativeSessionReference) {
+    const lease = await this.capture(frame, { ...(openSession ? { session: openSession } : {}), callbacks: {
       sessionObserved: async session => {
         if (!initial || session.harness !== this.harness) conflict('Unexpected initial native session observation.')
         await initial.onSessionObserved(session)
@@ -548,7 +551,8 @@ export class WorkerConversationManager implements NativeHarnessSessionManager {
       const start = { ...this.retainedStart, correlationId: input.clientCorrelationId }
       const frame = this.acceptedInput({ kind: 'initial', start, input: { ...input,
         onSessionObserved: async observed => { this.assertSession(observed) } } })
-      return this.stream(frame, input, undefined, signal)
+      // The session is already open: its callbacks address it, as an initial frame carries no session of its own.
+      return this.stream(frame, input, undefined, signal, session)
     }
     return this.stream(this.acceptedInput({ kind: 'turn', session, input }), input, undefined, signal)
   }

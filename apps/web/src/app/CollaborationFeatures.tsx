@@ -2,8 +2,8 @@ import { BrowserProfileManager, ComputerBrowserProfiles, NodeBrowserFields, Brow
 import { WorkflowBrowser } from './WorkflowBrowser'
 import { returnBrowserControl } from './browserRecovery'
 import { BrowserRecovery } from './BrowserRecovery'
-import { useMemo, type ReactNode } from 'react'
-import { CollaborationUIProvider, useCollaborationUISlots, type CollaborationUISlots } from '../shared/ui/collaborationSlots'
+import type { ReactNode } from 'react'
+import { CollaborationUIProvider, type CollaborationUISlots } from '../shared/ui/collaborationSlots'
 import { WorkflowExecutionConversation } from '../features/conversations/delivery/WorkflowExecutionConversation'
 import { LiveAgentConversation } from '../features/conversations/agentChat/LiveAgentConversation'
 import type { WorkflowOutsideRunChatViewProps } from '../features/workflow-hierarchy/execution-chat/types'
@@ -19,9 +19,6 @@ const collaborationSlots: CollaborationUISlots = { executionChatViews: { Executi
   workflow: () => ({ browser: props => <WorkflowBrowser {...props} />, beforeBrowserHide: returnBrowserControl }),
 }
 
-/** Production defaults; an enclosing provider (a host or test) supplies its own slots and wins. */
 export function CollaborationFeatures({ children }: { children: ReactNode }) {
-  const supplied = useCollaborationUISlots()
-  const slots = useMemo(() => ({ ...collaborationSlots, ...supplied }), [supplied])
-  return <CollaborationUIProvider value={slots}>{children}<BrowserSetupHost /><BrowserRecovery /></CollaborationUIProvider>
+  return <CollaborationUIProvider value={collaborationSlots}>{children}<BrowserSetupHost /><BrowserRecovery /></CollaborationUIProvider>
 }
