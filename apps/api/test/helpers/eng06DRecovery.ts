@@ -30,7 +30,7 @@ import { LangGraphWorkflowEngine } from '../../src/modules/runs/engine.js'
 import { PostgresRunRepository } from '../../src/modules/runs/postgres.js'
 import { continuationValidator } from '../../src/modules/runs/continuation.js'
 import { registerApprovalCheckpointResume } from '../../src/modules/runs/approvalCheckpointRegistration.js'
-import { currentRepositoryServices } from './wave25CurrentRepository.js'
+import { createWorkflowRepositoryServices } from '../../src/modules/runs/workflowRepositoryServices.js'
 import { RunManagementService } from '../../src/modules/runs/management.js'
 import { createCurrentNativeProductionFactory } from '../../src/modules/runs/workflowProduction.js'
 import { PostgresWorkflowRepository } from '../../src/modules/workflows/postgres.js'
@@ -61,7 +61,7 @@ function composeRuntime(base: Base, provider: RecoveryProvider, errors: unknown[
   vi.spyOn(locations, 'revalidateSnapshot').mockResolvedValue(undefined)
   const workflowCapture = createWorkflowNativeCaptureChannel(), reviewCapture = createReviewNativeCaptureChannel()
   const runs = new PostgresRunRepository(pool, workflows, locations,
-    { runtimeRoot: directory, ...currentRepositoryServices({ pool }, workflowCapture.verify) })
+    { runtimeRoot: directory, ...createWorkflowRepositoryServices(workflowCapture.verify) })
   const repository = new Wave25InteractionRepository(pool, new ReviewNativeProofServices(reviewCapture.verify))
   const budgets = new PostgresApprovalBudgetRepository(pool)
   const managers = new ExecutionScopedNativeSessionManagerResolver(() => provider.connection())
