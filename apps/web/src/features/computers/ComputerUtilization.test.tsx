@@ -28,7 +28,7 @@ it('displays fresh zero CPU and memory as values instead of unavailable metrics'
 })
 it('does not request or present retained utilization for an offline computer', async () => {
   computersFixture(<ComputerUtilization target={mainTarget} online={false} />)
-  expect(await screen.findAllByText('—')).toHaveLength(3)
+  expect(screen.getAllByText('—')).toHaveLength(3)
   expect(screen.getByRole('meter', { name: 'CPU' })).toHaveAttribute('aria-valuetext', 'Unavailable')
   expect(screen.getByRole('meter', { name: 'CPU' })).not.toHaveAttribute('aria-valuenow')
 })

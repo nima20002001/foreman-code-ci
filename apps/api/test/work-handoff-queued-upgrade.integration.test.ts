@@ -10,7 +10,7 @@ import { currentDatabase, postgresEnabled } from './helpers/eng04CurrentDatabase
 import { finished, workHandoffFixture } from './helpers/workHandoffFixture.js'
 
 async function queuedReturnsBeforeUpgrade(count: number) {
-  const db = await currentDatabase({ beforeMigration: workReturnGroupMigration.version })
+  const db = await currentDatabase({ deferMigration: workReturnGroupMigration.version })
   let t: Awaited<ReturnType<typeof workHandoffFixture>> | undefined
   try {
     t = await workHandoffFixture(db.pool, randomUUID(), version => ({ ...version,

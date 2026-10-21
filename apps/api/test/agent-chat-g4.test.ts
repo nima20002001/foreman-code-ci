@@ -255,7 +255,7 @@ describe('G4 unknown activity and App environment classification', () => {
         assert.equal(await chat['markNativeUnavailable']('chat-g4', error), true)
       }
       assert.deepEqual(captured.map((values) => values[2]), ['harness_unavailable', 'harness_unavailable'])
-      assert.ok(captured.every((values) => String(values[1]).includes('cannot use application or workflow credentials')))
+      assert.ok(captured.every((values) => String(values[1]).includes('does not match the accepted conversation scope')))
     })
   }
 

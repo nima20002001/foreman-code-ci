@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, screen, waitFor, within } from '@testing-library/react'
-import userEventLibrary from '@testing-library/user-event'
+import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { useGraphDraftStore } from '../graph/store'
 import { nextDraftDirty } from '../graph/nextDraft/state'
@@ -9,8 +9,6 @@ import { fixture as authoringFixture } from '../graph/nextDraft/core.cases'
 import { stageHierarchyAgent } from '../workflow-hierarchy/authoring'
 import { installBoardTestLifecycle } from './eng05D.testSupport'
 import { authoring, draft, mount, recoveryFixture, rename, settings } from './hierarchyRecovery.testSupport'
-/** These journeys click hundreds of times through a large Board: skip per-click layout checks and timer hops. */
-const userEvent = userEventLibrary.setup({ pointerEventsCheck: 0, delay: null })
 
 installBoardTestLifecycle()
 

@@ -10,7 +10,7 @@ import { completedRun, startWhenReady } from './helpers/harnessInstallationUpdat
 it('publishes a declared Worker artifact and reads its persisted size and hash', async () => {
   const f = await remoteReviewProduction({ workflow: 'single', executionHost: 'worker',
     parallelSetup: true, parallelProfileChecks: true, includeNodeRuntimePayload: false,
-    sourceAccessMode: 'exclusive-write', artifactOutputKeys: ['report'] })
+    sourceAccessMode: 'exclusive-write', artifactOutputKeys: ['report'], profilePostgres: true })
   const content = 'Original report bytes\n'
   let runId: string | undefined
   try {
@@ -18,6 +18,7 @@ it('publishes a declared Worker artifact and reads its persisted size and hash',
     const started = (await startWhenReady(f))!
     runId = started.run.id
     const finished = await completedRun(f, started.run.id)
+    console.log('PG-PROFILE', JSON.stringify(f.databaseProfile()))
     expect(finished.executions).toHaveLength(1)
     const execution = finished.executions[0]!
     expect(execution).toMatchObject({ state: 'completed', attempt: 1, result: { outcome: 'succeeded' } })
@@ -42,6 +43,7 @@ it('publishes a declared Worker artifact and reads its persisted size and hash',
       && call.correlationId === `execution:${execution.id}`)).toHaveLength(1)
     expect(calls.some(call => call.method === 'turn/interrupt' && call.threadId === execution.nativeSessionId)).toBe(false)
   } catch (error) {
+    console.error('PG-PROFILE', JSON.stringify(f.databaseProfile()))
     console.error('Worker artifact failure', error, JSON.stringify(f.failures()))
     const commands = (await f.provider.calls()).filter(call => call.providerFailure || call.nativeShell || call.nativeOutput)
     if (runId) {

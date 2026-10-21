@@ -58,13 +58,14 @@ export class MainWorkerConversationBridge {
 
   capture(input: { request: WorkerConversationRpcRequest; channel: WorkerConversationChannel;
     current(signal?: AbortSignal): Promise<void>; callbacks?: WorkerConversationCallbacks;
-    recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string }) {
+    recoveredSubmission?: NativeMessageSubmission; recoveredTurnId?: string; session?: NativeSessionReference }) {
     const admissionId = input.request.admissionId ?? randomUUID()
     const request = prepareWorkerChatFrame({ ...structuredClone(input.request), admissionId })
     assertWorkerChatRequestSize(request)
     if (this.admissions.has(admissionId)) throw new DomainError('CHAT_NATIVE_ADMISSION_CONFLICT', 'This prepared native admission is already active.', 409)
     const admission: Admission = { request, channel: input.channel, current: input.current,
-      callbacks: input.callbacks ?? {}, tail: Promise.resolve(), identities: new Map(), closed: false }
+      callbacks: input.callbacks ?? {}, tail: Promise.resolve(), identities: new Map(), closed: false,
+      ...(input.session ? { session: structuredClone(input.session) } : {}) }
     if (input.recoveredSubmission) {
       const submission = input.recoveredSubmission
       if (request.method !== 'conversation.reconcile' || request.binding.harness !== 'claude'

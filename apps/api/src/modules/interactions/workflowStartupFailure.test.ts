@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest'
 import { HarnessExecutionSchema, type ExecutionResult } from '@foreman-code/contracts'
 import { makeCurrentWorkflowFixture } from '@foreman-code/contracts/wave25'
 import { nativeLanes } from '../../../test/helpers/nativeLanes.js'
+import { idleWorkflowControls, idleWorkflowRepeat } from '../../../test/helpers/idleWorkflowControls.js'
 import { DomainError } from '../errors.js'
 import type { RunOwnership } from '../runs/ownership.js'
 import { repeatDigest } from '../runs/repeatResolution.js'
@@ -27,6 +28,7 @@ it.each([
     failure = result
   })
   const store = {
+    ...idleWorkflowRepeat,
     readExecution: async () => ({ execution, input: execution.input, inputDigest: repeatDigest(execution.input),
       accepted: false, ref: { nodeId: execution.workflowNodeId, occurrence: null }, slotId: 'startup-slot' }),
     assertExecutionAdmission: async () => {}, assertNativeBoundary: async () => {},
@@ -40,7 +42,7 @@ it.each([
   const requestCleanup = vi.fn(async () => {})
   type Args = ConstructorParameters<typeof ApprovalExecutionCoordinator>
   const coordinator = new ApprovalExecutionCoordinator({
-    repeat: async () => store, recordExecutionFailure, requestCleanup,
+    ...idleWorkflowControls, repeat: async () => store, recordExecutionFailure, requestCleanup,
   } as unknown as Args[0], {
     coordination: nativeLanes(),
   } as unknown as Args[1], {

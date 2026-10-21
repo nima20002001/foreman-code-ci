@@ -140,7 +140,8 @@ describe.skipIf(!postgresEnabled)('Operator MCP current PostgreSQL integration',
       expect((await post()).status).toBe(401)
       const worker = await f.access.issue({ name: 'Worker', audience: 'worker', agentId: f.f.configurations[0]!.agentId,
         expiresAt: new Date(Date.now() + 600000), grants: [{ actions: ManagementActionSchema.options, scope: {} }] })
-      expect((await post(worker.token)).status).toBe(403)
+      // The unified endpoint also serves bound Worker credentials, so an unbound Worker credential is inactive here.
+      expect((await post(worker.token)).status).toBe(401)
       await f.db.pool.query('update management_principals set expires_at=now()-interval \'1 second\' where id=$1', [wrong.principal.id])
       expect((await post(wrong.token)).status).toBe(401)
       await f.access.revoke(readonly.principal.id)
