@@ -10,6 +10,7 @@ import type { SessionWriteLease } from '../sessionWriter.js'
 import { requireReviewerCredential } from '../reviewerCredential.js'
 import { readRetainedRemoteReviewer } from '../retainedRemoteReviewer.js'
 import { HarnessExecutionSchema } from '@foreman-code/contracts'
+import { retainedReviewerSettlementPending } from '../../access/workerEligibility.js'
 type Purpose = 'workflow' | 'reviewer'
 
 export class Wave25WorkerCredentialService extends WorkerCredentialService {
@@ -142,6 +143,8 @@ export class Wave25WorkerCredentialService extends WorkerCredentialService {
               'AUTH_REVOKED', 'REVIEWER_EXECUTION_NOT_READY', 'APPROVAL_REVIEWER_BOOTSTRAP_INTERACTIVE',
               'APPROVAL_CODEX_REVIEW_CONFIGURATION_REQUIRED', 'APPROVAL_REVIEWER_APP_MCP_REQUIRED',
             ].includes(String(error.code))) throw error
+            // A designated Orchestrator's committed result still owns its process credential until settlement.
+            if (await retainedReviewerSettlementPending(client, row.principal_id)) return
             // Recheck and revoke under the same parent/principal/binding locks;
             // never act on a stale sweep snapshot or on a database outage.
             await client.query('update management_principals set revoked_at=coalesce(revoked_at,clock_timestamp()) where id=$1', [row.principal_id])

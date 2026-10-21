@@ -76,8 +76,11 @@ export async function checkpointRuntimeFixture(branches: 1 | 2 = 1, pendingPerEx
     // Routed approvals require persistent sessions. Native approval fixtures
     // retain their explicitly configured policy and sandbox.
     if (f.version.definition.approval?.handler !== 'native') {
+      // A designated Orchestrator keeps the reviewer bootstrap (automatic review) settings.
+      const designated = f.version.approval.handler === 'orchestrator' ? f.version.approval.designatedOrchestratorAgentId : undefined
       f.configurations = f.configurations.map((configuration) => AgentConfigurationVersionSchema.parse({
-        ...configuration, harness: structuredClone(approvalFixture().configurations[1]!.harness),
+        ...configuration, harness: structuredClone(approvalFixture()
+          .configurations[configuration.agentId === designated ? 0 : 1]!.harness),
       }))
     }
     if (branches === 2) {

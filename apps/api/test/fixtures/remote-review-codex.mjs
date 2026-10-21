@@ -251,8 +251,13 @@ async function started(turn, prompt) {
       return
     }
     const answers = existsSync(answersFile) ? JSON.parse(readFileSync(answersFile, 'utf8')) : undefined
+    // Started Runs pin the f1-f4-v1 result protocol: summary and board are required, and a loop check
+    // (never routed) answers with the plain envelope instead of a handoff.
+    const summary = { summary: 'Fixture work complete.', board: { kind: 'none', reason: 'no_access' } }
     let output = thread.instructions.includes('fixture-work-handoff')
-      ? JSON.stringify({ routing: { kind: 'finish' }, data: { latestDeliverable: 'fixture complete', remainingFindings: [] } })
+      ? JSON.stringify(prompt.includes('Foreman Code loop ')
+        ? { data: 'fixture complete', ...summary }
+        : { routing: { kind: 'finish' }, data: { latestDeliverable: 'fixture complete', remainingFindings: [] }, ...summary })
       : 'fixture complete'
     if (answers) output = answers[Math.min(thread.turns.length - 1, answers.length - 1)]
     complete(turn, output)

@@ -125,6 +125,15 @@ function restartOwnershipFixture(options: {
       }
     },
     getExecution: async (id: string) => executions.find(execution => execution.id === id),
+    // The owner-scoped repeat store claims no queued workflow input for a completed execution.
+    repeat: async (owner: RunOwnership) => {
+      owner.assertOwned()
+      expect(locked).toBe(true)
+      return { claimWorkflowInput: async (id: string) => {
+        expect(executions.find(execution => execution.id === id)?.state).toBe('completed')
+        return undefined
+      } }
+    },
     getExecutionConfiguration: async () => configuration,
     getRepeatVersion: async () => ({ ...saved.version, definition: { ...saved.version.definition,
       nodes: executions.map(execution => ({ ...saved.version.definition.nodes[0]!, id: execution.workflowNodeId })),

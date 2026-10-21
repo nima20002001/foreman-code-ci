@@ -31,6 +31,8 @@ function fixture() {
     if (text.startsWith('select 1 from review_jobs')) return result([])
     if (text.startsWith('select record from harness_executions')) return result([{ record: execution }])
     if (text.startsWith('select b.execution_id,b.principal_id')) return result([])
+    // No designated Orchestrator result is awaiting its original turn settlement here.
+    if (text.startsWith('select 1 from worker_credential_bindings b')) return result([])
     if (text.startsWith('update management_principals set revoked_at')) revoked.principal = true
     if (text.startsWith('update worker_credential_bindings set revoked_at')) revoked.binding = true
     if (text.startsWith('update') || text.startsWith('select id') || text.startsWith('select principal_id')
