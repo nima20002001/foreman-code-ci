@@ -52,9 +52,7 @@ describe('Meaningful edit versus layout and uncertain Stop-and-save', () => {
       nodes: graph.nodes.map((node) => ({ ...node, initialPrompt: 'ENG05-D retained meaningful instructions' })),
     })))
     expect(nextDraftDirty(useGraphDraftStore.getState().nextDrafts[key]!)).toBe(true)
-    // A selected Run is its saved, read-only Board (F4); the retained draft is edited and saved from the workflow.
-    await user.click(await screen.findByRole('button', { name: 'Return to workflow' }))
-    await user.click(await screen.findByRole('button', { name: 'Save workflow' }))
+    await user.click(screen.getByRole('button', { name: 'Save workflow' }))
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Stop runs and save' }))
     await waitFor(() => expect(advances).toHaveLength(1))
     await waitFor(() => expect(fixture.mock.record(scope.workflowId).intent?.state).toBe('waiting'))
