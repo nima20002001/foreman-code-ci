@@ -7,13 +7,11 @@ import { LocalHumanAccessSchema } from '@foreman-code/contracts/management'
 import { agentChatFixtures, type AgentChatContext } from '@foreman-code/contracts/agent-chat'
 import { server } from '../../../mocks/server'
 import { agentChatFixtureFor, agentChatTestActions, createAgentChatMock } from '../../../shared/mocks/agentChatHandlers'
-import { installBoardTestLifecycle, mountMeasuredBoard } from '../../workflow-board/eng05D.testSupport'
+import { boardHref, installBoardTestLifecycle, mountMeasuredBoard } from '../../workflow-board/eng05D.testSupport'
 import { inspectionBoardFixture } from '../../workflow-board/inspect/inspectionFixtures'
 import { useConversationDraftStore } from '../conversationDraftStore'
 import { providerFixture } from './f7.testSupport'
 import { installChatSource } from './testSupport'
-import { outsideRunTargetHandler } from './outsideRunTarget.testSupport'
-import { findLoadedComposer } from '../loadedComposer.test-support'
 import { useChatWindowsStore } from './agentChatWindows'
 
 installBoardTestLifecycle()
@@ -31,45 +29,26 @@ describe('mounted Board chat rail action area', () => {
     vi.stubGlobal('visualViewport', viewport)
     const fixture = await inspectionBoardFixture(`g7-${width}-${height}`), scope = fixture.runs.before.scope
     const context: AgentChatContext = { workspaceId: scope.workspaceId, workflowId: scope.workflowId,
-      workflowNodeId: fixture.first.id, agentId: fixture.first.agentId }
+      workflowNodeId: fixture.first.id, agentId: fixture.first.agentId, runId: scope.runId }
     const state = agentChatFixtureFor(providerFixture('codex', agentChatFixtures.active), context)
     state.messages = state.messages.filter((message) => message.role !== 'assistant')
     const chat = createAgentChatMock(state)
     server.use(...chat.handlers.slice(1), ...fixture.mock.handlers)
-    server.use(outsideRunTargetHandler(scope, [context], fixture.after.id))
-    // The composer sends and stops through the canonical delivery routes, not the legacy chat routes.
-    const target = { kind: 'agent_conversation' as const, conversationId: state.conversation!.id, agent: {
-      workspaceId: context.workspaceId, workflowId: context.workflowId, workflowNodeId: context.workflowNodeId, agentId: context.agentId } }
-    const deliveryCalls: string[] = []
-    const deliveries = `/api/workspaces/${scope.workspaceId}/agent-chat/deliveries`
-    server.use(http.post(`${deliveries}/read`, async ({ request }) => {
-      const input = await request.json() as { deliveryInputs?: unknown }
-      if (input.deliveryInputs) return HttpResponse.json({ target, deliveryInputs: { items: [], nextCursor: null, hasMore: false, revision: 0 } })
-      const current = chat.getState(context)
-      return HttpResponse.json({ target, state: current, receipts: [], delivery: { state: current.activeTurn ? 'active' : 'idle',
-        capabilities: { steer: 'native_expected_turn', queue: true, interruptAndSend: true },
-        ...(current.activeTurn ? { nativeTurnId: current.activeTurn.nativeTurnId } : {}) } })
-    }), http.post(`${deliveries}/stop`, async ({ request }) => {
-      const input = await request.json() as { commandId: string }
-      deliveryCalls.push('stop')
-      chat.setState({ ...chat.getState(context), activeTurn: null, sessionState: 'idle' })
-      return HttpResponse.json({ commandId: input.commandId, target, operation: 'stop_active', state: 'completed',
-        affectedReceiptIds: [], replayed: false })
-    }))
     server.use(http.get('/api/local-human', () => HttpResponse.json(LocalHumanAccessSchema.parse({ principal: {
       id: 'g7-board-chat-reader-writer', name: 'G7 tester', expiresAt: '2099-01-01T00:00:00.000Z', grants: [{
         scope: { workspaceIds: [scope.workspaceId] },
         actions: ['workspaces:read', 'workflows:read', 'agents:read', 'graph:read', 'interactions:read', 'runs:read', ...agentChatTestActions],
       }],
     } }))))
-    const mounted = await mountMeasuredBoard(`/workspaces/${scope.workspaceId}?workflowId=${scope.workflowId}`)
+    const beforeRun = structuredClone(fixture.mock.runs.get(scope.runId))
+    const mounted = await mountMeasuredBoard(boardHref(scope))
     const trigger = await screen.findByRole('button', { name: `Open ${fixture.first.name!} chat` })
     await userEvent.click(trigger)
     const rail = await screen.findByRole('complementary', { name: 'Workflow side panel' })
     expect(within(rail).getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
     expect(rail.closest('[role=dialog]')).toBeNull()
     expect(mounted.router.state.location.search).toMatchObject({ boardPanel: 'agent', boardAgentTab: 'chat', boardNodeId: fixture.first.id })
-    const input = await findLoadedComposer(within(rail))
+    const input = await within(rail).findByRole('textbox', { name: 'Message' })
     await waitFor(() => expect(input).toHaveFocus())
     fireEvent.change(input, { target: { value: 'Control input at a narrow width' } })
     const transcript = within(rail).getByRole('region', { name: 'Agent conversation transcript' })
@@ -80,34 +59,34 @@ describe('mounted Board chat rail action area', () => {
     expect(within(transcript).getByRole('status', { name: `${fixture.first.name!} is working` })).toBeInTheDocument()
     // Plan mode is entered only by typing /plan, so the action area has no session options.
     expect(within(rail).queryByLabelText('Session options')).not.toBeInTheDocument()
-    expect(within(actions).getByRole('button', { name: 'Attach files' })).toBeEnabled()
-    const stop = await within(actions).findByRole('button', { name: 'Stop active turn' })
-    for (const name of ['Delivery action']) expect(within(actions).getByRole('combobox', { name })).toBeEnabled()
-    await waitFor(() => expect(within(actions).getByRole('button', { name: /^(Steer now|Queue next)$/ })).toBeEnabled())
-    expect(stop).toBeEnabled()
-    for (let step = 0; step < 16 && document.activeElement !== stop; step++) {
+    for (const name of ['Attach files', 'Queue message', 'Steer', 'Interrupt and send', 'Stop chat']) {
+      expect(within(actions).getByRole('button', { name })).toBeEnabled()
+    }
+    for (let step = 0; step < 16 && document.activeElement !== within(actions).getByRole('button', { name: 'Stop chat' }); step++) {
       await userEvent.tab()
     }
-    expect(stop).toHaveFocus()
+    expect(within(actions).getByRole('button', { name: 'Stop chat' })).toHaveFocus()
     // Inspecting history or clicking the Board keeps the non-modal chat rail open.
     fireEvent.scroll(transcript, { target: { scrollTop: 10 } })
-    fireEvent.click(document.querySelector<HTMLElement>('.react-flow__pane')!)
+    fireEvent.click(document.querySelector<HTMLElement>('.pinned-run-canvas .react-flow__pane')!)
     fireEvent.mouseDown(document.body)
-    expect(stop).toBeInTheDocument()
+    expect(within(actions).getByRole('button', { name: 'Stop chat' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Workflow side panel' })).toBe(rail)
     await waitFor(() => expect(rail.style.maxHeight).toBe(`${Math.max(0, height - rail.getBoundingClientRect().top)}px`))
     // Synthetic visual viewport resize/pan, modelling keyboard appearance without claiming geometry.
     await act(async () => { viewport.height = 400; viewport.offsetTop = 31; viewport.dispatchEvent(new Event('resize')) })
     await waitFor(() => expect(rail.style.maxHeight).toBe(`${Math.max(0, 431 - Math.max(31, rail.getBoundingClientRect().top))}px`))
-    expect(stop).toHaveFocus()
-    await userEvent.click(stop)
+    expect(within(actions).getByRole('button', { name: 'Stop chat' })).toHaveFocus()
+    await userEvent.click(within(actions).getByRole('button', { name: 'Stop chat' }))
     await waitFor(() => expect(chat.getState(context).activeTurn).toBeNull())
-    expect(deliveryCalls).toEqual(['stop'])
-    expect(chat.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+    expect(chat.calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+    expect(chat.calls.find((call) => call.method === 'POST')!.path).toMatch(/\/interrupt$/)
+    expect(fixture.mock.runs.get(scope.runId)).toEqual(beforeRun)
     expect(fixture.mock.calls.filter((call) => call.method !== 'GET')).toEqual([])
     expect(screen.getByRole('complementary', { name: 'Workflow side panel' })).toBe(rail)
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Workflow side panel' })).not.toBeInTheDocument())
     await waitFor(() => expect(trigger).toHaveFocus())
+    expect(mounted.history.location.search).toContain(`runId=${scope.runId}`)
   }, 30_000)
 })
