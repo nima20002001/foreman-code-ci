@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import { DEFAULT_HARNESS_DEFAULTS } from '@foreman-code/contracts'
 import type { ManagementPrincipal } from '@foreman-code/contracts/management'
 import { ComputerSyncStatusSchema, SyncChannelRequestSchema } from '@foreman-code/contracts/computer-accounts'
 import type { DeviceProvisioningTarget } from '@foreman-code/contracts/device-resources'
@@ -114,8 +113,8 @@ it('serves authenticated Agent context while optional shared-file installation i
   })
   const query = async (text: string) => {
     if (text.includes('workspaces w')) return { rows: [{ device_id: null, workspace_id: 'workspace-a' }] }
-    if (text.includes('execution_native_placements') || text.includes('agent_conversation_credentials')) return { rows: [] }
-    return { rows: [{ role: 'coder', defaults: ['context_get'], override: null, harness: DEFAULT_HARNESS_DEFAULTS.codex }] }
+    if (text.includes('execution_native_placements')) return { rows: [] }
+    return { rows: [{ role: 'coder', defaults: ['context_get'], override: null }] }
   }
   const interactions = Object.assign(new PostgresAppInteractionService({ query } as unknown as pg.Pool,
     {} as never, {} as never), { syncedFolder: f.service.sharedFolder.bind(f.service) })
