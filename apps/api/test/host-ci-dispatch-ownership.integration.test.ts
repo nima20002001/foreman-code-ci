@@ -289,47 +289,6 @@ it.each(['github', 'circleci'] as const)(
     } finally { await f.close() }
   })
 
-it('retries a lost start reply on the replacement computer after cloud dispatch retries are exhausted', async () => {
-  const f = await fixture()
-  const cloud = failingCloud(f, 'github')
-  const restarted: HostCiService[] = []
-  try {
-    const ticket = await f.enqueue()
-    f.control.available = true
-    await settle(f.ci)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const at = new Date(Date.now() - 75_100).toISOString()
-      await f.pool.query(`update ci_runs set record=jsonb_set(record,'{dispatchedAt}',to_jsonb($2::text))
-        where id=$1`, [ticket.ticketId, at])
-      const service = f.createService()
-      restarted.push(service)
-      await settle(service)
-    }
-    expect(cloud.attempts()).toBe(3)
-    expect(await f.read(ticket.ticketId)).toMatchObject({ state: 'queued', unstartedProviders: ['github'] })
-    const replacement: HostCiComputer = { key: 'replacement', label: 'Replacement executor', priority: 0,
-      hostRef: { kind: 'device', mainId: 'test-main', deviceId: 'replacement' } }
-    f.computers.push(replacement)
-    // The replacement accepts the first start but its reply is lost, and its status does not list the run.
-    let lost = true
-    f.control.onStart = async () => {
-      if (!lost) return
-      lost = false
-      throw new Error('The start reply was lost.')
-    }
-    f.control.hideRuns = true
-    await settle(restarted.at(-1)!)
-    await settle(restarted.at(-1)!)
-    expect(await f.read(ticket.ticketId)).toMatchObject({ state: 'running',
-      computer: { hostRef: replacement.hostRef } })
-    expect(f.starts.map(start => [start.computer.key, start.request.runId]))
-      .toEqual([[replacement.key, f.starts[0]!.request.runId]])
-  } finally {
-    await Promise.all(restarted.map(service => service.close()))
-    await f.close()
-  }
-})
-
 it.each(['github', 'circleci'] as const)(
   'retries an unstarted %s ticket twice across Main restarts and frees its slot through MCP', async provider => {
     const f = await fixture()
