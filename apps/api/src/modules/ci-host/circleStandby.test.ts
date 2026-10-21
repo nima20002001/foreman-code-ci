@@ -57,14 +57,6 @@ it('requires mirror availability and authentication independently of usage repor
   expect(await f.roles('another-ci')).not.toContain('active')
 })
 
-it('schedules a second login registered as primary alongside the default login', async () => {
-  const f = fixture()
-  for (const org of f.orgs.slice(3)) org.role = 'primary'
-  expect(await f.roles()).toEqual(['active', 'active', 'active', 'active', 'active', 'active'])
-  await f.standby.recordCreditRefusal('delta', 'reserve')
-  expect(await f.roles()).toEqual(['active', 'active', 'active', 'exhausted', 'active', 'active'])
-})
-
 it('does not activate overflow for unknown primary usage or a failed primary credential', async () => {
   const f = fixture()
   f.remaining.set('alpha', null)

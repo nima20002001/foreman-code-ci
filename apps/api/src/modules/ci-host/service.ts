@@ -998,8 +998,6 @@ export class HostCiService {
       ...(state.transport ? { transport: state.transport } : {}),
       ...(state.selection ? { selection: state.selection } : {}),
       ...(executorCleanupPending !== undefined ? { executorCleanupPending } : {}),
-      // Start attempts belong to one assignment; a ticket requeued for another computer retries afresh.
-      ...(requeued ? { dispatchAttempts: undefined } : {}),
       ...(setupRequeue || options.retainExecutor ? { dispatchAttempts: undefined, collection: undefined,
         provenance: undefined, mirrorPublication: undefined } : {}),
       ...(options.retainExecutor ? { observation: undefined } : {}),

@@ -47,9 +47,7 @@ export const settingsTools = [
     requires: [['settings:update', 'global']],
     enabled: services => !!services.circleAccounts,
     description: 'Register or update nonsecret CircleCI account metadata: one stable default primary login and '
-      + 'one second login, each with three distinct GitHub org owners. A second login with role primary takes CI jobs '
-      + 'alongside the default login; role standby waits until CircleCI refuses a primary org for credits. '
-      + 'An omitted role defaults to standby. '
+      + 'one standby login, each with three distinct GitHub org owners. An omitted role defaults to standby. '
       + 'Missing local credentials do not prevent registration. Local human setup provisions the token outside '
       + 'Foreman. No token argument is accepted. Omit expectedRevision for last write wins or supply it to reject '
       + 'stale metadata; reuse commandId with identical input after an uncertain save. Read back with circle_accounts_list.',
