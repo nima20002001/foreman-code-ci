@@ -5,7 +5,8 @@ import { Outlet } from '@tanstack/react-router'
 import { AppConnectionBoundary } from './AppConnectionBoundary'
 import { ReleaseAutoReload } from './RuntimeInstanceBoundary'
 
-import { OperatorChat, OperatorChatVisibilityProvider } from '../features/operator-chat'
+import { OperatorChatVisibilityProvider } from '../features/operator-chat'
+import { WorkflowOperatorChat, WorkflowOperatorDockProvider } from '../features/workflow-board/WorkflowOperatorDock'
 import { ApprovalInbox } from '../features/approvals'
 import { useAgentDefaultsQuery } from '../shared/api/query'
 import { useAccessFailureLatch } from '../shared/api/useAccessFailureLatch'
@@ -24,5 +25,5 @@ function LocalShell() {
   const enabled = !sessionIsSwitching() && !denied && defaults.data?.value.operator.uiEnabled === true
   const settingsWarning = enabled && (defaults.isError || defaults.failureCount > 0)
     ? 'Settings could not be refreshed. Showing the last confirmed Operator setting for this app.' : undefined
-  return <OperatorChatVisibilityProvider enabled={enabled}><CollaborationFeatures><Outlet /></CollaborationFeatures><ApprovalInbox /><OperatorChat settingsWarning={settingsWarning} /></OperatorChatVisibilityProvider>
+  return <OperatorChatVisibilityProvider enabled={enabled}><WorkflowOperatorDockProvider><CollaborationFeatures><Outlet /></CollaborationFeatures><ApprovalInbox /><WorkflowOperatorChat settingsWarning={settingsWarning} /></WorkflowOperatorDockProvider></OperatorChatVisibilityProvider>
 }
