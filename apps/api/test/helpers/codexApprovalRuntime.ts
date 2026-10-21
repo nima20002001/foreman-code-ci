@@ -7,6 +7,7 @@ import { ReviewNativeProofServices } from '../../src/modules/interactions/review
 import { PostgresRepeatReviewerBindings } from '../../src/modules/interactions/repeatReviewer.js'
 import { PostgresWorkflowClosureStore } from '../../src/modules/interactions/workflowClosure.js'
 import { createWorkflowRepositoryServices } from '../../src/modules/runs/workflowRepositoryServices.js'
+import { createWorkflowCollaborationHooks } from '../../src/modules/collaboration/workflowHooks.js'
 import { randomUUID } from 'node:crypto'
 import { vi } from 'vitest'
 import { AgentConfigurationVersionSchema, DEFAULT_CODEX_ADVANCED_CONFIGURATION,
@@ -121,6 +122,8 @@ export async function codexApprovalRuntime(handler: 'user' | 'orchestrator' = 'u
       const repositoryServices = createWorkflowRepositoryServices(workflowCapture.verify)
       const runs = new PostgresRunRepository(db.pool, workflows, locations,
         { runtimeRoot: db.directory, ...repositoryServices, services: { ...repositoryServices.services,
+          // Production always wires the collaboration hooks; a saved hierarchy requires them.
+          collaboration: createWorkflowCollaborationHooks(),
           ...(options.preparePlacementExecution ? { preparePlacementExecution: options.preparePlacementExecution } : {}) } })
       const repository = new Wave25InteractionRepository(db.pool, new ReviewNativeProofServices(reviewCapture.verify)), budgets = new PostgresApprovalBudgetRepository(db.pool)
       const credentials = new Wave25WorkerCredentialService(db.pool, access)

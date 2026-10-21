@@ -47,7 +47,7 @@ describe('workflow coordinated producers and native result consumers', () => {
     const parsed = parseWorkflowCoordinationResult(result, context, execution.input)
     expect(parsed).toEqual(envelope)
     const contract = workflowDeliverableContract(f.version, execution, async () => new Set(), COORDINATION_RESULT_PROTOCOL)
-    expect(contract?.source).toBe(['handoff', 'repeat'].includes(kind) ? 'latestDeliverable' : 'data')
+    expect(contract?.source).toBe(kind === 'interval' ? undefined : ['handoff', 'repeat'].includes(kind) ? 'latestDeliverable' : 'data')
     // Request metadata and bounded context do not mutate the frozen logical task.
     const request = workflowExecutionRequest({ execution, version: f.version,
       configuration: f.configurations.find(configuration => configuration.agentId === node.agentId)!,

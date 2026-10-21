@@ -7,7 +7,6 @@ import { RepeatRunRepository, type RepeatRepositoryHost } from '../../src/module
 import { bindRepeatNodeInput, repeatDigest, repeatExecutionIdentity, repeatSlotId, tickSlotId }
   from '../../src/modules/runs/repeatResolution.js'
 import type { RunOwnership } from '../../src/modules/runs/ownership.js'
-import { workflowNativeReservation } from '../../src/modules/runs/workflowNativeEntry.js'
 import { ApprovalExecutionCoordinator } from '../../src/modules/interactions/execution.js'
 import { createWorkflowNativeCaptureChannel } from '../../src/modules/interactions/workflowNativeCapture.js'
 import type { RepeatNativeObservationStore } from '../../src/modules/interactions/repeatObservation.js'
@@ -187,16 +186,6 @@ export function currentRestartUnit(reviewer = false, acceptedPlacement?: Accepte
       assert.deepEqual(values, [execution.id, JSON.stringify(session)])
       state.finalized = true; state.finalizationWrites++; return result([{ execution_id: execution.id }])
     }
-    if (q.startsWith('select phase,reservation,reservation_digest,transition,source_id,source_digest from workflow_native_entries')) {
-      assert.deepEqual(values, [execution.id, f.run.id])
-      const reservation = workflowNativeReservation(f.scope, ref, execution, bound.digest)
-      return result([{ phase: 'entered', reservation, reservation_digest: repeatDigest(reservation),
-        transition: null, source_id: null, source_digest: null }])
-    }
-    // No workflow control command, continuation, Stop receipt or retained consultation exists in this model.
-    if (q.startsWith('select record,reserved_successor_execution_id,delivery_id from run_control_continuations')
-      || q.includes('from run_chat_commands where run_id=$1 and kind=')
-      || q.startsWith('select c.command_id,c.binding,q.target,m.source_execution')) return result()
     // Main-local executions have no device dispatch intent or native placement.
     if (/from execution_dispatch_intents where execution_id=\$1/.test(q) || q.startsWith('select record from execution_native_placements where execution_id=$1')) return result([])
     throw new Error(`Unexpected current restart SQL: ${q}`)
@@ -213,7 +202,7 @@ export function currentRestartUnit(reviewer = false, acceptedPlacement?: Accepte
   const forbidden = async () => { throw new Error('No admission/publication writer in this read-only restart test') }
   const host: RepeatRepositoryHost = { openLocked: async (_sql, scope, run, version) => {
     assert.deepEqual(scope, f.scope); assert.deepEqual(run, f.run); assert.deepEqual(version, f.version)
-    return { run: f.run, assertAuthorityLocked: async () => { assertOwned() }, assertAdmissionLocked: forbidden,
+    return { run: f.run, assertAuthorityLocked: forbidden, assertAdmissionLocked: forbidden,
       assertSettlementLocked: async () => { assertOwned() }, allowTechnicalRetryLocked: async () => false,
       publishLocked: forbidden, completeRunLocked: forbidden,
       assertPublicationReceiptLocked: async (_sql, effect) => {
@@ -230,7 +219,6 @@ export function currentRestartUnit(reviewer = false, acceptedPlacement?: Accepte
       return f.version
     },
     repeat: async () => repository, async *executionPages() { yield [execution] },
-    acquireOwnership: async () => owner, readOutputSettlement: async () => undefined,
     getExecutionConfiguration: async () => configuration, updateExecution: async (next: HarnessExecution, actualOwner: RunOwnership,
       evidence: Parameters<typeof captures.verify.read>[0]) => {
       assert.equal(actualOwner, owner); assertOwned()
