@@ -69,7 +69,7 @@ function ExecutionChatContent(props: ExecutionChatPanelProps) {
       signal.throwIfAborted(); setOlder(page)
     }
   }, onError: revoke })
-  const pin = useDeliveryDraftPin(draftKey, target, delivery.presentation.nativeTurnId, !!draft || !!props.attachments?.hasAttachments, !!delivery.state)
+  const pin = useDeliveryDraftPin(draftKey, target, delivery.presentation.nativeTurnId, !!draft || !!props.attachments?.hasAttachments)
   const command = parseSessionCommand(draft), mode = command.kind === 'plan-task' ? 'plan' : props.sessionMode
   const sessionCommand = command.kind === 'compact' || command.kind === 'mode' || command.kind === 'new'
   const sessionReason = 'Session commands are unavailable for this selected execution. Use /plan followed by a task to send Plan input.'
