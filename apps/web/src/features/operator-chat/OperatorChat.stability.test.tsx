@@ -232,7 +232,7 @@ it.each([false, true])('keeps Stop bound to the accepted request while a control
   mount()
   const input = await screen.findByRole('textbox', { name: 'Message' })
   fireEvent.change(input, { target: { value: '/compact' } })
-  fireEvent.click(await screen.findByRole('button', { name: 'Stop active turn' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop response' }))
   await waitFor(() => expect(api.cancel).toHaveBeenCalledExactlyOnceWith('a', 'accepted-turn'))
   expect(input).toHaveValue('/compact')
   expect(api.send).not.toHaveBeenCalled()

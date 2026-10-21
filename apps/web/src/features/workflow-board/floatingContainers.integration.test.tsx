@@ -59,6 +59,7 @@ const openChat = async (name: string) => {
   await screen.findByRole('complementary', { name: 'Workflow side panel' })
   return rail()
 }
+const addNodePanel = () => screen.getByRole('complementary', { name: 'Add node' })
 
 describe('Board conversation components share one rail', () => {
   it('shows one Agent body and preserves unsent drafts when switching nodes and destinations', async () => {
@@ -73,13 +74,10 @@ describe('Board conversation components share one rail', () => {
     const secondDraft = await within(rail()).findByRole('textbox', { name: 'Message' })
     expect(secondDraft).toHaveValue('')
     await user.type(secondDraft, 'Retain the second Agent draft')
-    await user.click(screen.getByRole('button', { name: 'Group chat' }))
-    const group = await screen.findByRole('dialog', { name: 'Group chat' })
-    expect(within(group).getByRole('region', { name: 'Group chat' })).toBeVisible()
-    expect(screen.queryByRole('complementary', { name: 'Workflow side panel' })).not.toBeInTheDocument()
+    await user.click(within(rail()).getByRole('button', { name: /^Group chat$/ }))
+    expect(await screen.findByRole('region', { name: 'Group chat' })).toBeVisible()
     expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument()
-    await user.click(within(group).getByRole('button', { name: 'Close group chat' }))
-    await openChat(names.second)
+    await user.click(within(rail()).getByRole('button', { name: /^Agent$/ }))
     expect(await within(rail()).findByRole('textbox', { name: 'Message' })).toHaveValue('Retain the second Agent draft')
     await openChat(names.first)
     expect(await within(rail()).findByRole('textbox', { name: 'Message' })).toHaveValue('Retain the first Agent draft')
@@ -111,17 +109,42 @@ describe('Board conversation components share one rail', () => {
   }, 30_000)
 })
 
-describe('floating Board containers', () => {
-  it('preserves opening and focus stacking for the approval inbox and Activities', async () => {
+describe('the add-Agent panel on the Board', () => {
+  it('preserves opening, pointer and focus stacking for the picker, approval inbox and Activities', async () => {
     const user = userEvent.setup()
     await mountBoard('containers-remaining-stack')
-    await user.click(await screen.findByRole('button', { name: /^Open human approval inbox/ }))
+    await user.click(await screen.findByRole('button', { name: 'Add agent or job to graph' }))
+    const panel = addNodePanel()
+    await user.click(screen.getByRole('button', { name: /^Open human approval inbox/ }))
     const inbox = await screen.findByRole('dialog', { name: 'Human approval inbox' })
     const inboxRoot = inbox.closest<HTMLElement>('.approval-inbox-root')!
+    expect(z(inboxRoot)).toBeGreaterThan(z(panel))
+    fireEvent.pointerDown(within(panel).getByRole('heading', { name: 'Add node' }), {
+      pointerId: 1, button: 0, clientX: 1, clientY: 1,
+    })
+    expect(z(panel)).toBeGreaterThan(z(inboxRoot))
+    fireEvent.focus(within(inbox).getAllByRole('button')[0]!)
+    expect(z(inboxRoot)).toBeGreaterThan(z(panel))
     await user.click(await screen.findByRole('button', { name: 'Activities' }))
     const activities = await screen.findByRole('region', { name: 'Activities popover' })
-    expect(z(activities)).toBeGreaterThan(z(inboxRoot))
-    fireEvent.focus(within(inbox).getAllByRole('button')[0]!)
-    expect(z(inboxRoot)).toBeGreaterThan(z(activities))
+    for (const other of [inboxRoot, panel]) expect(z(activities)).toBeGreaterThan(z(other))
+  }, 30_000)
+
+  it('lists only available Agents to add and stays open when the Board is clicked or a node is selected', async () => {
+    const user = userEvent.setup()
+    const { names } = await mountBoard('containers-picker')
+    await user.click(await screen.findByRole('button', { name: 'Add agent or job to graph' }))
+    const panel = addNodePanel()
+    expect(within(panel).queryByText(/Saved jobs|one-pass|Existing agent|Choose a node/i)).not.toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: 'Worker' })).not.toBeInTheDocument()
+    expect(within(panel).getAllByRole('button', { name: /^Add / }).length).toBeGreaterThan(0)
+    fireEvent.click(document.querySelector<HTMLElement>('.react-flow__pane')!)
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${names.first},`) }))
+    await waitFor(() => expect(screen.getByRole('button', { name: new RegExp(`^${names.first},`) })).toHaveAttribute('aria-pressed', 'true'))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(panel).toBeInTheDocument()
+    expect(panel).toBeVisible()
+    await user.click(within(panel).getByRole('button', { name: 'Close node picker' }))
+    await waitFor(() => expect(panel).not.toBeInTheDocument())
   }, 30_000)
 })
