@@ -21,8 +21,8 @@ import { seedAgent3, type agent3Database } from './wave25Agent3.js'
 /** The repository services production wires for every started Run, including the
  * memory board service the pinned coordination protocol requires. */
 export function currentRepositoryServices(db: Pick<Awaited<ReturnType<typeof agent3Database>>, 'pool'>,
-  captures: WorkflowNativeVerificationPort) {
-  const runtime = createWorkflowRepositoryServices(captures)
+  captures: WorkflowNativeVerificationPort, assertAdditionalPhysical?: Parameters<typeof createWorkflowRepositoryServices>[1]) {
+  const runtime = createWorkflowRepositoryServices(captures, assertAdditionalPhysical)
   return { ...runtime, services: { ...runtime.services,
     memoryBoards: createMemoryBoardService(db.pool, memoryBoardAuthority) } }
 }

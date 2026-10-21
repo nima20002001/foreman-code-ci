@@ -20,7 +20,7 @@ function fixture(failure?: ExecutionResult) {
   const resolve = vi.fn(() => { throw new Error('A failed attempt must not allocate another native manager') })
   const query = vi.fn(async () => ({ rows: [{ failure_result: failure ?? null }] }))
   const owner = { runId: base.run.id, assertOwned() {}, oneShotConnection: () => ({ query }) } as unknown as RunOwnership
-  const coordinator = new ApprovalExecutionCoordinator({} as never, { coordination: {} } as never,
+  const coordinator = new ApprovalExecutionCoordinator({ repeat: async () => ({ claimWorkflowInput: async () => undefined }) } as never, { coordination: {} } as never,
     budgets as never, { resolve }, 60_000)
   const abandon = vi.spyOn(coordinator, 'abandonAttempt').mockImplementation(async (_owner, _execution, result) => {
     execution = HarnessExecutionSchema.parse({ ...execution, state: 'completed', result, finishedAt: base.createdAt })
