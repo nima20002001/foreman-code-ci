@@ -32,7 +32,9 @@ it('round trips safe account IDs and fixed roles without accepting credential me
     organizations: ['fixture-delta', 'fixture-echo', 'fixture-foxtrot'] }
   expect(CircleAccountAddInputSchema.parse({ account })).toEqual({ account, commandId: expect.any(String) })
   expect(CircleAccountAddInputSchema.safeParse({ account, token: 'fixture-canary' }).success).toBe(false)
-  expect(CircleAccountAddInputSchema.safeParse({ account: { ...account, role: 'primary' } }).success).toBe(false)
+  expect(CircleAccountAddInputSchema.parse({ account: { ...account, role: 'primary' } }).account.role).toBe('primary')
+  expect(CircleAccountAddInputSchema.safeParse({ account: { ...account, organizations: ['fixture-delta'] } }).success)
+    .toBe(false)
   expect(CircleAccountsSchema.parse({ accounts: [...DEFAULT_CIRCLE_ACCOUNTS.accounts, account] })
     .accounts[1]).toEqual(account)
   expect(JSON.stringify(CircleAccountAddInputSchema.parse({ account }))).not.toContain('token')

@@ -75,7 +75,7 @@ export interface CloudDispatchInput {
 export interface CloudAccount {
   readonly owner: string
   readonly circleAccountId?: string | undefined
-  readonly role?: 'primary' | 'standby' | undefined
+  role?: 'primary' | 'standby' | undefined
   registered?: boolean
   /** Mirror repository names the org has a CircleCI project for; discovery keeps it current. */
   readonly mirrorNames: Set<string>
