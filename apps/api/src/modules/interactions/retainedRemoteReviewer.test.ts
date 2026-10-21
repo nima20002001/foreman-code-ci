@@ -15,6 +15,7 @@ import type { RunOwnership } from '../runs/ownership.js'
 import { RemoteNativeSessionManager } from '../runs/remote/nativeManagerProxy.js'
 import { pageNativeHistory } from '../runs/remote/nativeHistoryPage.js'
 import { nativeLanes } from '../../../test/helpers/nativeLanes.js'
+import { idleWorkflowControls, idleWorkflowRepeat } from '../../../test/helpers/idleWorkflowControls.js'
 import { DomainError } from '../errors.js'
 import { DeviceApplicationError } from '../devices/deviceApplicationError.js'
 import { workflowExecutionRequest } from '../runs/workflowExecutionRequest.js'
@@ -187,10 +188,10 @@ async function recoveryFixture(options: { handoff?: boolean } = {}) {
     })
     proxies.push(manager)
     type Args = ConstructorParameters<typeof ApprovalExecutionCoordinator>
-    return new ApprovalExecutionCoordinator({ getExecution: async () => f.execution,
+    return new ApprovalExecutionCoordinator({ ...idleWorkflowControls, getExecution: async () => f.execution,
       getExecutionConfiguration: async () => f.base.configurations[0],
       getRepeatVersion: async () => f.base.version,
-      repeat: async () => ({ readWorkExecutionContext: async () => ({ parentRequest: null }) }),
+      repeat: async () => ({ ...idleWorkflowRepeat, readWorkExecutionContext: async () => ({ parentRequest: null }) }),
       get: async () => ({ ...f.base.run, executionState: 'running', outcome: 'pending' }),
       getRepeatSnapshot: async () => ({ run: f.base.run, stopRequested: false, cleanupPending: false }),
       async *executionPages() { yield [f.execution] },
@@ -217,13 +218,16 @@ describe('atomic original remote reviewer retention', () => {
     const main = f.coordinator()
     f.acquireOwnership.mockResolvedValue(undefined)
     const releaseReviewOwner = vi.fn(async () => {})
-    const retain = vi.spyOn(f.owner, 'retain').mockReturnValue(releaseReviewOwner)
+    const releaseRequestPreparation = vi.fn(async () => {})
+    // Reading the original request holds the owner briefly; the reviewer then retains it for its lifetime.
+    const retain = vi.spyOn(f.owner, 'retain').mockReturnValueOnce(releaseRequestPreparation).mockReturnValue(releaseReviewOwner)
     const release = vi.spyOn(f.owner, 'release')
     const stopSharingOwner = main.shareRunOwner(f.owner)
     try {
       expect((await f.attach(main)).session).toEqual(f.session)
       expect(f.acquireOwnership).not.toHaveBeenCalled()
-      expect(retain).toHaveBeenCalledTimes(1)
+      expect(retain).toHaveBeenCalledTimes(2)
+      expect(releaseRequestPreparation).toHaveBeenCalledTimes(1)
       expect(releaseReviewOwner).not.toHaveBeenCalled()
       stopSharingOwner()
       await main.releaseReviewSession(f.execution.id)

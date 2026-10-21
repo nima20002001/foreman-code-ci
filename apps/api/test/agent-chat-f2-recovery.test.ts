@@ -11,7 +11,6 @@ import { agentChatCorrelation, PostgresAgentChatRepository, type AgentConversati
 import type { PostgresOperatorConversationRepository } from '../src/modules/conversations/operatorChatRepository.js'
 import type { NativeHarnessSessionManager, NativeHistory, NativeSessionStart, NativeTurnInput } from '../src/modules/harnesses/port.js'
 import type { NativeNonSubmission } from '../src/modules/conversations/nativeNonSubmission.js'
-import { chatWorkflowVersionRow, isCurrentVersionRead } from './helpers/chatWorkflowVersion.js'
 
 const now = new Date('2026-09-27T00:00:00Z')
 const session: NativeSessionReference = { harness: 'codex', providerVersion: 'fixture', nativeSessionId: 'native-session' }
@@ -26,9 +25,7 @@ function receipt(requestId: string, delivery: AgentChatTurn['delivery'] = 'unkno
   return { requestId, sequence: requestId === 'first' ? '1' : '2', intent: 'next_turn', delivery, messageId: `message-${requestId}`,
     createdAt: now.toISOString(), updatedAt: now.toISOString() }
 }
-const savedVersion = chatWorkflowVersionRow({ workspaceId: 'workspace', workflowId: 'workflow', workflowNodeId: 'node', agentId: 'agent', configurationId: 'configuration' })
-// Only the saved current Version read the conversation feature context needs is answered; everything else is empty.
-const unusedPool = { query: async (sql: string) => isCurrentVersionRead(sql) ? { rows: [savedVersion], rowCount: 1 } : { rows: [], rowCount: 0 } } as unknown as pg.Pool
+const unusedPool = { query: async () => ({ rows: [], rowCount: 0 }) } as unknown as pg.Pool
 
 /** Service tests substitute storage and provider I/O; SQL-boundary tests below use the real repository methods. */
 class MemoryRepository extends PostgresAgentChatRepository {
@@ -157,7 +154,7 @@ afterEach(async () => {
 })
 async function makeService(repository = new MemoryRepository(), native = new NativeFixture()) {
   const root = await mkdtemp(join(tmpdir(), 'agent-chat-f2-'))
-  const configuration = { id: 'configuration', workspaceId: 'workspace', agentId: 'agent', harness: { harness: native.harness }, prompt: { system: 'SYSTEM' }, assignedSkills: [], resolvedSkills: [] } as unknown as AgentConfigurationVersion
+  const configuration = { id: 'configuration', harness: { harness: native.harness }, prompt: { system: 'SYSTEM' }, assignedSkills: [], resolvedSkills: [] } as unknown as AgentConfigurationVersion
   const workflows = { getAgentConfiguration: async () => configuration } as unknown as ConstructorParameters<typeof AgentChatService>[3]
   const service = new AgentChatService(unusedPool, repository, {} as PostgresOperatorConversationRepository,
     workflows, {} as ConstructorParameters<typeof AgentChatService>[4], () => native, root)
